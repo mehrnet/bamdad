@@ -28,7 +28,10 @@ jobs:
       - name: Locate APK
         run: |
           find apk -type f -name '*.apk' -print
-          test -n "$(find apk -type f -name '*.apk' -print -quit)"
+          APK=$(find apk -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
 
       - name: Enable KVM
         run: |
@@ -50,37 +53,39 @@ jobs:
             -camera-back none -camera-front none
           script: |
             set -x
-            APK=$(find apk -type f -name '*.apk' | head -1)
+            OUT="$GITHUB_WORKSPACE"
+            APK="$OUT/app-debug.apk"
+            test -f "$APK"
             adb install -r "$APK"
             adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
             adb logcat -c
             adb shell am start -W -n com.mehrnet.bamdad/.MainActivity
             sleep 6
-            adb exec-out screencap -p > before.png
+            adb exec-out screencap -p > "$OUT/before.png"
 
             SIZE=$(adb shell wm size | tr -d '\r' | awk -F' ' '{print $NF}')
             W=$(echo "$SIZE" | cut -dx -f1)
             H=$(echo "$SIZE" | cut -dx -f2)
             adb shell input tap $((W / 2)) $((H - 180))
             sleep 4
-            adb exec-out screencap -p > connect-tap.png
+            adb exec-out screencap -p > "$OUT/connect-tap.png"
 
             adb shell uiautomator dump /sdcard/window.xml || true
-            adb pull /sdcard/window.xml window.xml || true
-            python3 scripts/android-consent.py window.xml
+            adb pull /sdcard/window.xml "$OUT/window.xml" || true
+            python3 scripts/android-consent.py "$OUT/window.xml"
 
             sleep 6
-            adb exec-out screencap -p > after.png
+            adb exec-out screencap -p > "$OUT/after.png"
             echo '--- interfaces ---'
             adb shell ip addr show tun0 || true
             echo '--- connectivity ---'
             adb shell dumpsys connectivity | grep -i -A2 -B2 vpn || true
-            adb logcat -d -v threadtime > full-logcat.txt
+            adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
             echo '--- vpn log ---'
-            grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' full-logcat.txt || true
+            grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" || true
             test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
-            ! grep -q 'FATAL EXCEPTION' full-logcat.txt
-            grep -q 'VPN tunnel started' full-logcat.txt
+            ! grep -q 'FATAL EXCEPTION' "$OUT/full-logcat.txt"
+            grep -q 'VPN tunnel started' "$OUT/full-logcat.txt"
 
       - name: Upload smoke artifacts
         if: always()
