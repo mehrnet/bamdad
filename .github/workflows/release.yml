@@ -136,6 +136,11 @@ jobs:
           cp "$apkdir/app-universal-release.apk" \
             "dist/android/bamdad-${version}-android-universal.apk"
           ls -lh dist/android
+      - name: Verify APK signatures
+        run: |
+          for apk in dist/android/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: bamdad-android
@@ -162,7 +167,7 @@ jobs:
       - name: Generate checksums
         run: |
           find artifacts -type f ! -name SHA256SUMS -exec sha256sum {} \; \
-            | sed 's#  artifacts/#  #' | sort -k2 > artifacts/SHA256SUMS
+            | sed 's#  .*/#  #' | sort -k2 > artifacts/SHA256SUMS
           cat artifacts/SHA256SUMS
 
       - name: Build release notes
