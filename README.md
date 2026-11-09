@@ -191,8 +191,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -225,7 +225,7 @@ uses a throwaway data dir under `/tmp`, so real profiles are never touched.
 ./scripts/caged-preview.sh shot /tmp/bamdad.png 1100
 
 # Phone-sized preview with an isolated profile store
-BAMDAD_PREVIEW_PAGE=1 BAMDAD_PREVIEW_PING=1 \
+BAMDAD_PREVIEW_PAGE=0 BAMDAD_PREVIEW_PING=1 \
   ./scripts/caged-preview.sh start
 ./scripts/caged-preview.sh shot /tmp/bamdad-phone.png 380
 ./scripts/caged-preview.sh stop
@@ -236,7 +236,7 @@ Useful options:
 - `BAMDAD_CAGE_DATA=/path/to/data` — reuse a specific data dir (app reads
   `<data>/bamdad`).
 - `BAMDAD_CAGE_BIN=/path/to/bamdad` — use a release build.
-- `BAMDAD_PREVIEW_PAGE=0..3` — open Dashboard/Profiles/Logs/Settings.
+- `BAMDAD_PREVIEW_PAGE=0..1` — open Dashboard/Profiles/Logs/Settings.
 - `BAMDAD_PREVIEW_PING=1` — run "Ping all" at startup.
 - `BAMDAD_PREVIEW_CONNECT=1` — connect the selected profile at startup.
 
@@ -258,6 +258,19 @@ The suite includes:
 
 Both smoke tests skip automatically when the corresponding core is not
 installed.
+
+## Android VPN
+
+Android has no general app-level proxy setting. Local SOCKS/HTTP listeners are
+only useful to apps that can be configured manually. For system-wide routing,
+Bamdad now uses an Android `VpnService` TUN and forwards it to the core's local
+SOCKS listener with the MIT
+[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) AAR. The core
+process is excluded from the VPN so its outbound connections use the physical
+network.
+
+The VPN is started automatically when the core reaches `Running`; Android asks
+for VPN consent on first use. Desktop keeps the system-proxy path.
 
 ## Current limits / roadmap
 

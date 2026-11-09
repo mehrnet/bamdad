@@ -27,8 +27,9 @@ fn run_ui(ui: AppWindow, runtime: tokio::runtime::Runtime) -> anyhow::Result<()>
 
     ui.run()?;
 
-    // Clean shutdown: stop the child, restore the OS proxy, drain the runtime.
+    // Clean shutdown: stop the child, restore the OS proxy/VPN, drain the runtime.
     engine.stop();
+    stop_android_vpn();
     let _ = bamdad_core::system_proxy::disable();
     std::thread::sleep(std::time::Duration::from_millis(250));
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
@@ -59,7 +60,7 @@ mod android {
     use std::sync::atomic::{AtomicPtr, Ordering};
     use std::sync::Mutex;
 
-    use jni::objects::{JClass, JObject, JString};
+    use jni::objects::{JClass, JObject, JString, JValue};
     use jni::signature::{Primitive, ReturnType};
     use jni::sys::jclass;
 
@@ -134,6 +135,31 @@ mod android {
         })
     }
 
+    pub(super) fn start_vpn(port: u16) {
+        android_int_call("startVpn", port as i32);
+    }
+
+    pub(super) fn stop_vpn() {
+        android_ping_call("stopVpn");
+    }
+
+    fn android_int_call(method: &str, value: i32) {
+        with_activity(|env, class| {
+            let method_id = env.get_static_method_id(class, method, "(I)V").ok()?;
+            let args = [JValue::Int(value).as_jni()];
+            // SAFETY: method_id was resolved from this exact jclass.
+            let _ = unsafe {
+                env.call_static_method_unchecked(
+                    class,
+                    method_id,
+                    ReturnType::Primitive(Primitive::Void),
+                    &args,
+                )
+            };
+            Some(())
+        });
+    }
+
     fn android_ping_call(method: &str) {
         with_activity(|env, class| {
             let method_id = env.get_static_method_id(class, method, "()V").ok()?;
@@ -183,3 +209,19 @@ mod android {
         }
     }
 }
+
+#[cfg(target_os = "android")]
+pub fn start_android_vpn(port: u16) {
+    android::start_vpn(port);
+}
+
+#[cfg(target_os = "android")]
+pub fn stop_android_vpn() {
+    android::stop_vpn();
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn start_android_vpn(_port: u16) {}
+
+#[cfg(not(target_os = "android"))]
+pub fn stop_android_vpn() {}

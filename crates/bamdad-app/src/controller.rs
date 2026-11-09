@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel, Weak};
 
@@ -13,8 +14,9 @@ use bamdad_core::{binary, link, paths, probe, CoreKind};
 use crate::{AppWindow, ProfileRow};
 
 type LogBuffer = Arc<Mutex<Vec<String>>>;
-type StartTime = Arc<Mutex<Option<Instant>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
+
+static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
 
 pub fn init(
     ui: &AppWindow,
@@ -24,7 +26,6 @@ pub fn init(
 ) {
     let store = Arc::new(Mutex::new(load_store()));
     let logs: LogBuffer = Arc::new(Mutex::new(Vec::new()));
-    let started_at: StartTime = Arc::new(Mutex::new(None));
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
     seed(ui, &store, &pings);
@@ -36,9 +37,8 @@ pub fn init(
         logs.clone(),
         pings.clone(),
     );
-    start_timer(ui.as_weak(), started_at.clone());
     start_size_watch(ui);
-    start_bridge(ui.as_weak(), events, logs, started_at);
+    start_bridge(ui.as_weak(), events, logs);
 
     // Headless visual-test hooks (used by caged Wayland previews).
     if let Ok(page) = std::env::var("BAMDAD_PREVIEW_PAGE") {
@@ -70,25 +70,15 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
 
     ui.set_profiles(profile_model(&store, pings));
     ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
-    apply_selection(ui, &store);
+    ui.set_mobile(cfg!(target_os = "android"));
+    ui.set_total_down_text("0 B".into());
+    ui.set_total_up_text("0 B".into());
     ui.set_socks_port(store.settings.socks_port.to_string().into());
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_xray_version(core_version(CoreKind::Xray).into());
     ui.set_singbox_version(core_version(CoreKind::SingBox).into());
-}
-
-fn apply_selection(ui: &AppWindow, store: &Store) {
-    if let Some(profile) = store.selected_profile() {
-        ui.set_server_name(profile.name.as_str().into());
-        ui.set_selected_core(profile.core.label().into());
-        ui.set_selected_detail(profile.endpoint().into());
-    } else {
-        ui.set_server_name("No profile".into());
-        ui.set_selected_core("—".into());
-        ui.set_selected_detail("import a share link to begin".into());
-    }
 }
 
 fn core_version(kind: CoreKind) -> String {
@@ -194,7 +184,6 @@ fn setup_callbacks(
 
             let guard = store.lock().unwrap();
             ui.set_profiles(profile_model(&guard, &pings));
-            apply_selection(&ui, &guard);
             drop(guard);
 
             ui.set_selected_id(selected.id.as_str().into());
@@ -227,7 +216,6 @@ fn setup_callbacks(
 
                     let guard = store.lock().unwrap();
                     ui.set_profiles(profile_model(&guard, &pings));
-                    apply_selection(&ui, &guard);
                     ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                     drop(guard);
 
@@ -303,7 +291,6 @@ fn setup_callbacks(
             *store.lock().unwrap() = fresh;
             let guard = store.lock().unwrap();
             ui.set_profiles(profile_model(&guard, &pings));
-            apply_selection(&ui, &guard);
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "profiles reloaded".to_string());
@@ -350,18 +337,6 @@ fn setup_callbacks(
         });
     }
 
-    {
-        let weak = ui.as_weak();
-        let runtime = runtime.clone();
-        let store = store.clone();
-        let pings = pings.clone();
-        ui.on_ping_selected(move || {
-            let id = store.lock().unwrap().selected_id.clone();
-            if let Some(id) = id {
-                begin_ping(&weak, &runtime, &store, &pings, id);
-            }
-        });
-    }
 }
 
 fn begin_ping(
@@ -492,6 +467,8 @@ fn start_connection(
         return;
     }
 
+    VPN_SOCKS_PORT.store(settings.socks_port, Ordering::Relaxed);
+
     let spec = LaunchSpec {
         core: profile.core,
         binary: binary_path,
@@ -505,9 +482,10 @@ fn start_connection(
     engine.start(spec);
     ui.set_busy(true);
     ui.set_status_text("Starting…".into());
-    ui.set_total_text("0 B".into());
+    ui.set_total_down_text("0 B".into());
+    ui.set_total_up_text("0 B".into());
 
-    if settings.system_proxy {
+    if settings.system_proxy && !cfg!(target_os = "android") {
         let proxy = ProxySettings {
             socks_port: settings.socks_port,
             http_port: settings.http_port,
@@ -525,6 +503,7 @@ fn stop_connection(
     logs: &LogBuffer,
 ) {
     engine.stop();
+    crate::stop_android_vpn();
     ui.set_busy(true);
     ui.set_status_text("Stopping…".into());
 
@@ -536,63 +515,62 @@ fn stop_connection(
     }
 }
 
-fn start_bridge(
-    weak: Weak<AppWindow>,
-    events: Receiver<EngineEvent>,
-    logs: LogBuffer,
-    started_at: StartTime,
-) {
+fn start_bridge(weak: Weak<AppWindow>, events: Receiver<EngineEvent>, logs: LogBuffer) {
     std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let weak = weak.clone();
             let logs = logs.clone();
-            let started_at = started_at.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = weak.upgrade() {
-                    apply_event(&ui, &logs, &started_at, event);
+                    apply_event(&ui, &logs, event);
                 }
             });
         }
     });
 }
 
-fn apply_event(ui: &AppWindow, logs: &LogBuffer, started_at: &StartTime, event: EngineEvent) {
+fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
     match event {
         EngineEvent::State(state) => match state {
             EngineState::Stopped => {
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Disconnected".into());
-                ui.set_download_text("0 B/s".into());
-                ui.set_upload_text("0 B/s".into());
-                ui.set_total_text("0 B".into());
-                ui.set_uptime_text("00:00:00".into());
-                *started_at.lock().unwrap() = None;
+                ui.set_total_down_text("0 B".into());
+                ui.set_total_up_text("0 B".into());
+                crate::stop_android_vpn();
                 let _ = system_proxy::disable();
             }
             EngineState::Starting => {
                 ui.set_connected(false);
                 ui.set_busy(true);
                 ui.set_status_text("Starting…".into());
-                ui.set_total_text("0 B".into());
+                ui.set_total_down_text("0 B".into());
+                ui.set_total_up_text("0 B".into());
             }
             EngineState::Running => {
                 ui.set_connected(true);
                 ui.set_busy(false);
                 ui.set_status_text("Connected".into());
-                *started_at.lock().unwrap() = Some(Instant::now());
+                #[cfg(target_os = "android")]
+                {
+                    let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(400));
+                        crate::start_android_vpn(port);
+                    });
+                }
             }
             EngineState::Stopping => {
                 ui.set_busy(true);
                 ui.set_status_text("Stopping…".into());
+                crate::stop_android_vpn();
             }
             EngineState::Error(message) => {
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Core error".into());
-                ui.set_download_text("0 B/s".into());
-                ui.set_upload_text("0 B/s".into());
-                *started_at.lock().unwrap() = None;
+                crate::stop_android_vpn();
                 let _ = system_proxy::disable();
                 push_log(ui, logs, message);
             }
@@ -606,14 +584,12 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, started_at: &StartTime, event: 
             push_log(ui, logs, format!("{prefix}{line}"));
         }
         EngineEvent::Traffic {
-            up_bps,
-            down_bps,
             total_up,
             total_down,
+            ..
         } => {
-            ui.set_download_text(format_speed(down_bps).into());
-            ui.set_upload_text(format_speed(up_bps).into());
-            ui.set_total_text(format_bytes(total_up + total_down).into());
+            ui.set_total_down_text(format_bytes(total_down).into());
+            ui.set_total_up_text(format_bytes(total_up).into());
         }
     }
 }
@@ -652,23 +628,6 @@ fn start_size_watch(ui: &AppWindow) {
     std::mem::forget(timer);
 }
 
-fn start_timer(weak: Weak<AppWindow>, started_at: StartTime) {
-    let timer = slint::Timer::default();
-    timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_secs(1),
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                let elapsed = started_at.lock().unwrap().map(|start| start.elapsed());
-                if let Some(elapsed) = elapsed {
-                    ui.set_uptime_text(format_duration(elapsed).into());
-                }
-            }
-        },
-    );
-    std::mem::forget(timer);
-}
-
 fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
     let mut buffer = logs.lock().unwrap();
     buffer.push(line.into());
@@ -681,10 +640,6 @@ fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
         .map(|line| SharedString::from(line.as_str()))
         .collect();
     ui.set_logs(ModelRc::new(VecModel::from(items)));
-}
-
-fn format_speed(bytes_per_second: u64) -> String {
-    format!("{}/s", format_bytes(bytes_per_second))
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -700,12 +655,4 @@ fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
-}
-
-fn format_duration(elapsed: Duration) -> String {
-    let total = elapsed.as_secs();
-    let hours = total / 3600;
-    let minutes = (total % 3600) / 60;
-    let seconds = total % 60;
-    format!("{hours:02}:{minutes:02}:{seconds:02}")
 }

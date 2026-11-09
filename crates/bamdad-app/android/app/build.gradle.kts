@@ -15,8 +15,8 @@ android {
         applicationId = "com.mehrnet.bamdad"
         minSdk = 26
         targetSdk = 35
-        versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "2").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.1"
+        versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "3").toInt()
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.2"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -73,4 +73,8 @@ android {
             useLegacyPackaging = true
         }
     }
+}
+
+dependencies {
+    implementation(files("libs/hev-socks5-tunnel.aar"))
 }

@@ -1,7 +1,15 @@
 package com.mehrnet.bamdad
 
+import android.Manifest
 import android.app.NativeActivity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 
 class MainActivity : NativeActivity() {
@@ -11,11 +19,27 @@ class MainActivity : NativeActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == VPN_REQUEST) {
+            if (resultCode == RESULT_OK) {
+                startVpnService(this, pendingVpnPort)
+            } else {
+                Log.w(TAG, "VPN consent denied")
+            }
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     companion object {
         private const val TAG = "Bamdad"
+        private const val VPN_REQUEST = 1001
+        private const val NOTIFICATION_REQUEST = 1002
 
         @Volatile
         private var instance: MainActivity? = null
+
+        @Volatile
+        private var pendingVpnPort: Int = 10808
 
         @JvmStatic
         fun nativeLibraryDir(): String =
@@ -25,6 +49,50 @@ class MainActivity : NativeActivity() {
         fun contentReady() {
             instance?.reportFullyDrawn()
             Log.i(TAG, "content ready")
+        }
+
+        /**
+         * Called from Rust when the core reaches Running. Handles the
+         * VpnService consent flow on the main thread, then starts the tunnel.
+         */
+        @JvmStatic
+        fun startVpn(socksPort: Int) {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                pendingVpnPort = socksPort
+                requestNotificationPermission(activity)
+                val consent = VpnService.prepare(activity)
+                if (consent != null) {
+                    activity.startActivityForResult(consent, VPN_REQUEST)
+                } else {
+                    startVpnService(activity, socksPort)
+                }
+            }
+        }
+
+        @JvmStatic
+        fun stopVpn() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                BamdadVpnService.stop(activity)
+            }
+        }
+
+        private fun startVpnService(context: Context, socksPort: Int) {
+            BamdadVpnService.start(context, socksPort)
+        }
+
+        private fun requestNotificationPermission(activity: MainActivity) {
+            if (
+                Build.VERSION.SDK_INT >= 33 &&
+                activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                activity.requestPermissions(
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_REQUEST,
+                )
+            }
         }
     }
 }

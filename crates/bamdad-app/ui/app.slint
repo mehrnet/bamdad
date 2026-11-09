@@ -1,12 +1,18 @@
 import { Theme } from "theme.slint";
 import { ProfileRow } from "models.slint";
-import { BottomTab, LogoMark, NavItem, StatusPill } from "components.slint";
-import { DashboardPage, LogsPage, ProfilesPage, SettingsPage } from "pages.slint";
+import {
+    BottomTab,
+    ConnectOrb,
+    LogoMark,
+    NavItem,
+    TotalsBadge,
+} from "components.slint";
+import { ProfilesPage, SettingsPage } from "pages.slint";
 
 component TopBar inherits Rectangle {
     in property <int> page;
-    in property <bool> connected;
-    in property <string> status-text;
+    in property <string> total-down;
+    in property <string> total-up;
 
     height: 54px;
     background: Theme.bg-raised;
@@ -19,10 +25,7 @@ component TopBar inherits Rectangle {
 
         LogoMark { mark-size: 28px; }
         Text {
-            text: root.page == 0 ? "Dashboard"
-                : root.page == 1 ? "Profiles"
-                : root.page == 2 ? "Logs"
-                : "Settings";
+            text: root.page == 0 ? "Profiles" : "Settings";
             color: Theme.text;
             font-size: Theme.font-brand;
             font-weight: 700;
@@ -30,9 +33,10 @@ component TopBar inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        StatusPill {
-            label: root.status-text;
-            dot: root.connected ? Theme.success : Theme.muted;
+        TotalsBadge {
+            width: 158px;
+            down: root.total-down;
+            up: root.total-up;
         }
     }
 
@@ -48,10 +52,13 @@ component Sidebar inherits Rectangle {
     in property <bool> rail;
     in property <int> page;
     in property <bool> connected;
-    in property <string> status-text;
+    in property <bool> busy;
+    in property <string> total-down;
+    in property <string> total-up;
     in property <string> socks-port;
     in property <string> http-port;
     callback set-page(int);
+    callback toggle-connect();
 
     width: rail ? Theme.rail-width : Theme.sidebar-width;
     height: 100%;
@@ -95,45 +102,54 @@ component Sidebar inherits Rectangle {
         Rectangle { height: 8px; }
 
         NavItem {
-            label: "Dashboard";
-            glyph: "◉";
+            label: "Profiles";
+            icon: @image-url("icons/profiles.svg");
             compact: root.rail;
             active: root.page == 0;
             clicked => { root.set-page(0); }
         }
         NavItem {
-            label: "Profiles";
-            glyph: "▤";
+            label: "Settings";
+            icon: @image-url("icons/settings.svg");
             compact: root.rail;
             active: root.page == 1;
             clicked => { root.set-page(1); }
         }
-        NavItem {
-            label: "Logs";
-            glyph: "≡";
-            compact: root.rail;
-            active: root.page == 2;
-            clicked => { root.set-page(2); }
-        }
-        NavItem {
-            label: "Settings";
-            glyph: "⚙";
-            compact: root.rail;
-            active: root.page == 3;
-            clicked => { root.set-page(3); }
-        }
 
         Rectangle { vertical-stretch: 1; background: transparent; }
 
+        VerticalLayout {
+            spacing: 5px;
+            Rectangle {
+                width: 100%;
+                height: root.rail ? 50px : 62px;
+                ConnectOrb {
+                    orb-size: root.rail ? 46px : 56px;
+                    connected: root.connected;
+                    busy: root.busy;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    clicked => { root.toggle-connect(); }
+                }
+            }
+            if !root.rail : Text {
+                text: root.connected ? "Disconnect" : "Connect";
+                color: root.connected ? Theme.success : Theme.accent;
+                font-size: 11px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                width: 100%;
+            }
+        }
+
         if !root.rail : VerticalLayout {
-            height: 64px;
-            spacing: 4px;
+            height: 78px;
+            spacing: 5px;
             Rectangle { height: 1px; background: Theme.border; }
-            Text {
-                text: root.connected ? "Tunnel active" : "Idle";
-                color: root.connected ? Theme.success : Theme.muted;
-                font-size: Theme.font-sm;
-                font-weight: 600;
+            TotalsBadge {
+                width: 100%;
+                down: root.total-down;
+                up: root.total-up;
             }
             Text {
                 text: "SOCKS 127.0.0.1:" + root.socks-port;
@@ -148,14 +164,23 @@ component Sidebar inherits Rectangle {
                 overflow: elide;
             }
         }
+        if root.rail : TotalsBadge {
+            width: 100%;
+            compact: true;
+            down: root.total-down;
+            up: root.total-up;
+        }
     }
 }
 
 component BottomNav inherits Rectangle {
     in property <int> page;
+    in property <bool> connected;
+    in property <bool> busy;
     callback set-page(int);
+    callback toggle-connect();
 
-    height: 56px;
+    height: 64px;
     background: Theme.bg-raised;
 
     Rectangle {
@@ -167,31 +192,29 @@ component BottomNav inherits Rectangle {
     HorizontalLayout {
         BottomTab {
             horizontal-stretch: 1;
-            label: "Home";
-            glyph: "◉";
+            label: "Profiles";
+            icon: @image-url("icons/profiles.svg");
             active: root.page == 0;
             clicked => { root.set-page(0); }
         }
-        BottomTab {
-            horizontal-stretch: 1;
-            label: "Profiles";
-            glyph: "▤";
-            active: root.page == 1;
-            clicked => { root.set-page(1); }
-        }
-        BottomTab {
-            horizontal-stretch: 1;
-            label: "Logs";
-            glyph: "≡";
-            active: root.page == 2;
-            clicked => { root.set-page(2); }
+        Rectangle {
+            width: 76px;
+            height: 100%;
+            ConnectOrb {
+                orb-size: 52px;
+                connected: root.connected;
+                busy: root.busy;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                clicked => { root.toggle-connect(); }
+            }
         }
         BottomTab {
             horizontal-stretch: 1;
             label: "Settings";
-            glyph: "⚙";
-            active: root.page == 3;
-            clicked => { root.set-page(3); }
+            icon: @image-url("icons/settings.svg");
+            active: root.page == 1;
+            clicked => { root.set-page(1); }
         }
     }
 }
@@ -207,23 +230,19 @@ export component AppWindow inherits Window {
     in-out property <bool> connected: false;
     in-out property <bool> busy: false;
     in-out property <string> status-text: "Disconnected";
-    in-out property <string> server-name: "Direct · Xray";
-    in-out property <string> selected-id: "";
-    in-out property <string> selected-core: "Xray";
-    in-out property <string> selected-detail: "custom config";
-    in-out property <string> upload-text: "0 B/s";
-    in-out property <string> download-text: "0 B/s";
-    in-out property <string> total-text: "0 B";
-    in-out property <string> uptime-text: "00:00:00";
+    in-out property <string> total-down-text: "0 B";
+    in-out property <string> total-up-text: "0 B";
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
     in-out property <bool> system-proxy: false;
+    in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
     in-out property <string> data-dir: "";
     in-out property <int> page: 0;
     in-out property <int> core-choice: 0;
     in-out property <[ProfileRow]> profiles;
+    in-out property <string> selected-id: "";
     in-out property <[string]> logs;
     in-out property <string> link-input: "";
 
@@ -235,7 +254,6 @@ export component AppWindow inherits Window {
     callback clear-logs();
     callback ping-profile(string);
     callback ping-all();
-    callback ping-selected();
 
     // Breakpoints are set from Rust by watching the actual window size. Deriving
     // them from root.width inside the layout creates a binding loop in Slint.
@@ -250,94 +268,82 @@ export component AppWindow inherits Window {
         width: 100%;
         height: 100%;
 
-    VerticalLayout {
-        width: parent.width;
-        height: parent.height;
-        padding-left: root.inset-left;
-        padding-right: root.inset-right;
-        padding-top: root.inset-top;
-        padding-bottom: root.inset-bottom;
-        spacing: 0px;
-
-        if root.phone : TopBar {
-            page: root.page;
-            connected: root.connected;
-            status-text: root.status-text;
-        }
-
-        HorizontalLayout {
-            vertical-stretch: 1;
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding-left: root.inset-left;
+            padding-right: root.inset-right;
+            padding-top: root.inset-top;
+            padding-bottom: root.inset-bottom;
             spacing: 0px;
 
-            if !root.phone : Sidebar {
-                rail: root.tablet;
+            if root.phone : TopBar {
                 page: root.page;
-                connected: root.connected;
-                status-text: root.status-text;
-                socks-port: root.socks-port;
-                http-port: root.http-port;
-                set-page(page) => { root.page = page; }
+                total-down: root.total-down-text;
+                total-up: root.total-up-text;
             }
 
-            Rectangle {
-                horizontal-stretch: 1;
-                height: 100%;
-                clip: true;
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 0px;
 
-                if root.page == 0 : DashboardPage {
-                    phone: root.phone;
+                if !root.phone : Sidebar {
+                    rail: root.tablet;
+                    page: root.page;
                     connected: root.connected;
                     busy: root.busy;
-                    server-name: root.server-name;
-                    selected-core: root.selected-core;
-                    selected-detail: root.selected-detail;
-                    upload-text: root.upload-text;
-                    download-text: root.download-text;
-                    total-text: root.total-text;
-                    uptime-text: root.uptime-text;
+                    total-down: root.total-down-text;
+                    total-up: root.total-up-text;
+                    socks-port: root.socks-port;
+                    http-port: root.http-port;
+                    set-page(page) => { root.page = page; }
                     toggle-connect => { root.toggle-connect(); }
-                    open-profiles => { root.page = 1; }
-                    ping-selected => { root.ping-selected(); }
                 }
 
-                if root.page == 1 : ProfilesPage {
-                    phone: root.phone;
-                    profiles: root.profiles;
-                    selected-id: root.selected-id;
-                    link-input <=> root.link-input;
-                    core-choice <=> root.core-choice;
-                    select(id) => { root.select-profile(id); }
-                    import-link(link, core) => { root.import-link(link, core); }
-                    ping(id) => { root.ping-profile(id); }
-                    ping-all => { root.ping-all(); }
-                    reload => { root.reload-profiles(); }
-                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 100%;
+                    clip: true;
 
-                if root.page == 2 : LogsPage {
-                    phone: root.phone;
-                    logs: root.logs;
-                    clear => { root.clear-logs(); }
-                }
+                    if root.page == 0 : ProfilesPage {
+                        phone: root.phone;
+                        profiles: root.profiles;
+                        selected-id: root.selected-id;
+                        status-text: root.status-text;
+                        link-input <=> root.link-input;
+                        core-choice <=> root.core-choice;
+                        select(id) => { root.select-profile(id); }
+                        import-link(link, core) => { root.import-link(link, core); }
+                        ping(id) => { root.ping-profile(id); }
+                        ping-all => { root.ping-all(); }
+                        reload => { root.reload-profiles(); }
+                    }
 
-                if root.page == 3 : SettingsPage {
-                    phone: root.phone;
-                    xray-version: root.xray-version;
-                    singbox-version: root.singbox-version;
-                    data-dir: root.data-dir;
-                    socks-port <=> root.socks-port;
-                    http-port <=> root.http-port;
-                    system-proxy <=> root.system-proxy;
-                    save-settings(socks, http, proxy) => {
-                        root.save-settings(socks, http, proxy);
+                    if root.page == 1 : SettingsPage {
+                        phone: root.phone;
+                        mobile: root.mobile;
+                        xray-version: root.xray-version;
+                        singbox-version: root.singbox-version;
+                        data-dir: root.data-dir;
+                        logs: root.logs;
+                        socks-port <=> root.socks-port;
+                        http-port <=> root.http-port;
+                        system-proxy <=> root.system-proxy;
+                        save-settings(socks, http, proxy) => {
+                            root.save-settings(socks, http, proxy);
+                        }
+                        clear-logs => { root.clear-logs(); }
                     }
                 }
             }
-        }
 
-        if root.phone : BottomNav {
-            page: root.page;
-            set-page(page) => { root.page = page; }
+            if root.phone : BottomNav {
+                page: root.page;
+                connected: root.connected;
+                busy: root.busy;
+                set-page(page) => { root.page = page; }
+                toggle-connect => { root.toggle-connect(); }
+            }
         }
-    }
     }
 }
