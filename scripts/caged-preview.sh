@@ -28,13 +28,18 @@ CAGE_PID_FILE="$STATE/cage_pid"
 
 mkdir -p "$BASE" "$STATE"
 
-# Use the managed cores unless the caller provided their own paths. This keeps
-# the isolated data dir from hiding already-installed cores.
-if [[ -z "${BAMDAD_XRAY_BIN:-}" && -x "$HOME/.local/share/bamdad/bin/xray" ]]; then
-    export BAMDAD_XRAY_BIN="$HOME/.local/share/bamdad/bin/xray"
+# Prefer cores bundled next to the executable (the release layout). Otherwise
+# fall back to the managed cores, so isolated data dirs still find them.
+sidecar_dir="$(dirname "$BIN")/bin"
+if [[ -z "${BAMDAD_XRAY_BIN:-}" && ! -x "$sidecar_dir/xray" && ! -x "$sidecar_dir/xray.exe" ]]; then
+    if [[ -x "$HOME/.local/share/bamdad/bin/xray" ]]; then
+        export BAMDAD_XRAY_BIN="$HOME/.local/share/bamdad/bin/xray"
+    fi
 fi
-if [[ -z "${BAMDAD_SINGBOX_BIN:-}" && -x "$HOME/.local/share/bamdad/bin/sing-box" ]]; then
-    export BAMDAD_SINGBOX_BIN="$HOME/.local/share/bamdad/bin/sing-box"
+if [[ -z "${BAMDAD_SINGBOX_BIN:-}" && ! -x "$sidecar_dir/sing-box" && ! -x "$sidecar_dir/sing-box.exe" ]]; then
+    if [[ -x "$HOME/.local/share/bamdad/bin/sing-box" ]]; then
+        export BAMDAD_SINGBOX_BIN="$HOME/.local/share/bamdad/bin/sing-box"
+    fi
 fi
 
 stop_session() {

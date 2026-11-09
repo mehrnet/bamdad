@@ -23,6 +23,7 @@ pub fn disable() -> Result<()> {
     platform_disable()
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn run(program: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(program)
         .args(args)
@@ -273,6 +274,7 @@ fn platform_disable() -> Result<()> {
     Ok(())
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
         .map(|path| {
