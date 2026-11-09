@@ -5,6 +5,7 @@
 //! `enable()`. TUN mode (which captures traffic regardless of app support) is
 //! a separate, privileged path planned on top of the same engine.
 
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::process::Command;
 
 use crate::error::{CoreError, Result};

@@ -13,7 +13,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mehrnet.bamdad"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "3").toInt()
         versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.2"

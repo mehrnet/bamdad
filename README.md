@@ -18,7 +18,7 @@ The same profile, import, latency, lifecycle and UI code is shared by both.
 │ bamdad-app  (Slint)                                          │
 │                                                              │
 │  responsive shell: phone / tablet / desktop                  │
-│  Dashboard · Profiles · Logs · Settings                      │
+│  Profiles · Settings (logs) · responsive nav + connect orb  │
 │  UI callbacks ──► EngineHandle ──┐                           │
 │  UI properties ◄── bridge thread ◄┼── std::sync::mpsc        │
 └──────────────────────────────────┼───────────────────────────┘
@@ -61,6 +61,13 @@ The breakpoints are updated from Rust by watching the real window size (rather
 than binding `root.width` inside the layout, which creates a Slint binding
 loop). The layout also applies `safe-area-insets`, so phones with notches and
 gesture bars are handled correctly.
+
+The default screen is **Profiles**. A circular connect control sits in the
+center of the bottom navigation on phones and at the bottom of the sidebar on
+desktop/tablet. Session download/upload totals replace the old
+connected/disconnected badge. Logs are part of Settings. Navigation uses SVG
+icons (including the moon app mark), and profile names/emoji use the system font
+fallback.
 
 ## Multi-core profiles
 
@@ -122,7 +129,7 @@ crates/
     src/system_proxy.rs       OS proxy toggles
   bamdad-app/
     ui/app.slint              responsive shell
-    ui/pages.slint            dashboard/profiles/logs/settings
+    ui/pages.slint            profiles / settings (with logs)
     ui/components.slint       primitives, profile rows, ping button
     ui/theme.slint            design tokens
     ui/models.slint           ProfileRow
@@ -236,7 +243,7 @@ Useful options:
 - `BAMDAD_CAGE_DATA=/path/to/data` — reuse a specific data dir (app reads
   `<data>/bamdad`).
 - `BAMDAD_CAGE_BIN=/path/to/bamdad` — use a release build.
-- `BAMDAD_PREVIEW_PAGE=0..1` — open Dashboard/Profiles/Logs/Settings.
+- `BAMDAD_PREVIEW_PAGE=0..1` — open Profiles or Settings.
 - `BAMDAD_PREVIEW_PING=1` — run "Ping all" at startup.
 - `BAMDAD_PREVIEW_CONNECT=1` — connect the selected profile at startup.
 
@@ -274,9 +281,10 @@ for VPN consent on first use. Desktop keeps the system-proxy path.
 
 ## Current limits / roadmap
 
-1. **TUN/VPN mode** — the current VPN path is a system proxy plus local
-   SOCKS/HTTP listeners. Next: Android `VpnService` + `hev-socks5-tunnel`, and a
-   privileged desktop TUN helper. The engine abstraction is ready for it.
+1. **Desktop TUN** — Android now uses `VpnService` + `hev-socks5-tunnel`; the
+   desktop still uses the system proxy. Next: a privileged desktop TUN helper
+   with the same core abstraction. Android VPN should also get a device/emulator
+   smoke test in CI.
 2. **Subscriptions** — refresh, multiple profiles per subscription, latency
    sorting.
 3. **Real-delay probe** — HTTP `generate_204` through the running core, in
