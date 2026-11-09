@@ -67,21 +67,7 @@ jobs:
 
             adb shell uiautomator dump /sdcard/window.xml || true
             adb pull /sdcard/window.xml window.xml || true
-            python3 - <<'PY'
-import re, subprocess
-try:
-    xml = open('window.xml', encoding='utf-8').read()
-except OSError:
-    raise SystemExit(0)
-for label in ('OK', 'Allow', 'ALLOW'):
-    for match in re.finditer(r'<node[^>]*text="' + label + r'"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
-        x1, y1, x2, y2 = map(int, match.groups())
-        x, y = (x1 + x2) // 2, (y1 + y2) // 2
-        print('tapping', label, x, y)
-        subprocess.run(['adb', 'shell', 'input', 'tap', str(x), str(y)], check=False)
-        raise SystemExit(0)
-print('no consent button found in window.xml')
-PY
+            python3 scripts/android-consent.py window.xml
 
             sleep 6
             adb exec-out screencap -p > after.png
