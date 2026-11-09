@@ -309,6 +309,41 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_test_proxy(move || {
+            let weak = weak.clone();
+            let logs = logs.clone();
+            std::thread::spawn(move || {
+                use std::net::{SocketAddr, TcpStream};
+                let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
+                let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                let message =
+                    if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_err() {
+                        format!("test: SOCKS 127.0.0.1:{port} is not running")
+                    } else {
+                        match bamdad_core::socks::http_through(
+                            port,
+                            "example.com",
+                            80,
+                            Duration::from_secs(12),
+                        ) {
+                            Ok(status) => {
+                                format!("test: {status} via SOCKS 127.0.0.1:{port}")
+                            }
+                            Err(error) => format!("test FAILED: {error}"),
+                        }
+                    };
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        push_log(&ui, &logs, message);
+                    }
+                });
+            });
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let runtime = runtime.clone();
         let store = store.clone();
         let pings = pings.clone();

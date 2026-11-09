@@ -252,6 +252,7 @@ export component AppWindow inherits Window {
     callback save-settings(string, string, bool);
     callback reload-profiles();
     callback clear-logs();
+    callback test-proxy();
     callback ping-profile(string);
     callback ping-all();
 
@@ -333,6 +334,7 @@ export component AppWindow inherits Window {
                             root.save-settings(socks, http, proxy);
                         }
                         clear-logs => { root.clear-logs(); }
+                        test-proxy => { root.test-proxy(); }
                     }
                 }
             }
