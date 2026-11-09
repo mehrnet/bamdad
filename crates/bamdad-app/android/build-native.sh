@@ -33,6 +33,7 @@ cargo ndk \
     build --release --locked -p bamdad-app --lib
 
 "$REPO_ROOT/scripts/fetch-android-cores.sh" "$JNI_DIR" "${ABIS[@]}"
+"$REPO_ROOT/scripts/fetch-android-tun2socks.sh" "$JNI_DIR" "${ABIS[@]}"
 
 echo "Android native libraries:"
 find "$JNI_DIR" -type f -printf '  %P (%s bytes)\n' | sort

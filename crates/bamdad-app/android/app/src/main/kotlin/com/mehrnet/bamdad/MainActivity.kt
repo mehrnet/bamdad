@@ -13,6 +13,10 @@ import android.os.Looper
 import android.util.Log
 
 class MainActivity : NativeActivity() {
+    // Registered by Rust from android_main via RegisterNatives.
+    private external fun startTunnelNative(fd: Int, socksPort: Int): Boolean
+    private external fun stopTunnelNative()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         instance = this
         Log.i(TAG, "onCreate")
@@ -76,6 +80,26 @@ class MainActivity : NativeActivity() {
             Log.i(TAG, "stopVpn requested")
             Handler(Looper.getMainLooper()).post {
                 BamdadVpnService.stop(activity)
+            }
+        }
+
+        /** Starts tun2socks against the VpnService descriptor (Rust native). */
+        @JvmStatic
+        fun startTunnel(fd: Int, socksPort: Int): Boolean =
+            try {
+                instance?.startTunnelNative(fd, socksPort) ?: false
+            } catch (error: Throwable) {
+                Log.e(TAG, "native startTunnel failed", error)
+                false
+            }
+
+        /** Stops the tun2socks child process (Rust native). */
+        @JvmStatic
+        fun stopTunnel() {
+            try {
+                instance?.stopTunnelNative()
+            } catch (error: Throwable) {
+                Log.e(TAG, "native stopTunnel failed", error)
             }
         }
 

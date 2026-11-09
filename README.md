@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -272,16 +272,17 @@ Android has no general app-level proxy setting. Local SOCKS/HTTP listeners are
 only useful to apps that can be configured manually. For system-wide routing,
 Bamdad now uses an Android `VpnService` TUN and forwards it to the core's local
 SOCKS listener with the MIT
-[hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) AAR. The core
-process is excluded from the VPN so its outbound connections use the physical
-network.
+[tun2socks](https://github.com/xjasonlyu/tun2socks) executable. The tunnel
+descriptor is duplicated into the child's stdin (`fd://0`), and the core and
+tunnel processes are excluded from the VPN so their outbound connections use
+the physical network.
 
 The VPN is started automatically when the core reaches `Running`; Android asks
 for VPN consent on first use. Desktop keeps the system-proxy path.
 
 ## Current limits / roadmap
 
-1. **Desktop TUN** — Android now uses `VpnService` + `hev-socks5-tunnel`; the
+1. **Desktop TUN** — Android now uses `VpnService` + `tun2socks`; the
    desktop still uses the system proxy. Next: a privileged desktop TUN helper
    with the same core abstraction. Android VPN should also get a device/emulator
    smoke test in CI.

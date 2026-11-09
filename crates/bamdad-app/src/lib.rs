@@ -7,6 +7,8 @@
 use slint::ComponentHandle;
 
 pub mod controller;
+#[cfg(target_os = "android")]
+mod tunnel;
 
 slint::include_modules!();
 
@@ -19,6 +21,8 @@ fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 
 fn run_ui(ui: AppWindow, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
+    #[cfg(target_os = "android")]
+    tunnel::set_event_sender(event_tx.clone());
     let _guard = runtime.enter();
     let engine = bamdad_core::engine::spawn(event_tx);
     drop(_guard);
@@ -77,7 +81,7 @@ mod android {
         let Ok(vm) = (unsafe { jni::JavaVM::from_raw(vm.cast::<jni::sys::JavaVM>()) }) else {
             return;
         };
-        let Ok(env) = vm.attach_current_thread() else {
+        let Ok(mut env) = vm.attach_current_thread() else {
             return;
         };
         // SAFETY: activity_as_ptr is a valid JNI local reference for this call.
@@ -85,11 +89,51 @@ mod android {
         let Ok(class) = env.get_object_class(&activity) else {
             return;
         };
+        register_tunnel_natives(&mut env, &class);
         let Ok(global) = env.new_global_ref(&class) else {
             return;
         };
         if let Ok(mut slot) = ACTIVITY_CLASS.lock() {
             *slot = Some(global);
+        }
+    }
+
+    /// Register the reverse (Kotlin -> Rust) tunnel entry points on the
+    /// activity class. Registering against the already-loaded class object
+    /// avoids the classloader mismatch that plain JNI exports run into with
+    /// NativeActivity.
+    fn register_tunnel_natives(env: &mut jni::JNIEnv, class: &JClass) {
+        use jni::sys::{jboolean, jint};
+        use jni::NativeMethod;
+        use std::os::raw::c_void;
+
+        extern "system" fn start(
+            _env: jni::JNIEnv,
+            _this: JObject,
+            fd: jint,
+            socks_port: jint,
+        ) -> jboolean {
+            tunnel::start(fd, socks_port as u16) as jboolean
+        }
+
+        extern "system" fn stop(_env: jni::JNIEnv, _this: JObject) {
+            tunnel::stop();
+        }
+
+        let methods = [
+            NativeMethod {
+                name: "startTunnelNative".into(),
+                sig: "(II)Z".into(),
+                fn_ptr: start as *mut c_void,
+            },
+            NativeMethod {
+                name: "stopTunnelNative".into(),
+                sig: "()V".into(),
+                fn_ptr: stop as *mut c_void,
+            },
+        ];
+        if let Err(error) = env.register_native_methods(class, &methods) {
+            eprintln!("bamdad: could not register tunnel natives: {error}");
         }
     }
 

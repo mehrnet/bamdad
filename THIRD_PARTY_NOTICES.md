@@ -1,12 +1,12 @@
 # Third-party notices
 
-## hev-socks5-tunnel
+## tun2socks
 
-- Project: https://github.com/heiher/hev-socks5-tunnel
+- Project: https://github.com/xjasonlyu/tun2socks
 - License: MIT
-- Used as a prebuilt Android AAR in
-  `crates/bamdad-app/android/app/libs/hev-socks5-tunnel.aar`.
-- Copyright (c) 2019-2023 hev <r@hev.cc>
+- Built for Android by `scripts/fetch-android-tun2socks.sh` and shipped as
+  `libbamdad_tun2socks.so` in the APK.
+- Copyright (c) 2019 Jason Lyu
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

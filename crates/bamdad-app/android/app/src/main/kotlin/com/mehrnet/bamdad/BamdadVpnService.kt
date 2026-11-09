@@ -10,42 +10,19 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import hev.htproxy.TProxyService
-import java.io.File
 import java.net.Inet6Address
 
 /**
  * Android has no general app-level proxy API. To route other apps through the
  * selected core we establish a VpnService TUN and forward it to the core's
- * local SOCKS listener with hev-socks5-tunnel.
+ * local SOCKS listener with the bundled tun2socks process.
  */
 class BamdadVpnService : VpnService() {
     private var tunFd: ParcelFileDescriptor? = null
     private var socksPort: Int = 10808
     private var running = false
-
-    private val statsHandler = Handler(Looper.getMainLooper())
-    private val statsTicker = object : Runnable {
-        override fun run() {
-            if (!running) return
-            try {
-                val stats = TProxyService.TProxyGetStats()
-                // [tx_packets, tx_bytes, rx_packets, rx_bytes]
-                Log.i(
-                    TAG,
-                    "tunnel stats tx_packets=${stats.getOrNull(0)} tx_bytes=${stats.getOrNull(1)} " +
-                        "rx_packets=${stats.getOrNull(2)} rx_bytes=${stats.getOrNull(3)}",
-                )
-            } catch (error: Throwable) {
-                Log.w(TAG, "could not read tunnel stats: ${error.message}")
-            }
-            statsHandler.postDelayed(this, 5_000)
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -145,22 +122,8 @@ class BamdadVpnService : VpnService() {
             Log.w(TAG, "setUnderlyingNetworks failed: ${error.message}")
         }
 
-        val config = File(cacheDir, "hev-socks5-tunnel.yml")
-        config.writeText(
-            """
-            misc:
-              task-stack-size: 20480
-            tunnel:
-              mtu: $MTU
-            socks5:
-              port: $socksPort
-              address: '127.0.0.1'
-              udp: 'udp'
-            """.trimIndent() + "\n"
-        )
-
-        if (!TProxyService.TProxyStartService(config.absolutePath, fd.fd)) {
-            Log.e(TAG, "hev-socks5-tunnel failed to start")
+        if (!MainActivity.startTunnel(fd.fd, socksPort)) {
+            Log.e(TAG, "tun2socks failed to start")
             fd.close()
             stopTunnel()
             stopSelf()
@@ -170,19 +133,16 @@ class BamdadVpnService : VpnService() {
         tunFd = fd
         running = true
         Log.i(TAG, "VPN tunnel started (socks 127.0.0.1:$socksPort)")
-        statsHandler.removeCallbacks(statsTicker)
-        statsHandler.post(statsTicker)
     }
 
     @Synchronized
     private fun stopTunnel() {
         Log.i(TAG, "stopping tunnel")
-        statsHandler.removeCallbacks(statsTicker)
         if (running) {
             try {
-                TProxyService.TProxyStopService()
+                MainActivity.stopTunnel()
             } catch (error: Throwable) {
-                Log.e(TAG, "hev stop failed: ${error.message}")
+                Log.e(TAG, "tun2socks stop failed: ${error.message}")
             }
             running = false
         }

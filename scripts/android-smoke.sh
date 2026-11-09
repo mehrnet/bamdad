@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Emulator smoke test for Bamdad: launch, connect, accept VPN consent, verify
-# the hev-socks5-tunnel service started.
+# the tun2socks tunnel started and actually carried traffic.
 set -euo pipefail
 
 OUT=/tmp/bamdad-smoke
@@ -73,7 +73,7 @@ fi
 
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
 echo '--- vpn log ---'
-grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" || true
+grep -Ei 'BamdadVpn|tun2socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" || true
 
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 ! grep -q 'FATAL EXCEPTION' "$OUT/full-logcat.txt"

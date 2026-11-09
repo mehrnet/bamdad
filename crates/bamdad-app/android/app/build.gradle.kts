@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.4"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.5"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -76,5 +76,6 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/hev-socks5-tunnel.aar"))
+    // The Android tunnel (tun2socks) is packaged as a native-library
+    // executable by scripts/fetch-android-tun2socks.sh; no AAR is needed.
 }
