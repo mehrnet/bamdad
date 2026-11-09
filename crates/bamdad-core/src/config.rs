@@ -427,6 +427,97 @@ fn managed_http_inbound(core: CoreKind, port: u16) -> Value {
     }
 }
 
+fn ensure_dns_route(core: CoreKind, object: &mut serde_json::Map<String, Value>) {
+    match core {
+        CoreKind::Xray => {
+            if !object.contains_key("dns") {
+                object.insert("dns".into(), json!({ "servers": ["1.1.1.1", "8.8.8.8"] }));
+            }
+            if !object.contains_key("outbounds") {
+                object.insert("outbounds".into(), json!([]));
+            }
+            if let Some(outbounds) = object.get_mut("outbounds").and_then(Value::as_array_mut) {
+                if !outbounds
+                    .iter()
+                    .any(|outbound| outbound.get("protocol").and_then(Value::as_str) == Some("dns"))
+                {
+                    outbounds.push(json!({ "tag": "dns-out", "protocol": "dns" }));
+                }
+            }
+            if !object.contains_key("routing") {
+                object.insert("routing".into(), json!({ "rules": [] }));
+            }
+            if let Some(routing) = object.get_mut("routing").and_then(Value::as_object_mut) {
+                let rules = routing
+                    .entry("rules".to_string())
+                    .or_insert_with(|| json!([]));
+                if let Some(rules) = rules.as_array_mut() {
+                    let has_dns_rule = rules.iter().any(|rule| {
+                        rule.get("port").and_then(Value::as_u64) == Some(53)
+                            || rule.get("outboundTag").and_then(Value::as_str) == Some("dns-out")
+                    });
+                    if !has_dns_rule {
+                        rules.insert(
+                            0,
+                            json!({
+                                "type": "field",
+                                "port": 53,
+                                "outboundTag": "dns-out"
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+        CoreKind::SingBox => {
+            if !object.contains_key("dns") {
+                object.insert(
+                    "dns".into(),
+                    json!({
+                        "servers": [
+                            { "type": "udp", "tag": "dns-1", "server": "1.1.1.1" },
+                            { "type": "udp", "tag": "dns-2", "server": "8.8.8.8" }
+                        ]
+                    }),
+                );
+            }
+
+            // sing-box 1.13+ removed the DNS outbound. Use rule actions and
+            // an explicit default domain resolver instead.
+            let resolver_tag = object
+                .get("dns")
+                .and_then(|dns| dns.get("servers"))
+                .and_then(Value::as_array)
+                .and_then(|servers| servers.first())
+                .and_then(|server| server.get("tag"))
+                .and_then(Value::as_str)
+                .unwrap_or("dns-1")
+                .to_string();
+
+            if !object.contains_key("route") {
+                object.insert("route".into(), json!({ "rules": [] }));
+            }
+            if let Some(route) = object.get_mut("route").and_then(Value::as_object_mut) {
+                if !route.contains_key("default_domain_resolver") {
+                    route.insert("default_domain_resolver".into(), json!(resolver_tag));
+                }
+                let rules = route
+                    .entry("rules".to_string())
+                    .or_insert_with(|| json!([]));
+                if let Some(rules) = rules.as_array_mut() {
+                    let has_dns_rule = rules.iter().any(|rule| {
+                        rule.get("action").and_then(Value::as_str) == Some("hijack-dns")
+                            || rule.get("port").and_then(Value::as_u64) == Some(53)
+                    });
+                    if !has_dns_rule {
+                        rules.insert(0, json!({ "port": 53, "action": "hijack-dns" }));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Final preparation before the config is handed to the core:
 /// * align inbound ports with user settings,
 /// * inject the telemetry endpoint in the core's native format.
@@ -531,6 +622,8 @@ pub fn prepare_config(
         }
     }
 
+    ensure_dns_route(core, object);
+
     Ok(config)
 }
 
@@ -549,6 +642,12 @@ mod tests {
             config["policy"]["system"]["statsOutboundUplink"],
             json!(true)
         );
+        assert!(config["dns"]["servers"].is_array());
+        assert!(config["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|outbound| outbound["protocol"] == "dns"));
     }
 
     #[test]
