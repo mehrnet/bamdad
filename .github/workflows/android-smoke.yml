@@ -53,8 +53,10 @@ jobs:
             -camera-back none -camera-front none
           script: |
             set -x
-            OUT="$GITHUB_WORKSPACE"
-            APK="$OUT/app-debug.apk"
+            OUT=/tmp/bamdad-smoke
+            rm -rf "$OUT"
+            mkdir -p "$OUT"
+            APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
             test -f "$APK"
             adb install -r "$APK"
             adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
@@ -72,7 +74,8 @@ jobs:
 
             adb shell uiautomator dump /sdcard/window.xml || true
             adb pull /sdcard/window.xml "$OUT/window.xml" || true
-            python3 scripts/android-consent.py "$OUT/window.xml"
+            CONSENT=$(find /home/runner/work -type f -name "android-consent.py" -print -quit)
+            python3 "$CONSENT" "$OUT/window.xml"
 
             sleep 6
             adb exec-out screencap -p > "$OUT/after.png"
@@ -93,9 +96,5 @@ jobs:
         with:
           name: android-vpn-smoke
           path: |
-            before.png
-            connect-tap.png
-            after.png
-            full-logcat.txt
-            window.xml
+            /tmp/bamdad-smoke/*
           if-no-files-found: warn
