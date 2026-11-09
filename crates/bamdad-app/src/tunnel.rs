@@ -77,13 +77,13 @@ pub fn start(fd: i32, socks_port: u16) -> bool {
     ));
 
     let mut child = match Command::new(&binary)
-        .arg("-device")
+        .arg("--device")
         .arg("fd://0")
-        .arg("-proxy")
+        .arg("--proxy")
         .arg(&proxy)
-        .arg("-mtu")
+        .arg("--mtu")
         .arg("1500")
-        .arg("-loglevel")
+        .arg("--loglevel")
         .arg("info")
         .stdin(tun_stdio)
         .stdout(Stdio::piped())
