@@ -25,6 +25,7 @@ pub fn set_event_sender(sender: Sender<EngineEvent>) {
 
 fn log(line: impl Into<String>) {
     let line = line.into();
+    crate::logcat(&line);
     if let Some(sender) = EVENT_SENDER.get() {
         let _ = sender.send(EngineEvent::Log {
             stream: LogStream::App,

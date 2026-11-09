@@ -83,6 +83,12 @@ class MainActivity : NativeActivity() {
             }
         }
 
+        /** Forwards Rust tunnel output to logcat. */
+        @JvmStatic
+        fun logLine(line: String) {
+            Log.i("BamdadTunnel", line)
+        }
+
         /** Starts tun2socks against the VpnService descriptor (Rust native). */
         @JvmStatic
         fun startTunnel(fd: Int, socksPort: Int): Boolean =

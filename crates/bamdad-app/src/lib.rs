@@ -179,6 +179,26 @@ mod android {
         })
     }
 
+    pub(super) fn logcat(line: &str) {
+        with_activity(|env, class| {
+            let method_id = env
+                .get_static_method_id(class, "logLine", "(Ljava/lang/String;)V")
+                .ok()?;
+            let text = env.new_string(line).ok()?;
+            let args = [JValue::Object(&text).as_jni()];
+            // SAFETY: method_id was resolved from this exact jclass.
+            let _ = unsafe {
+                env.call_static_method_unchecked(
+                    class,
+                    method_id,
+                    ReturnType::Primitive(Primitive::Void),
+                    &args,
+                )
+            };
+            Some(())
+        });
+    }
+
     pub(super) fn start_vpn(port: u16) {
         android_int_call("startVpn", port as i32);
     }
@@ -252,6 +272,11 @@ mod android {
             eprintln!("bamdad: Android app failed: {error:#}");
         }
     }
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn logcat(line: &str) {
+    android::logcat(line);
 }
 
 #[cfg(target_os = "android")]
