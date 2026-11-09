@@ -1,0 +1,110 @@
+name: Android smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  emulator:
+    name: Launch + VPN smoke on emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the x86_64 debug APK
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: native.yml
+          name: bamdad-android-debug
+          path: apk
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+
+      - name: Locate APK
+        run: |
+          find apk -type f -name '*.apk' -print
+          test -n "$(find apk -type f -name '*.apk' -print -quit)"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run app, connect, accept VPN consent
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: |
+            set -x
+            APK=$(find apk -type f -name '*.apk' | head -1)
+            adb install -r "$APK"
+            adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
+            adb logcat -c
+            adb shell am start -W -n com.mehrnet.bamdad/.MainActivity
+            sleep 6
+            adb exec-out screencap -p > before.png
+
+            SIZE=$(adb shell wm size | tr -d '\r' | awk -F' ' '{print $NF}')
+            W=$(echo "$SIZE" | cut -dx -f1)
+            H=$(echo "$SIZE" | cut -dx -f2)
+            adb shell input tap $((W / 2)) $((H - 180))
+            sleep 4
+            adb exec-out screencap -p > connect-tap.png
+
+            adb shell uiautomator dump /sdcard/window.xml || true
+            adb pull /sdcard/window.xml window.xml || true
+            python3 - <<'PY'
+import re, subprocess
+try:
+    xml = open('window.xml', encoding='utf-8').read()
+except OSError:
+    raise SystemExit(0)
+for label in ('OK', 'Allow', 'ALLOW'):
+    for match in re.finditer(r'<node[^>]*text="' + label + r'"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
+        x1, y1, x2, y2 = map(int, match.groups())
+        x, y = (x1 + x2) // 2, (y1 + y2) // 2
+        print('tapping', label, x, y)
+        subprocess.run(['adb', 'shell', 'input', 'tap', str(x), str(y)], check=False)
+        raise SystemExit(0)
+print('no consent button found in window.xml')
+PY
+
+            sleep 6
+            adb exec-out screencap -p > after.png
+            echo '--- interfaces ---'
+            adb shell ip addr show tun0 || true
+            echo '--- connectivity ---'
+            adb shell dumpsys connectivity | grep -i -A2 -B2 vpn || true
+            adb logcat -d -v threadtime > full-logcat.txt
+            echo '--- vpn log ---'
+            grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' full-logcat.txt || true
+            test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
+            ! grep -q 'FATAL EXCEPTION' full-logcat.txt
+            grep -q 'VPN tunnel started' full-logcat.txt
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-vpn-smoke
+          path: |
+            before.png
+            connect-tap.png
+            after.png
+            full-logcat.txt
+            window.xml
+          if-no-files-found: warn
