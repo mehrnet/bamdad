@@ -11,9 +11,12 @@ APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
 test -f "$APK"
 adb install -r "$APK"
 adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell settings put global anr_show_background 0 || true
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
 adb logcat -c
 adb shell am start -W -n com.mehrnet.bamdad/.MainActivity
-sleep 6
+sleep 8
 adb exec-out screencap -p > "$OUT/before.png"
 
 SIZE=$(adb shell wm size | tr -d '\r' | awk -F' ' '{print $NF}')
@@ -21,20 +24,27 @@ W=$(echo "$SIZE" | cut -dx -f1)
 H=$(echo "$SIZE" | cut -dx -f2)
 echo "screen ${W}x${H}"
 
-# The connect orb is centered in the bottom navigation.
-adb shell input tap $((W / 2)) $((H - 180))
-sleep 4
-adb exec-out screencap -p > "$OUT/connect-tap.png"
-
+# The connect orb is centered in the bottom navigation. Try a few nearby
+# vertical positions in case the safe-area layout shifts it.
 CONSENT=$(find /home/runner/work -type f -name 'android-consent.py' -print -quit)
-for _ in 1 2 3 4 5; do
-    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
-    adb pull /sdcard/window.xml "$OUT/window.xml" >/dev/null 2>&1 || true
-    if python3 "$CONSENT" "$OUT/window.xml" | tee "$OUT/consent.txt" | grep -q 'tapping'; then
+consented=false
+for offset in 180 150 210; do
+    adb shell input tap $((W / 2)) $((H - offset))
+    sleep 3
+    for _ in 1 2 3 4; do
+        adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+        adb pull /sdcard/window.xml "$OUT/window.xml" >/dev/null 2>&1 || true
+        if python3 "$CONSENT" "$OUT/window.xml" | tee "$OUT/consent.txt" | grep -q 'tapping'; then
+            consented=true
+            break
+        fi
+        sleep 2
+    done
+    if $consented; then
         break
     fi
-    sleep 2
 done
+adb exec-out screencap -p > "$OUT/connect-tap.png"
 
 sleep 6
 adb exec-out screencap -p > "$OUT/after.png"
