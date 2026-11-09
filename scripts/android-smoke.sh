@@ -54,6 +54,11 @@ adb shell ip addr show tun0 || true
 echo '--- connectivity ---'
 adb shell dumpsys connectivity | grep -i -A2 -B2 vpn || true
 
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'vpn-down-before-traffic-test'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
 NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
 if [ -n "$NETCHECK" ]; then
     adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
@@ -64,6 +69,12 @@ if [ -n "$NETCHECK" ]; then
     set -e
     if [ "$NETCHECK_STATUS" -ne 0 ]; then
         echo 'vpn-traffic-failed'
+        adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+        exit 1
+    fi
+    if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+        echo 'vpn-down-during-traffic-test'
+        adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
         exit 1
     fi
     echo 'vpn-traffic-ok'
