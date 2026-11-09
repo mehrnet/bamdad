@@ -551,27 +551,51 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_connected(true);
                 ui.set_busy(false);
                 ui.set_status_text("Connected".into());
-                #[cfg(target_os = "android")]
-                {
+                let weak = ui.as_weak();
+                let logs = logs.clone();
+                std::thread::spawn(move || {
+                    use std::net::{SocketAddr, TcpStream};
                     let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
-                    std::thread::spawn(move || {
-                        use std::net::{SocketAddr, TcpStream};
-                        let addr = SocketAddr::from(([127, 0, 0, 1], port));
-                        let mut ready = false;
-                        for _ in 0..50 {
-                            if TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
-                            {
-                                ready = true;
-                                break;
-                            }
-                            std::thread::sleep(Duration::from_millis(100));
+                    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                    let mut ready = false;
+                    for _ in 0..50 {
+                        if TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok() {
+                            ready = true;
+                            break;
                         }
-                        if !ready {
-                            eprintln!("bamdad: SOCKS listener not ready before VPN start");
-                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+
+                    #[cfg(target_os = "android")]
+                    if ready {
                         crate::start_android_vpn(port);
+                    }
+
+                    let message = if !ready {
+                        format!("proxy check: SOCKS 127.0.0.1:{port} never opened")
+                    } else {
+                        match bamdad_core::socks::http_through(
+                            port,
+                            "example.com",
+                            80,
+                            Duration::from_secs(12),
+                        ) {
+                            Ok(status) => {
+                                format!("proxy check: {status} via SOCKS 127.0.0.1:{port}")
+                            }
+                            Err(error) => {
+                                format!("proxy check FAILED via SOCKS 127.0.0.1:{port}: {error}")
+                            }
+                        }
+                    };
+
+                    let weak_for_log = weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = weak_for_log.upgrade() {
+                            push_log(&ui, &logs, message);
+                        }
                     });
-                }
+                });
             }
             EngineState::Stopping => {
                 ui.set_busy(true);

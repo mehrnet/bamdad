@@ -54,8 +54,21 @@ adb shell ip addr show tun0 || true
 echo '--- connectivity ---'
 adb shell dumpsys connectivity | grep -i -A2 -B2 vpn || true
 
-if adb shell which curl >/dev/null 2>&1; then
-    adb shell curl -s --max-time 10 http://example.com -o /dev/null && echo "vpn-http-ok" || echo "vpn-http-failed"
+NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
+if [ -n "$NETCHECK" ]; then
+    adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
+    adb shell chmod 755 /data/local/tmp/bamdad-netcheck
+    set +e
+    adb shell /data/local/tmp/bamdad-netcheck example.com 80 2>&1 | tee "$OUT/netcheck.txt"
+    NETCHECK_STATUS=${PIPESTATUS[0]}
+    set -e
+    if [ "$NETCHECK_STATUS" -ne 0 ]; then
+        echo 'vpn-traffic-failed'
+        exit 1
+    fi
+    echo 'vpn-traffic-ok'
+else
+    echo 'bamdad-netcheck not found; skipping end-to-end traffic assertion'
 fi
 
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"

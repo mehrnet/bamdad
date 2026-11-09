@@ -10,10 +10,13 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import hev.htproxy.TProxyService
 import java.io.File
+import java.net.Inet6Address
 
 /**
  * Android has no general app-level proxy API. To route other apps through the
@@ -24,6 +27,25 @@ class BamdadVpnService : VpnService() {
     private var tunFd: ParcelFileDescriptor? = null
     private var socksPort: Int = 10808
     private var running = false
+
+    private val statsHandler = Handler(Looper.getMainLooper())
+    private val statsTicker = object : Runnable {
+        override fun run() {
+            if (!running) return
+            try {
+                val stats = TProxyService.TProxyGetStats()
+                // [tx_packets, tx_bytes, rx_packets, rx_bytes]
+                Log.i(
+                    TAG,
+                    "tunnel stats tx_packets=${stats.getOrNull(0)} tx_bytes=${stats.getOrNull(1)} " +
+                        "rx_packets=${stats.getOrNull(2)} rx_bytes=${stats.getOrNull(3)}",
+                )
+            } catch (error: Throwable) {
+                Log.w(TAG, "could not read tunnel stats: ${error.message}")
+            }
+            statsHandler.postDelayed(this, 5_000)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -56,17 +78,35 @@ class BamdadVpnService : VpnService() {
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val underlying = connectivity?.activeNetwork
 
+        // Only advertise IPv6 when the physical network actually has a global
+        // IPv6 address. Advertising an IPv6 route on an IPv4-only network makes
+        // apps prefer IPv6 destinations that can never connect.
+        val hasIpv6 = try {
+            val links = underlying?.let { connectivity?.getLinkProperties(it) }
+            links?.linkAddresses?.any { link ->
+                val address = link.address
+                address is Inet6Address && !address.isLinkLocalAddress
+            } == true
+        } catch (error: Throwable) {
+            Log.w(TAG, "could not inspect IPv6 support: ${error.message}")
+            false
+        }
+
         val builder = Builder()
-            .setSession("Bamdad")
+            .setSession(if (hasIpv6) "Bamdad" else "Bamdad (IPv4)")
             .setMtu(MTU)
             .setBlocking(false)
             .addAddress("172.19.0.1", 30)
-            .addAddress("fdfe:dcba:9876::1", 126)
             .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
-            .addDnsServer("2606:4700:4700::1111")
+        if (hasIpv6) {
+            builder
+                .addAddress("fdfe:dcba:9876::1", 126)
+                .addRoute("::", 0)
+                .addDnsServer("2606:4700:4700::1111")
+        }
+        Log.i(TAG, "IPv6 on underlying network: $hasIpv6")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -130,11 +170,14 @@ class BamdadVpnService : VpnService() {
         tunFd = fd
         running = true
         Log.i(TAG, "VPN tunnel started (socks 127.0.0.1:$socksPort)")
+        statsHandler.removeCallbacks(statsTicker)
+        statsHandler.post(statsTicker)
     }
 
     @Synchronized
     private fun stopTunnel() {
         Log.i(TAG, "stopping tunnel")
+        statsHandler.removeCallbacks(statsTicker)
         if (running) {
             try {
                 TProxyService.TProxyStopService()

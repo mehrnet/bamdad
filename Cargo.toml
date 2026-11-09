@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/bamdad-core", "crates/bamdad-app"]
+members = ["crates/bamdad-core", "crates/bamdad-app", "crates/bamdad-netcheck"]
 
 [workspace.package]
 version = "0.1.3"

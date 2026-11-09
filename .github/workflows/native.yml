@@ -129,6 +129,8 @@ jobs:
         run: cargo binstall --no-confirm cargo-ndk@4.1.2 || cargo install cargo-ndk --version 4.1.2 --locked
       - name: Build x86_64 native libraries
         run: ./crates/bamdad-app/android/build-native.sh x86_64
+      - name: Build Android network checker
+        run: ./scripts/build-android-netcheck.sh "$PWD/netcheck"
       - name: Build debug APK
         env:
           BAMDAD_ANDROID_EMULATOR_ABI: x86_64
@@ -141,4 +143,9 @@ jobs:
         with:
           name: bamdad-android-debug
           path: crates/bamdad-app/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bamdad-netcheck-android
+          path: netcheck/
           if-no-files-found: error

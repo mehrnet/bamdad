@@ -10,6 +10,7 @@ pub mod kind;
 pub mod link;
 pub mod paths;
 pub mod probe;
+pub mod socks;
 pub mod stats;
 pub mod system_proxy;
 
