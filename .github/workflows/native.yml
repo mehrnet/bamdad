@@ -78,7 +78,8 @@ jobs:
           # The app looks for geo assets next to the bundled cores.
           if [ -d package/assets ]; then
             mkdir -p package/bin/assets
-            cp package/assets/* package/bin/assets/ 2>/dev/null || true
+            cp -a package/assets/. package/bin/assets/
+            rm -rf package/assets
           fi
           chmod +x package/bamdad 2>/dev/null || true
           if [[ "$RUNNER_OS" == "Windows" ]]; then

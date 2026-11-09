@@ -55,7 +55,8 @@ jobs:
           BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-singbox.sh
           if [ -d package/assets ]; then
             mkdir -p package/bin/assets
-            cp package/assets/* package/bin/assets/ 2>/dev/null || true
+            cp -a package/assets/. package/bin/assets/
+            rm -rf package/assets
           fi
           chmod +x package/bamdad 2>/dev/null || true
           if [[ "$RUNNER_OS" == "Windows" ]]; then
