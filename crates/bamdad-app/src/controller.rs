@@ -606,8 +606,11 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         crate::start_android_vpn(port);
                     }
 
-                    let message = if !ready {
-                        format!("proxy check: SOCKS 127.0.0.1:{port} never opened")
+                    let (message, ok) = if !ready {
+                        (
+                            format!("proxy check: SOCKS 127.0.0.1:{port} never opened"),
+                            false,
+                        )
                     } else {
                         match bamdad_core::socks::http_through(
                             port,
@@ -615,12 +618,14 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                             80,
                             Duration::from_secs(12),
                         ) {
-                            Ok(status) => {
-                                format!("proxy check: {status} via SOCKS 127.0.0.1:{port}")
-                            }
-                            Err(error) => {
-                                format!("proxy check FAILED via SOCKS 127.0.0.1:{port}: {error}")
-                            }
+                            Ok(status) => (
+                                format!("proxy check: {status} via SOCKS 127.0.0.1:{port}"),
+                                true,
+                            ),
+                            Err(error) => (
+                                format!("proxy check FAILED via SOCKS 127.0.0.1:{port}: {error}"),
+                                false,
+                            ),
                         }
                     };
 
@@ -628,6 +633,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = weak_for_log.upgrade() {
                             push_log(&ui, &logs, message);
+                            if !ok && ui.get_connected() {
+                                ui.set_status_text("Proxy unreachable".into());
+                            }
                         }
                     });
                 });
