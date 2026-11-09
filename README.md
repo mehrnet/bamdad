@@ -284,8 +284,8 @@ for VPN consent on first use. Desktop keeps the system-proxy path.
 
 1. **Desktop TUN** — Android now uses `VpnService` + `tun2socks`; the
    desktop still uses the system proxy. Next: a privileged desktop TUN helper
-   with the same core abstraction. Android VPN should also get a device/emulator
-   smoke test in CI.
+   with the same core abstraction. The Android VPN has an emulator smoke test
+   that verifies real HTTP traffic and clean teardown.
 2. **Subscriptions** — refresh, multiple profiles per subscription, latency
    sorting.
 3. **Real-delay probe** — HTTP `generate_204` through the running core, in
