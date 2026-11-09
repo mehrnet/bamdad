@@ -1,0 +1,343 @@
+import { Theme } from "theme.slint";
+import { ProfileRow } from "models.slint";
+import { BottomTab, LogoMark, NavItem, StatusPill } from "components.slint";
+import { DashboardPage, LogsPage, ProfilesPage, SettingsPage } from "pages.slint";
+
+component TopBar inherits Rectangle {
+    in property <int> page;
+    in property <bool> connected;
+    in property <string> status-text;
+
+    height: 54px;
+    background: Theme.bg-raised;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 10px;
+        cross-axis-alignment: center;
+
+        LogoMark { mark-size: 28px; }
+        Text {
+            text: root.page == 0 ? "Dashboard"
+                : root.page == 1 ? "Profiles"
+                : root.page == 2 ? "Logs"
+                : "Settings";
+            color: Theme.text;
+            font-size: Theme.font-brand;
+            font-weight: 700;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        StatusPill {
+            label: root.status-text;
+            dot: root.connected ? Theme.success : Theme.muted;
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: Theme.border;
+    }
+}
+
+component Sidebar inherits Rectangle {
+    in property <bool> rail;
+    in property <int> page;
+    in property <bool> connected;
+    in property <string> status-text;
+    in property <string> socks-port;
+    in property <string> http-port;
+    callback set-page(int);
+
+    width: rail ? Theme.rail-width : Theme.sidebar-width;
+    height: 100%;
+    background: Theme.bg-raised;
+
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        height: 100%;
+        background: Theme.border;
+    }
+
+    VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 5px;
+
+        HorizontalLayout {
+            height: 48px;
+            spacing: 9px;
+            cross-axis-alignment: center;
+            LogoMark { mark-size: 30px; }
+            if !root.rail : VerticalLayout {
+                spacing: 0px;
+                Text {
+                    text: "Bamdad";
+                    color: Theme.text;
+                    font-size: Theme.font-brand;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "proxy client";
+                    color: Theme.muted;
+                    font-size: Theme.font-xs;
+                }
+            }
+        }
+
+        Rectangle { height: 8px; }
+
+        NavItem {
+            label: "Dashboard";
+            glyph: "◉";
+            compact: root.rail;
+            active: root.page == 0;
+            clicked => { root.set-page(0); }
+        }
+        NavItem {
+            label: "Profiles";
+            glyph: "▤";
+            compact: root.rail;
+            active: root.page == 1;
+            clicked => { root.set-page(1); }
+        }
+        NavItem {
+            label: "Logs";
+            glyph: "≡";
+            compact: root.rail;
+            active: root.page == 2;
+            clicked => { root.set-page(2); }
+        }
+        NavItem {
+            label: "Settings";
+            glyph: "⚙";
+            compact: root.rail;
+            active: root.page == 3;
+            clicked => { root.set-page(3); }
+        }
+
+        Rectangle { vertical-stretch: 1; background: transparent; }
+
+        if !root.rail : VerticalLayout {
+            height: 64px;
+            spacing: 4px;
+            Rectangle { height: 1px; background: Theme.border; }
+            Text {
+                text: root.connected ? "Tunnel active" : "Idle";
+                color: root.connected ? Theme.success : Theme.muted;
+                font-size: Theme.font-sm;
+                font-weight: 600;
+            }
+            Text {
+                text: "SOCKS 127.0.0.1:" + root.socks-port;
+                color: Theme.muted;
+                font-size: Theme.font-xs;
+                overflow: elide;
+            }
+            Text {
+                text: "HTTP 127.0.0.1:" + root.http-port;
+                color: Theme.muted;
+                font-size: Theme.font-xs;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+component BottomNav inherits Rectangle {
+    in property <int> page;
+    callback set-page(int);
+
+    height: 56px;
+    background: Theme.bg-raised;
+
+    Rectangle {
+        width: 100%;
+        height: 1px;
+        background: Theme.border;
+    }
+
+    HorizontalLayout {
+        BottomTab {
+            horizontal-stretch: 1;
+            label: "Home";
+            glyph: "◉";
+            active: root.page == 0;
+            clicked => { root.set-page(0); }
+        }
+        BottomTab {
+            horizontal-stretch: 1;
+            label: "Profiles";
+            glyph: "▤";
+            active: root.page == 1;
+            clicked => { root.set-page(1); }
+        }
+        BottomTab {
+            horizontal-stretch: 1;
+            label: "Logs";
+            glyph: "≡";
+            active: root.page == 2;
+            clicked => { root.set-page(2); }
+        }
+        BottomTab {
+            horizontal-stretch: 1;
+            label: "Settings";
+            glyph: "⚙";
+            active: root.page == 3;
+            clicked => { root.set-page(3); }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Bamdad";
+    preferred-width: 1120px;
+    preferred-height: 760px;
+    min-width: 320px;
+    min-height: 480px;
+    background: Theme.bg;
+
+    in-out property <bool> connected: false;
+    in-out property <bool> busy: false;
+    in-out property <string> status-text: "Disconnected";
+    in-out property <string> server-name: "Direct · Xray";
+    in-out property <string> selected-id: "";
+    in-out property <string> selected-core: "Xray";
+    in-out property <string> selected-detail: "custom config";
+    in-out property <string> upload-text: "0 B/s";
+    in-out property <string> download-text: "0 B/s";
+    in-out property <string> total-text: "0 B";
+    in-out property <string> uptime-text: "00:00:00";
+    in-out property <string> socks-port: "10808";
+    in-out property <string> http-port: "10809";
+    in-out property <bool> system-proxy: false;
+    in-out property <string> xray-version: "not installed";
+    in-out property <string> singbox-version: "not installed";
+    in-out property <string> data-dir: "";
+    in-out property <int> page: 0;
+    in-out property <int> core-choice: 0;
+    in-out property <[ProfileRow]> profiles;
+    in-out property <[string]> logs;
+    in-out property <string> link-input: "";
+
+    callback toggle-connect();
+    callback select-profile(string);
+    callback import-link(string, int);
+    callback save-settings(string, string, bool);
+    callback reload-profiles();
+    callback clear-logs();
+    callback ping-profile(string);
+    callback ping-all();
+    callback ping-selected();
+
+    // Breakpoints are set from Rust by watching the actual window size. Deriving
+    // them from root.width inside the layout creates a binding loop in Slint.
+    in-out property <bool> phone: false;
+    in-out property <bool> tablet: false;
+    private property <length> inset-left: root.safe-area-insets.left;
+    private property <length> inset-top: root.safe-area-insets.top;
+    private property <length> inset-right: root.safe-area-insets.right;
+    private property <length> inset-bottom: root.safe-area-insets.bottom;
+
+    FocusScope {
+        width: 100%;
+        height: 100%;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: root.inset-left;
+        padding-right: root.inset-right;
+        padding-top: root.inset-top;
+        padding-bottom: root.inset-bottom;
+        spacing: 0px;
+
+        if root.phone : TopBar {
+            page: root.page;
+            connected: root.connected;
+            status-text: root.status-text;
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 0px;
+
+            if !root.phone : Sidebar {
+                rail: root.tablet;
+                page: root.page;
+                connected: root.connected;
+                status-text: root.status-text;
+                socks-port: root.socks-port;
+                http-port: root.http-port;
+                set-page(page) => { root.page = page; }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 100%;
+                clip: true;
+
+                if root.page == 0 : DashboardPage {
+                    phone: root.phone;
+                    connected: root.connected;
+                    busy: root.busy;
+                    server-name: root.server-name;
+                    selected-core: root.selected-core;
+                    selected-detail: root.selected-detail;
+                    upload-text: root.upload-text;
+                    download-text: root.download-text;
+                    total-text: root.total-text;
+                    uptime-text: root.uptime-text;
+                    toggle-connect => { root.toggle-connect(); }
+                    open-profiles => { root.page = 1; }
+                    ping-selected => { root.ping-selected(); }
+                }
+
+                if root.page == 1 : ProfilesPage {
+                    phone: root.phone;
+                    profiles: root.profiles;
+                    selected-id: root.selected-id;
+                    link-input <=> root.link-input;
+                    core-choice <=> root.core-choice;
+                    select(id) => { root.select-profile(id); }
+                    import-link(link, core) => { root.import-link(link, core); }
+                    ping(id) => { root.ping-profile(id); }
+                    ping-all => { root.ping-all(); }
+                    reload => { root.reload-profiles(); }
+                }
+
+                if root.page == 2 : LogsPage {
+                    phone: root.phone;
+                    logs: root.logs;
+                    clear => { root.clear-logs(); }
+                }
+
+                if root.page == 3 : SettingsPage {
+                    phone: root.phone;
+                    xray-version: root.xray-version;
+                    singbox-version: root.singbox-version;
+                    data-dir: root.data-dir;
+                    socks-port <=> root.socks-port;
+                    http-port <=> root.http-port;
+                    system-proxy <=> root.system-proxy;
+                    save-settings(socks, http, proxy) => {
+                        root.save-settings(socks, http, proxy);
+                    }
+                }
+            }
+        }
+
+        if root.phone : BottomNav {
+            page: root.page;
+            set-page(page) => { root.page = page; }
+        }
+    }
+    }
+}

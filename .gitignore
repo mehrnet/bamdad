@@ -1,0 +1,23 @@
+/target
+**/*.rs.bk
+*.log
+.DS_Store
+.idea/
+.claude/
+.vscode/
+
+# Release/preview output
+/dist/
+/package/
+
+# Android build output and signing material
+crates/bamdad-app/android/.gradle/
+crates/bamdad-app/android/app/build/
+crates/bamdad-app/android/app/src/main/jniLibs/
+crates/bamdad-app/android/local.properties
+*.jks
+*.keystore
+*.p12
+keystore.*.txt
+*.apk
+*.aab

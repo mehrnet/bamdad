@@ -1,0 +1,516 @@
+import { Theme } from "theme.slint";
+import { ProfileRow } from "models.slint";
+
+export component LogoMark inherits Rectangle {
+    in property <length> mark-size: 32px;
+    width: mark-size;
+    height: mark-size;
+    border-radius: mark-size * 0.28;
+    background: Theme.accent;
+
+    Text {
+        text: "B";
+        color: Theme.accent-ink;
+        font-size: mark-size * 0.52;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> glyph;
+    in property <bool> active: false;
+    in property <bool> compact: false;
+    callback clicked();
+
+    height: 46px;
+    border-radius: Theme.radius-sm;
+    background: active ? Theme.surface-2 : transparent;
+    border-width: 1px;
+    border-color: active ? Theme.border-strong : transparent;
+
+    if !root.compact : HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 10px;
+        cross-axis-alignment: center;
+
+        Text {
+            text: root.glyph;
+            color: root.active ? Theme.accent : Theme.muted;
+            font-size: 16px;
+            width: 18px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.label;
+            color: root.active ? Theme.text : Theme.text-2;
+            font-size: Theme.font-ui;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+
+    if root.compact : VerticalLayout {
+        alignment: center;
+        spacing: 1px;
+        padding-top: 6px;
+        padding-bottom: 5px;
+
+        Text {
+            text: root.glyph;
+            color: root.active ? Theme.accent : Theme.muted;
+            font-size: 16px;
+            horizontal-alignment: center;
+            width: 100%;
+        }
+        Text {
+            text: root.label;
+            color: root.active ? Theme.text : Theme.muted;
+            font-size: 9px;
+            horizontal-alignment: center;
+            width: 100%;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component BottomTab inherits Rectangle {
+    in property <string> label;
+    in property <string> glyph;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 100%;
+    background: transparent;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 1px;
+        Text {
+            text: root.glyph;
+            color: root.active ? Theme.accent : Theme.muted;
+            font-size: 17px;
+            horizontal-alignment: center;
+            width: 100%;
+        }
+        Text {
+            text: root.label;
+            color: root.active ? Theme.accent : Theme.muted;
+            font-size: 9px;
+            font-weight: root.active ? 700 : 400;
+            horizontal-alignment: center;
+            width: 100%;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 40px;
+    border-radius: Theme.radius-sm;
+    background: !root.enabled ? Theme.surface-2
+        : touch.pressed ? Theme.accent-strong : Theme.accent;
+
+    Text {
+        text: root.text;
+        color: root.enabled ? Theme.accent-ink : Theme.muted;
+        font-size: 13px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SecondaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 40px;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: touch.pressed ? Theme.surface-2 : transparent;
+
+    Text {
+        text: root.text;
+        color: root.enabled ? Theme.text : Theme.muted;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ChoicePill inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: root.active ? transparent : Theme.border;
+    background: root.active ? Theme.accent : Theme.surface-2;
+
+    Text {
+        text: root.text;
+        color: root.active ? Theme.accent-ink : Theme.text-2;
+        font-size: 11px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component TextField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder: "";
+    in property <bool> read-only: false;
+    callback edited();
+    callback accepted();
+
+    height: 40px;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.bg;
+
+    input := TextInput {
+        x: 11px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 22px;
+        height: parent.height - 8px;
+        text <=> root.text;
+        read-only: root.read-only;
+        single-line: true;
+        color: Theme.text;
+        font-size: Theme.font-ui;
+        vertical-alignment: center;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.accent-ink;
+        edited => { root.edited(); }
+        accepted => { root.accepted(); }
+    }
+    if root.text == "" && !root.read-only : Text {
+        x: 11px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 22px;
+        text: root.placeholder;
+        color: Theme.muted;
+        font-size: Theme.font-ui;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component Switch inherits Rectangle {
+    in-out property <bool> checked: false;
+    callback toggled();
+
+    width: 46px;
+    height: 26px;
+    border-radius: 13px;
+    background: checked ? Theme.accent : Theme.surface-3;
+    animate background { duration: 140ms; }
+
+    Rectangle {
+        x: checked ? parent.width - 23px : 3px;
+        y: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: Theme.text;
+        animate x { duration: 140ms; }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+}
+
+export component Card inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+}
+
+export component StatCard inherits Card {
+    in property <string> label;
+    in property <string> value;
+    in property <color> accent: Theme.accent;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 4px;
+        Text {
+            text: root.label;
+            color: Theme.muted;
+            font-size: Theme.font-xs;
+            font-weight: 600;
+        }
+        Text {
+            text: root.value;
+            color: root.accent;
+            font-size: 22px;
+            font-weight: 700;
+            overflow: elide;
+        }
+    }
+}
+
+export component Badge inherits Rectangle {
+    in property <string> label;
+    in property <color> tint: Theme.text-2;
+    in property <length> badge-width: 56px;
+
+    width: badge-width;
+    height: 22px;
+    border-radius: 6px;
+    background: Theme.surface-2;
+
+    Text {
+        text: root.label;
+        color: root.tint;
+        font-size: 9px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        width: 100%;
+        height: 100%;
+    }
+}
+
+export component StatusPill inherits Rectangle {
+    in property <string> label;
+    in property <color> dot: Theme.muted;
+
+    width: 126px;
+    height: 28px;
+    border-radius: 14px;
+    background: Theme.surface-2;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 8px;
+        spacing: 6px;
+        cross-axis-alignment: center;
+        Rectangle {
+            width: 7px;
+            height: 7px;
+            border-radius: 4px;
+            background: root.dot;
+        }
+        Text {
+            text: root.label;
+            color: Theme.text-2;
+            font-size: Theme.font-xs;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+}
+
+export component PowerButton inherits Rectangle {
+    in property <bool> running: false;
+    in property <bool> busy: false;
+    in property <length> button-size: 132px;
+    callback clicked();
+
+    width: button-size;
+    height: button-size;
+    border-radius: button-size / 2;
+    background: running ? #0f2b24 : Theme.surface-2;
+    border-width: 2px;
+    border-color: running ? #1f7a5c : Theme.border-strong;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.button-size * 0.7;
+        height: root.button-size * 0.7;
+        border-radius: self.width / 2;
+        background: running ? #16a34a : (busy ? #1d4ed8 : Theme.surface-3);
+        border-width: 1px;
+        border-color: running ? #4ade80 : Theme.border-strong;
+    }
+
+    Text {
+        text: busy ? "…" : (running ? "STOP" : "START");
+        color: running ? #dcfce7 : Theme.text;
+        font-size: root.button-size * 0.12;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PingButton inherits Rectangle {
+    in property <string> text: "Ping";
+    /// 0 idle, 1 testing, 2 good, 3 medium, 4 bad
+    in property <int> state: 0;
+    callback clicked();
+
+    width: 70px;
+    height: 30px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: state == 2 ? #1f7a5c
+        : state == 3 ? #7a5a1f
+        : state == 4 ? #7a1f1f
+        : Theme.border;
+    background: state == 1 ? Theme.surface-2 : Theme.bg;
+
+    Text {
+        text: root.text;
+        color: state == 2 ? Theme.success
+            : state == 3 ? Theme.warn
+            : state == 4 ? Theme.danger
+            : Theme.text-2;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+export component FieldLabel inherits Text {
+    height: 14px;
+    color: Theme.muted;
+    font-size: Theme.font-xs;
+    font-weight: 600;
+    vertical-alignment: center;
+}
+
+export component ProfileRowView inherits Rectangle {
+    in property <ProfileRow> row-data;
+    in property <bool> compact: false;
+    callback select(string);
+    callback ping(string);
+
+    height: 62px;
+    border-radius: Theme.radius-sm;
+    background: row-data.selected ? Theme.surface-2 : Theme.bg-raised;
+    border-width: 1px;
+    border-color: row-data.selected ? Theme.border-strong : Theme.border;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.select(root.row-data.id); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 10px;
+        cross-axis-alignment: center;
+
+        Rectangle {
+            width: 7px;
+            height: 7px;
+            border-radius: 4px;
+            background: root.row-data.selected ? Theme.accent : Theme.muted;
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+            Text {
+                text: root.row-data.name;
+                color: root.row-data.selected ? Theme.text : Theme.text-2;
+                font-size: 13px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Text {
+                text: root.row-data.detail;
+                color: Theme.muted;
+                font-size: 10px;
+                overflow: elide;
+            }
+        }
+
+        if !root.compact : Badge {
+            label: root.row-data.protocol;
+            tint: Theme.accent;
+        }
+        if !root.compact : Badge {
+            label: root.row-data.core;
+            tint: Theme.text-2;
+            badge-width: 62px;
+        }
+
+        PingButton {
+            text: root.row-data.ping;
+            state: root.row-data.ping-state;
+            clicked => { root.ping(root.row-data.id); }
+        }
+    }
+}

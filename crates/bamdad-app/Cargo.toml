@@ -1,0 +1,46 @@
+[package]
+name = "bamdad-app"
+description = "Bamdad client (Slint UI, desktop + Android)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[lib]
+name = "bamdad_app"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "bamdad"
+path = "src/main.rs"
+
+[dependencies]
+bamdad-core = { path = "../bamdad-core" }
+anyhow.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-femtovg",
+    "renderer-software",
+    "accessibility",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-android-activity-06",
+    "renderer-skia-opengl",
+    "accessibility",
+] }
+
+[build-dependencies]
+slint-build = "1.18"

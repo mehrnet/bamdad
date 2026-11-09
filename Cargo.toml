@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["crates/bamdad-core", "crates/bamdad-app"]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/mehrnet/bamdad"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "io-util",
+    "sync",
+    "time",
+    "net",
+] }
+tonic = { version = "0.14", features = ["transport"] }
+tonic-prost = "0.14"
+prost = "0.14"
+base64 = "0.22"
+url = "2"
+percent-encoding = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+# Slint + wgpu produce very large debug artifacts; keep local builds light.
+# Incremental builds also create many small metadata-heavy files, which this
+# btrfs volume handles poorly.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

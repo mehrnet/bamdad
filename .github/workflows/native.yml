@@ -1,0 +1,143 @@
+name: App
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  XRAY_VERSION: "26.11.9"
+  SINGBOX_VERSION: "1.14.4"
+
+jobs:
+  test:
+    name: Core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-test
+      - name: Install Slint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libfontconfig1-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libgl1-mesa-dev
+      - name: Test core
+        run: cargo test -p bamdad-core
+      - name: Check workspace
+        run: cargo check --workspace
+
+  desktop:
+    name: Desktop (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+          - os: ubuntu-24.04-arm
+            artifact: linux-aarch64
+          - os: windows-latest
+            artifact: windows-x86_64
+          - os: macos-latest
+            artifact: macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-desktop-${{ matrix.artifact }}
+      - name: Install Slint build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libfontconfig1-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libgl1-mesa-dev
+      - name: Build app
+        run: cargo build -p bamdad-app --release
+      - name: Package app with cores
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          mkdir -p package/bin dist
+          ext=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ext=".exe"; fi
+          cp "target/release/bamdad${ext}" "package/bamdad${ext}"
+          BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-xray.sh
+          BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-singbox.sh
+          # The app looks for geo assets next to the bundled cores.
+          if [ -d package/assets ]; then
+            mkdir -p package/bin/assets
+            cp package/assets/* package/bin/assets/ 2>/dev/null || true
+          fi
+          chmod +x package/bamdad 2>/dev/null || true
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./package/bamdad.exe --version
+            powershell -NoProfile -Command "Compress-Archive -Force -Path 'package/*' -DestinationPath 'dist/bamdad-${version}-${{ matrix.artifact }}.zip'"
+          else
+            ./package/bamdad --version
+            tar -czf "dist/bamdad-${version}-${{ matrix.artifact }}.tar.gz" -C package .
+          fi
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bamdad-${{ matrix.artifact }}
+          path: dist/
+
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"
+      - name: Install Android SDK and NDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-android-debug
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - uses: cargo-bins/cargo-binstall@v1.17.5
+        env:
+          BINSTALL_VERSION: "1.17.5"
+      - name: Install cargo-ndk
+        run: cargo binstall --no-confirm cargo-ndk@4.1.2 || cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Build x86_64 native libraries
+        run: ./crates/bamdad-app/android/build-native.sh x86_64
+      - name: Build debug APK
+        env:
+          BAMDAD_ANDROID_EMULATOR_ABI: x86_64
+        run: gradle -p crates/bamdad-app/android --no-daemon assembleDebug
+      - name: Inspect APK
+        run: |
+          find crates/bamdad-app/android/app/build/outputs/apk/debug -type f | sort
+          unzip -l crates/bamdad-app/android/app/build/outputs/apk/debug/app-debug.apk | grep 'lib/'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bamdad-android-debug
+          path: crates/bamdad-app/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

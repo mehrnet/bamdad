@@ -1,0 +1,230 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  XRAY_VERSION: "26.11.9"
+  SINGBOX_VERSION: "1.14.4"
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+          - os: ubuntu-24.04-arm
+            artifact: linux-aarch64
+          - os: windows-latest
+            artifact: windows-x86_64
+          - os: macos-latest
+            artifact: macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-desktop-${{ matrix.artifact }}
+      - name: Install Slint build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libfontconfig1-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libgl1-mesa-dev
+      - name: Build app
+        run: cargo build -p bamdad-app --release
+      - name: Package app with cores
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p package/bin dist
+          ext=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ext=".exe"; fi
+          cp "target/release/bamdad${ext}" "package/bamdad${ext}"
+          BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-xray.sh
+          BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-singbox.sh
+          if [ -d package/assets ]; then
+            mkdir -p package/bin/assets
+            cp package/assets/* package/bin/assets/ 2>/dev/null || true
+          fi
+          chmod +x package/bamdad 2>/dev/null || true
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./package/bamdad.exe --version
+            powershell -NoProfile -Command "Compress-Archive -Force -Path 'package/*' -DestinationPath 'dist/bamdad-${version}-${{ matrix.artifact }}.zip'"
+          else
+            ./package/bamdad --version
+            tar -czf "dist/bamdad-${version}-${{ matrix.artifact }}.tar.gz" -C package .
+          fi
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bamdad-${{ matrix.artifact }}
+          path: dist/
+
+  android:
+    name: Android signed APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"
+      - name: Install Android SDK and NDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - uses: cargo-bins/cargo-binstall@v1.17.5
+        env:
+          BINSTALL_VERSION: "1.17.5"
+      - name: Install cargo-ndk
+        run: cargo binstall --no-confirm cargo-ndk@4.1.2 || cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Decode release signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/android"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d \
+            > "$RUNNER_TEMP/android/bamdad-release.jks"
+      - name: Set release version
+        run: echo "BAMDAD_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Build Android native libraries
+        run: ./crates/bamdad-app/android/build-native.sh arm64-v8a x86_64
+      - name: Build signed APKs
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android/bamdad-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          BAMDAD_VERSION_CODE: ${{ github.run_number }}
+        run: gradle -p crates/bamdad-app/android --no-daemon assembleRelease
+      - name: Package APKs
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/android
+          apkdir=crates/bamdad-app/android/app/build/outputs/apk/release
+          cp "$apkdir/app-arm64-v8a-release.apk" \
+            "dist/android/bamdad-${version}-android-arm64-v8a.apk"
+          cp "$apkdir/app-x86_64-release.apk" \
+            "dist/android/bamdad-${version}-android-x86_64.apk"
+          cp "$apkdir/app-universal-release.apk" \
+            "dist/android/bamdad-${version}-android-universal.apk"
+          ls -lh dist/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bamdad-android
+          path: dist/android/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [desktop, android]
+    if: ${{ !cancelled() && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Generate checksums
+        run: |
+          find artifacts -type f ! -name SHA256SUMS -exec sha256sum {} \; \
+            | sed 's#  artifacts/#  #' | sort -k2 > artifacts/SHA256SUMS
+          cat artifacts/SHA256SUMS
+
+      - name: Build release notes
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          base="https://github.com/${REPO}/releases/download/${TAG}"
+          previous="$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)"
+
+          row() {
+            local platform="$1"
+            shift
+            local cell=""
+            while [ "$#" -gt 0 ]; do
+              local label="$1"
+              local file="$2"
+              shift 2
+              if find artifacts -type f -name "$file" -print -quit | grep -q .; then
+                if [ -n "$cell" ]; then cell+=" · "; fi
+                cell+="[${label}](${base}/${file})"
+              fi
+            done
+            if [ -n "$cell" ]; then
+              printf '| %s | %s |\n' "$platform" "$cell"
+            fi
+          }
+
+          {
+            echo "## Binaries"
+            echo
+            echo "| Platform | Download |"
+            echo "|---|---|"
+            row "Linux x86_64" "App" "bamdad-${version}-linux-x86_64.tar.gz"
+            row "Linux arm64" "App" "bamdad-${version}-linux-aarch64.tar.gz"
+            row "Windows x86_64" "App" "bamdad-${version}-windows-x86_64.zip"
+            row "macOS arm64" "App" "bamdad-${version}-macos-aarch64.tar.gz"
+            row "Android arm64" "APK" "bamdad-${version}-android-arm64-v8a.apk"
+            row "Android x86_64" "APK" "bamdad-${version}-android-x86_64.apk"
+            row "Android universal" "APK" "bamdad-${version}-android-universal.apk"
+            row "Checksums" "SHA256" "SHA256SUMS"
+            echo
+            echo "Desktop archives include Xray-core and sing-box next to the app."
+            echo "Android APKs include both cores as executable native libraries."
+            echo
+            echo "## Changelog"
+            echo
+            if [ -n "$previous" ]; then
+              git log --no-merges --pretty=format:"- [%h](https://github.com/${REPO}/commit/%H) %s" "${previous}..${TAG}"
+            else
+              echo "_Initial release._"
+            fi
+            echo
+          } > release-notes.md
+
+          cat release-notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "Bamdad ${{ github.ref_name }}"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: release-notes.md
+          files: artifacts/**/*

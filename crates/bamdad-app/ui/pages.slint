@@ -1,0 +1,658 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ProfileRow } from "models.slint";
+import {
+    Badge,
+    Card,
+    ChoicePill,
+    Divider,
+    FieldLabel,
+    PowerButton,
+    PrimaryButton,
+    ProfileRowView,
+    SecondaryButton,
+    StatCard,
+    Switch,
+    TextField,
+} from "components.slint";
+
+component ConnectionInfo inherits VerticalLayout {
+    in property <bool> connected;
+    in property <bool> busy;
+    in property <string> server-name;
+    in property <string> selected-core;
+    in property <string> selected-detail;
+    callback toggle();
+    callback profiles();
+
+    horizontal-stretch: 1;
+    spacing: 5px;
+
+    Text {
+        text: root.connected ? "Connected" : root.busy ? "Connecting…" : "Ready to connect";
+        color: Theme.text;
+        font-size: 24px;
+        font-weight: 700;
+        overflow: elide;
+    }
+    HorizontalLayout {
+        spacing: 7px;
+        cross-axis-alignment: center;
+        Text {
+            text: root.server-name;
+            color: Theme.text-2;
+            font-size: 13px;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Badge {
+            label: root.selected-core;
+            tint: Theme.accent;
+            badge-width: 62px;
+        }
+    }
+    Text {
+        text: root.selected-detail;
+        color: Theme.muted;
+        font-size: 11px;
+        overflow: elide;
+    }
+    Rectangle { height: 5px; }
+    HorizontalLayout {
+        spacing: 8px;
+        PrimaryButton {
+            text: root.connected ? "Disconnect" : "Connect";
+            enabled: !root.busy;
+            horizontal-stretch: 1;
+            clicked => { root.toggle(); }
+        }
+        SecondaryButton {
+            text: "Profiles";
+            horizontal-stretch: 1;
+            clicked => { root.profiles(); }
+        }
+    }
+}
+
+component SessionBlock inherits VerticalLayout {
+    in property <string> uptime;
+    in property <string> status;
+
+    spacing: 1px;
+
+    Text {
+        text: "SESSION";
+        color: Theme.muted;
+        font-size: 9px;
+        font-weight: 600;
+        horizontal-alignment: right;
+    }
+    Text {
+        text: root.uptime;
+        color: Theme.text;
+        font-size: 20px;
+        font-weight: 700;
+        horizontal-alignment: right;
+    }
+    Text {
+        text: root.status;
+        color: Theme.muted;
+        font-size: 10px;
+        horizontal-alignment: right;
+    }
+}
+
+export component DashboardPage inherits Rectangle {
+    in property <bool> phone;
+    in property <bool> connected;
+    in property <bool> busy;
+    in property <string> server-name;
+    in property <string> selected-core;
+    in property <string> selected-detail;
+    in property <string> upload-text;
+    in property <string> download-text;
+    in property <string> total-text;
+    in property <string> uptime-text;
+    callback toggle-connect();
+    callback open-profiles();
+    callback ping-selected();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    ScrollView {
+        VerticalLayout {
+            padding: root.phone ? 16px : 28px;
+            spacing: 16px;
+
+            if !root.phone : Text {
+                text: "Dashboard";
+                color: Theme.text;
+                font-size: Theme.font-title;
+                font-weight: 700;
+            }
+
+            Card {
+                VerticalLayout {
+                if root.phone : VerticalLayout {
+                    padding: 18px;
+                    spacing: 14px;
+
+                    Rectangle {
+                        height: 112px;
+                        width: 100%;
+                        PowerButton {
+                            button-size: 104px;
+                            running: root.connected;
+                            busy: root.busy;
+                            x: (parent.width - self.width) / 2;
+                            clicked => { root.toggle-connect(); }
+                        }
+                    }
+                    ConnectionInfo {
+                        connected: root.connected;
+                        busy: root.busy;
+                        server-name: root.server-name;
+                        selected-core: root.selected-core;
+                        selected-detail: root.selected-detail;
+                        toggle => { root.toggle-connect(); }
+                        profiles => { root.open-profiles(); }
+                    }
+                    Divider {}
+                    SessionBlock {
+                        uptime: root.uptime-text;
+                        status: root.connected ? "tunnel active" : "not connected";
+                    }
+                }
+
+                if !root.phone : HorizontalLayout {
+                    padding: 22px;
+                    spacing: 22px;
+
+                    PowerButton {
+                        running: root.connected;
+                        busy: root.busy;
+                        clicked => { root.toggle-connect(); }
+                    }
+                    ConnectionInfo {
+                        connected: root.connected;
+                        busy: root.busy;
+                        server-name: root.server-name;
+                        selected-core: root.selected-core;
+                        selected-detail: root.selected-detail;
+                        toggle => { root.toggle-connect(); }
+                        profiles => { root.open-profiles(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SessionBlock {
+                        uptime: root.uptime-text;
+                        status: root.connected ? "tunnel active" : "not connected";
+                    }
+                }
+                }
+            }
+
+            if root.phone : VerticalLayout {
+                spacing: 10px;
+                StatCard { label: "DOWNLOAD"; value: root.download-text; accent: Theme.accent; }
+                StatCard { label: "UPLOAD"; value: root.upload-text; accent: #a78bfa; }
+                StatCard { label: "TOTAL TRANSFER"; value: root.total-text; accent: Theme.success; }
+            }
+            if !root.phone : HorizontalLayout {
+                spacing: 12px;
+                StatCard { horizontal-stretch: 1; label: "DOWNLOAD"; value: root.download-text; accent: Theme.accent; }
+                StatCard { horizontal-stretch: 1; label: "UPLOAD"; value: root.upload-text; accent: #a78bfa; }
+                StatCard { horizontal-stretch: 1; label: "TOTAL TRANSFER"; value: root.total-text; accent: Theme.success; }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        cross-axis-alignment: center;
+                        Text {
+                            text: "Active profile";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            horizontal-stretch: 1;
+                        }
+                        Badge {
+                            label: root.selected-core;
+                            tint: Theme.accent;
+                            badge-width: 62px;
+                        }
+                    }
+                    Text {
+                        text: root.server-name;
+                        color: Theme.text-2;
+                        font-size: 13px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.selected-detail;
+                        color: Theme.muted;
+                        font-size: 11px;
+                        overflow: elide;
+                    }
+                    Rectangle { height: 4px; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SecondaryButton {
+                            text: "Manage profiles";
+                            horizontal-stretch: 1;
+                            clicked => { root.open-profiles(); }
+                        }
+                        SecondaryButton {
+                            text: "Ping";
+                            horizontal-stretch: 1;
+                            clicked => { root.ping-selected(); }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+    }
+}
+
+export component ProfilesPage inherits Rectangle {
+    in property <bool> phone;
+    in property <[ProfileRow]> profiles;
+    in property <string> selected-id;
+    in-out property <string> link-input;
+    in-out property <int> core-choice: 0;
+    callback select(string);
+    callback import-link(string, int);
+    callback ping(string);
+    callback ping-all();
+    callback reload();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    VerticalLayout {
+        padding: root.phone ? 16px : 28px;
+        spacing: 12px;
+
+        if root.phone : VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                SecondaryButton {
+                    text: "Ping all";
+                    horizontal-stretch: 1;
+                    clicked => { root.ping-all(); }
+                }
+                SecondaryButton {
+                    text: "Reload";
+                    horizontal-stretch: 1;
+                    clicked => { root.reload(); }
+                }
+            }
+        }
+        if !root.phone : HorizontalLayout {
+            spacing: 8px;
+            cross-axis-alignment: center;
+            Text {
+                text: "Profiles";
+                color: Theme.text;
+                font-size: Theme.font-title;
+                font-weight: 700;
+                horizontal-stretch: 1;
+            }
+            SecondaryButton {
+                width: 100px;
+                text: "Ping all";
+                clicked => { root.ping-all(); }
+            }
+            SecondaryButton {
+                width: 90px;
+                text: "Reload";
+                clicked => { root.reload(); }
+            }
+        }
+
+        if root.phone : Card {
+            height: 152px;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 9px;
+                Text {
+                    text: "Import a share link";
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+                TextField {
+                    text <=> root.link-input;
+                    placeholder: "vless://  vmess://  trojan://  ss://";
+                    accepted => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    cross-axis-alignment: center;
+                    ChoicePill {
+                        width: 60px;
+                        text: "Xray";
+                        active: root.core-choice == 0;
+                        clicked => { root.core-choice = 0; }
+                    }
+                    ChoicePill {
+                        width: 80px;
+                        text: "sing-box";
+                        active: root.core-choice == 1;
+                        clicked => { root.core-choice = 1; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    PrimaryButton {
+                        width: 96px;
+                        text: "Import";
+                        enabled: root.link-input != "";
+                        clicked => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
+                    }
+                }
+            }
+        }
+        if !root.phone : Card {
+            VerticalLayout {
+                padding: 14px;
+                spacing: 9px;
+                Text {
+                    text: "Import a share link";
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    cross-axis-alignment: center;
+                    TextField {
+                        horizontal-stretch: 1;
+                        text <=> root.link-input;
+                        placeholder: "vless://  vmess://  trojan://  ss://";
+                        accepted => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
+                    }
+                    ChoicePill {
+                        width: 60px;
+                        text: "Xray";
+                        active: root.core-choice == 0;
+                        clicked => { root.core-choice = 0; }
+                    }
+                    ChoicePill {
+                        width: 80px;
+                        text: "sing-box";
+                        active: root.core-choice == 1;
+                        clicked => { root.core-choice = 1; }
+                    }
+                    PrimaryButton {
+                        width: 96px;
+                        text: "Import";
+                        enabled: root.link-input != "";
+                        clicked => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
+                    }
+                }
+            }
+        }
+
+        Card {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    vertical-scrollbar-policy: always-off;
+
+                    VerticalLayout {
+                        spacing: 6px;
+
+                        if root.profiles.length == 0 : Text {
+                            text: "No profiles yet. Import a share link above.";
+                            color: Theme.muted;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+
+                        for row in root.profiles : ProfileRowView {
+                            row-data: row;
+                            compact: root.phone;
+                            select(id) => { root.select(id); }
+                            ping(id) => { root.ping(id); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component LogsPage inherits Rectangle {
+    in property <bool> phone;
+    in property <[string]> logs;
+    callback clear();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    VerticalLayout {
+        padding: root.phone ? 16px : 28px;
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            cross-axis-alignment: center;
+            if !root.phone : Text {
+                text: "Logs";
+                color: Theme.text;
+                font-size: Theme.font-title;
+                font-weight: 700;
+                horizontal-stretch: 1;
+            }
+            if root.phone : Rectangle { horizontal-stretch: 1; }
+            SecondaryButton {
+                width: 90px;
+                text: "Clear";
+                clicked => { root.clear(); }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: #070a10;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            ScrollView {
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 2px;
+                    for line in root.logs : Text {
+                        text: line;
+                        color: #a9b7c9;
+                        font-size: 10px;
+                        font-family: "monospace";
+                        wrap: no-wrap;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsPage inherits Rectangle {
+    in property <bool> phone;
+    in property <string> xray-version;
+    in property <string> singbox-version;
+    in property <string> data-dir;
+    in-out property <string> socks-port;
+    in-out property <string> http-port;
+    in-out property <bool> system-proxy;
+    callback save-settings(string, string, bool);
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    ScrollView {
+        VerticalLayout {
+            padding: root.phone ? 16px : 28px;
+            spacing: 14px;
+
+            if !root.phone : Text {
+                text: "Settings";
+                color: Theme.text;
+                font-size: Theme.font-title;
+                font-weight: 700;
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+                    Text {
+                        text: "Local listeners";
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+
+                    if root.phone : VerticalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            spacing: 5px;
+                            FieldLabel { text: "SOCKS PORT"; }
+                            TextField { text <=> root.socks-port; }
+                        }
+                        VerticalLayout {
+                            spacing: 5px;
+                            FieldLabel { text: "HTTP PORT"; }
+                            TextField { text <=> root.http-port; }
+                        }
+                    }
+                    if !root.phone : HorizontalLayout {
+                        spacing: 12px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 5px;
+                            FieldLabel { text: "SOCKS PORT"; }
+                            TextField { text <=> root.socks-port; }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 5px;
+                            FieldLabel { text: "HTTP PORT"; }
+                            TextField { text <=> root.http-port; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        cross-axis-alignment: center;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 2px;
+                            Text {
+                                text: "Set system proxy";
+                                color: Theme.text;
+                                font-size: 13px;
+                            }
+                            Text {
+                                text: "Point the OS proxy at 127.0.0.1";
+                                color: Theme.muted;
+                                font-size: 10px;
+                            }
+                        }
+                        Switch { checked <=> root.system-proxy; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        PrimaryButton {
+                            text: "Save settings";
+                            width: 140px;
+                            horizontal-stretch: root.phone ? 1 : 0;
+                            clicked => {
+                                root.save-settings(root.socks-port, root.http-port, root.system-proxy);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 10px;
+                    Text {
+                        text: "Cores";
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "Xray"; tint: Theme.accent; badge-width: 62px; }
+                        Text {
+                            text: root.xray-version;
+                            color: Theme.text-2;
+                            font-size: 10px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "sing-box"; badge-width: 62px; }
+                        Text {
+                            text: root.singbox-version;
+                            color: Theme.text-2;
+                            font-size: 10px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        text: "Install a core with scripts/fetch-xray.sh or scripts/fetch-singbox.sh. You can also set BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN.";
+                        color: Theme.muted;
+                        font-size: 10px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 6px;
+                    Text {
+                        text: "Data";
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+                    Text {
+                        text: root.data-dir;
+                        color: Theme.text-2;
+                        font-size: 10px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+        }
+    }
+}
