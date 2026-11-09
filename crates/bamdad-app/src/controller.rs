@@ -336,7 +336,6 @@ fn setup_callbacks(
             }
         });
     }
-
 }
 
 fn begin_ping(
@@ -556,7 +555,20 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 {
                     let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
                     std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(400));
+                        use std::net::{SocketAddr, TcpStream};
+                        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                        let mut ready = false;
+                        for _ in 0..50 {
+                            if TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
+                            {
+                                ready = true;
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        if !ready {
+                            eprintln!("bamdad: SOCKS listener not ready before VPN start");
+                        }
                         crate::start_android_vpn(port);
                     });
                 }

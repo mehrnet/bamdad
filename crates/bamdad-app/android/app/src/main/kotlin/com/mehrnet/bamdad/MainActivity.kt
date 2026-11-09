@@ -73,6 +73,7 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         fun stopVpn() {
             val activity = instance ?: return
+            Log.i(TAG, "stopVpn requested")
             Handler(Looper.getMainLooper()).post {
                 BamdadVpnService.stop(activity)
             }

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -26,11 +27,14 @@ class BamdadVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createChannel()
+        Log.i(TAG, "service created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "stop action received")
             stopTunnel()
             stopSelf()
             return START_NOT_STICKY
@@ -41,11 +45,16 @@ class BamdadVpnService : VpnService() {
         if (!running) {
             startTunnel()
         }
-        return START_STICKY
+        // Do not resurrect a VPN after the user explicitly disconnects.
+        return START_NOT_STICKY
     }
 
     private fun startTunnel() {
         if (tunFd != null) return
+
+        // Capture the physical network before the VPN becomes active.
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val underlying = connectivity?.activeNetwork
 
         val builder = Builder()
             .setSession("Bamdad")
@@ -78,8 +87,22 @@ class BamdadVpnService : VpnService() {
         }
         if (fd == null) {
             Log.e(TAG, "VpnService.Builder.establish() returned null")
+            stopTunnel()
             stopSelf()
             return
+        }
+
+        // Give the tunnel an explicit underlying network. Without this some
+        // devices leave the VPN without a working uplink.
+        try {
+            if (underlying != null) {
+                setUnderlyingNetworks(arrayOf(underlying))
+            } else {
+                setUnderlyingNetworks(null)
+            }
+            Log.i(TAG, "underlying network: $underlying")
+        } catch (error: Throwable) {
+            Log.w(TAG, "setUnderlyingNetworks failed: ${error.message}")
         }
 
         val config = File(cacheDir, "hev-socks5-tunnel.yml")
@@ -99,6 +122,7 @@ class BamdadVpnService : VpnService() {
         if (!TProxyService.TProxyStartService(config.absolutePath, fd.fd)) {
             Log.e(TAG, "hev-socks5-tunnel failed to start")
             fd.close()
+            stopTunnel()
             stopSelf()
             return
         }
@@ -108,29 +132,41 @@ class BamdadVpnService : VpnService() {
         Log.i(TAG, "VPN tunnel started (socks 127.0.0.1:$socksPort)")
     }
 
+    @Synchronized
     private fun stopTunnel() {
+        Log.i(TAG, "stopping tunnel")
         if (running) {
-            TProxyService.TProxyStopService()
+            try {
+                TProxyService.TProxyStopService()
+            } catch (error: Throwable) {
+                Log.e(TAG, "hev stop failed: ${error.message}")
+            }
             running = false
         }
-        tunFd?.close()
+        try {
+            tunFd?.close()
+        } catch (error: Throwable) {
+            Log.w(TAG, "tun fd close failed: ${error.message}")
+        }
         tunFd = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        try {
             stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+        } catch (error: Throwable) {
+            Log.w(TAG, "stopForeground failed: ${error.message}")
         }
         Log.i(TAG, "VPN tunnel stopped")
     }
 
     override fun onRevoke() {
+        Log.i(TAG, "VPN revoked by system")
         stopTunnel()
         stopSelf()
         super.onRevoke()
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "service destroyed")
+        instance = null
         stopTunnel()
         super.onDestroy()
     }
@@ -182,13 +218,22 @@ class BamdadVpnService : VpnService() {
         const val ACTION_STOP = "com.mehrnet.bamdad.VPN_STOP"
         const val EXTRA_SOCKS_PORT = "socks_port"
 
+        @Volatile
+        private var instance: BamdadVpnService? = null
+
         fun start(context: Context, socksPort: Int) {
+            Log.i(TAG, "start requested (socks $socksPort)")
             val intent = Intent(context, BamdadVpnService::class.java)
                 .putExtra(EXTRA_SOCKS_PORT, socksPort)
             context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
+            Log.i(TAG, "stop requested")
+            instance?.let { service ->
+                service.stopTunnel()
+                service.stopSelf()
+            }
             context.stopService(Intent(context, BamdadVpnService::class.java))
         }
     }

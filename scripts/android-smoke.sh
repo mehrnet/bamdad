@@ -44,6 +44,10 @@ adb shell ip addr show tun0 || true
 echo '--- connectivity ---'
 adb shell dumpsys connectivity | grep -i -A2 -B2 vpn || true
 
+if adb shell which curl >/dev/null 2>&1; then
+    adb shell curl -s --max-time 10 http://example.com -o /dev/null && echo "vpn-http-ok" || echo "vpn-http-failed"
+fi
+
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
 echo '--- vpn log ---'
 grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" || true
@@ -51,3 +55,24 @@ grep -Ei 'BamdadVpn|hev-socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/f
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 ! grep -q 'FATAL EXCEPTION' "$OUT/full-logcat.txt"
 grep -q 'VPN tunnel started' "$OUT/full-logcat.txt"
+
+echo '--- disconnect ---'
+adb shell input tap $((W / 2)) $((H - 180))
+sleep 4
+adb exec-out screencap -p > "$OUT/disconnected.png"
+adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
+grep -q 'VPN tunnel stopped' "$OUT/full-logcat.txt"
+if adb shell dumpsys activity services com.mehrnet.bamdad | grep -q 'BamdadVpnService'; then
+    echo 'BamdadVpnService is still running'
+    exit 1
+fi
+if adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'tun0 is still present'
+    exit 1
+fi
+if adb shell dumpsys notification --noredact | grep -q 'Bamdad VPN'; then
+    echo 'VPN notification is still present'
+    exit 1
+fi
+test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
+echo 'disconnect-ok' 

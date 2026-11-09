@@ -390,6 +390,43 @@ pub fn free_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
+fn managed_socks_inbound(core: CoreKind, port: u16) -> Value {
+    match core {
+        CoreKind::Xray => json!({
+            "tag": "socks",
+            "listen": "127.0.0.1",
+            "port": port,
+            "protocol": "socks",
+            "settings": { "auth": "noauth", "udp": true },
+            "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] }
+        }),
+        CoreKind::SingBox => json!({
+            "type": "socks",
+            "tag": "socks",
+            "listen": "127.0.0.1",
+            "listen_port": port
+        }),
+    }
+}
+
+fn managed_http_inbound(core: CoreKind, port: u16) -> Value {
+    match core {
+        CoreKind::Xray => json!({
+            "tag": "http",
+            "listen": "127.0.0.1",
+            "port": port,
+            "protocol": "http",
+            "settings": {}
+        }),
+        CoreKind::SingBox => json!({
+            "type": "http",
+            "tag": "http",
+            "listen": "127.0.0.1",
+            "listen_port": port
+        }),
+    }
+}
+
 /// Final preparation before the config is handed to the core:
 /// * align inbound ports with user settings,
 /// * inject the telemetry endpoint in the core's native format.
@@ -404,8 +441,13 @@ pub fn prepare_config(
         crate::error::CoreError::InvalidLink("config must be a JSON object".into())
     })?;
 
+    let mut has_socks = false;
+    let mut has_http = false;
+    let mut has_inbounds_array = false;
+
     if let Some(inbounds) = object.get_mut("inbounds").and_then(Value::as_array_mut) {
-        for inbound in inbounds {
+        has_inbounds_array = true;
+        for inbound in inbounds.iter_mut() {
             let Some(inbound) = inbound.as_object_mut() else {
                 continue;
             };
@@ -415,18 +457,41 @@ pub fn prepare_config(
                 .or_else(|| inbound.get("type"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
+            let is_mixed = protocol == "mixed";
             let port_key = if core == CoreKind::Xray {
                 "port"
             } else {
                 "listen_port"
             };
 
-            if tag == "socks" || protocol == "socks" {
+            if tag == "socks" || protocol == "socks" || is_mixed {
                 inbound.insert(port_key.into(), json!(settings.socks_port));
+                has_socks = true;
             } else if tag == "http" || protocol == "http" {
                 inbound.insert(port_key.into(), json!(settings.http_port));
+                has_http = true;
             }
         }
+
+        // The Android VPN always needs a SOCKS listener on the managed port,
+        // and the desktop system proxy needs the HTTP listener too. Add them
+        // when a custom/profile config does not provide them.
+        if !has_socks {
+            inbounds.push(managed_socks_inbound(core, settings.socks_port));
+        }
+        if !has_http {
+            inbounds.push(managed_http_inbound(core, settings.http_port));
+        }
+    }
+
+    if !has_inbounds_array {
+        object.insert(
+            "inbounds".into(),
+            json!([
+                managed_socks_inbound(core, settings.socks_port),
+                managed_http_inbound(core, settings.http_port)
+            ]),
+        );
     }
 
     match core {
@@ -514,6 +579,26 @@ mod tests {
         assert_eq!(singbox["outbounds"][0]["type"], "vless");
         assert_eq!(singbox["outbounds"][0]["transport"]["type"], "ws");
         assert_eq!(singbox["route"]["final"], "proxy");
+    }
+
+    #[test]
+    fn adds_managed_inbounds_when_missing() {
+        let settings = AppSettings::default();
+        let input = json!({
+            "inbounds": [],
+            "outbounds": [{ "tag": "proxy", "protocol": "freedom" }]
+        });
+        let prepared = prepare_config(CoreKind::Xray, &input, &settings, 12345).unwrap();
+        let inbounds = prepared["inbounds"].as_array().unwrap();
+        assert!(inbounds
+            .iter()
+            .any(|inbound| inbound["protocol"] == "socks"));
+        assert!(inbounds.iter().any(|inbound| inbound["protocol"] == "http"));
+        let socks = inbounds
+            .iter()
+            .find(|inbound| inbound["protocol"] == "socks")
+            .unwrap();
+        assert_eq!(socks["port"], json!(settings.socks_port));
     }
 
     #[test]
