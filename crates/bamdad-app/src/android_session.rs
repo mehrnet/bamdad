@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use slint::ComponentHandle;
 
-use bamdad_core::engine::{self, EngineEvent, EngineHandle, EngineState};
+use bamdad_core::engine::{self, EngineEvent, EngineHandle};
 
 use crate::controller::{self, LogBuffer, SessionSnapshot};
 use crate::AppWindow;
@@ -122,14 +122,6 @@ fn spawn_relay(
                     }
                     _ => {}
                 }
-            }
-
-            if matches!(
-                &event,
-                EngineEvent::State(EngineState::Error(_))
-                    | EngineEvent::State(EngineState::Stopped)
-            ) {
-                crate::stop_android_vpn();
             }
 
             let tx = ui_tx.lock().unwrap().clone();
