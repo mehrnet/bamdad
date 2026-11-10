@@ -124,6 +124,10 @@ fn spawn_relay(
                 }
             }
 
+            if let EngineEvent::Log { line, .. } = &event {
+                crate::logcat(line);
+            }
+
             let tx = ui_tx.lock().unwrap().clone();
             if let Some(tx) = tx {
                 let _ = tx.send(event);

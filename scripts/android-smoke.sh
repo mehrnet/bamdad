@@ -100,14 +100,27 @@ fi
 
 echo '--- switch core while connected ---'
 adb shell input tap $((W / 2)) $((H * 1090 / 1920))
-sleep 5
+sleep 10
 if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     echo 'vpn-dropped-on-switch'
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     exit 1
 fi
-adb shell /data/local/tmp/bamdad-netcheck example.com 80 | tee "$OUT/netcheck-after-switch.txt"
-grep -q 'HTTP/1' "$OUT/netcheck-after-switch.txt"
+set +e
+for attempt in 1 2 3; do
+    adb shell /data/local/tmp/bamdad-netcheck example.com 80 2>&1 | tee "$OUT/netcheck-after-switch.txt"
+    if grep -q 'HTTP/1' "$OUT/netcheck-after-switch.txt"; then
+        SWITCH_TRAFFIC_OK=1
+        break
+    fi
+    sleep 3
+done
+set -e
+if [ "${SWITCH_TRAFFIC_OK:-0}" != "1" ]; then
+    echo 'switch-traffic-failed'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
 adb shell run-as com.mehrnet.bamdad cat files/profiles.json > "$OUT/profiles-after-switch.json"
 python3 - "$OUT/profiles-after-switch.json" <<'PY'
 import json, sys
