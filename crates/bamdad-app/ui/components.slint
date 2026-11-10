@@ -707,9 +707,7 @@ export component GroupCard inherits Rectangle {
     in property <bool> compact: false;
     callback toggle(string);
     callback ping-group(string);
-    callback edit-group(string);
-    callback refresh-group(string);
-    callback delete-group(string);
+    callback open-menu(string);
     callback select(string);
     callback ping(string);
 
@@ -750,10 +748,7 @@ export component GroupCard inherits Rectangle {
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
-            }
-            Badge {
-                label: root.group-data.kind;
-                tint: root.group-data.id == "default" ? Theme.text-2 : Theme.accent;
+                horizontal-alignment: root.group-data.rtl ? right : left;
             }
             PingButton {
                 text: root.group-data.ping;
@@ -761,19 +756,9 @@ export component GroupCard inherits Rectangle {
                 clicked => { root.ping-group(root.group-data.id); }
             }
             if root.group-data.deletable : HeaderButton {
-                icon: @image-url("icons/pencil.svg");
+                icon: @image-url("icons/dots.svg");
                 button-size: 28px;
-                clicked => { root.edit-group(root.group-data.id); }
-            }
-            if root.group-data.deletable : HeaderButton {
-                icon: @image-url("icons/reload.svg");
-                button-size: 28px;
-                clicked => { root.refresh-group(root.group-data.id); }
-            }
-            if root.group-data.deletable : HeaderButton {
-                icon: @image-url("icons/trash.svg");
-                button-size: 28px;
-                clicked => { root.delete-group(root.group-data.id); }
+                clicked => { root.open-menu(root.group-data.id); }
             }
         }
 

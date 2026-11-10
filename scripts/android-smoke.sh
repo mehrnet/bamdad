@@ -168,7 +168,7 @@ grep -q 'HTTP/1' "$OUT/netcheck-after-reopen.txt"
 echo 'vpn-survived-window-close'
 
 echo '--- disconnect ---'
-adb shell input tap $((W * 86 / 100)) $((H * 88 / 100))
+adb shell input tap $((W * 86 / 100)) $((H - 180))
 sleep 4
 adb exec-out screencap -p > "$OUT/disconnected.png"
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"

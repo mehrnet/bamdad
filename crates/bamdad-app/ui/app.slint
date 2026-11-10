@@ -74,7 +74,7 @@ component ConnectionBar inherits Rectangle {
     callback toggle-connect();
     callback toggle-ip();
 
-    height: root.phone ? 84px : 76px;
+    height: root.phone ? 76px : 70px;
     background: Theme.bg-raised;
 
     Rectangle {
@@ -86,8 +86,8 @@ component ConnectionBar inherits Rectangle {
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        padding-top: 6px;
-        padding-bottom: 6px;
+        padding-top: 2px;
+        padding-bottom: 2px;
         spacing: 10px;
         cross-axis-alignment: center;
 
@@ -386,6 +386,56 @@ component EditGroupDialog inherits Rectangle {
     }
 }
 
+component GroupActionsMenu inherits Rectangle {
+    in property <bool> phone;
+    in property <string> name;
+    callback edit();
+    callback refresh();
+    callback delete();
+    callback close();
+
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea { clicked => { root.close(); } }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 380px;
+        height: 270px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 8px;
+            Text {
+                text: root.name;
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            SecondaryButton {
+                text: "Edit profile";
+                clicked => { root.edit(); }
+            }
+            SecondaryButton {
+                text: "Update profile";
+                clicked => { root.refresh(); }
+            }
+            SecondaryButton {
+                text: "Delete profile";
+                clicked => { root.delete(); }
+            }
+            PrimaryButton {
+                text: "Cancel";
+                clicked => { root.close(); }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Bamdad";
     preferred-width: 1120px;
@@ -424,6 +474,9 @@ export component AppWindow inherits Window {
     in-out property <string> edit-group-id: "";
     in-out property <string> edit-name: "";
     in-out property <string> edit-url: "";
+    in-out property <bool> group-menu-open: false;
+    in-out property <string> group-menu-id: "";
+    in-out property <string> group-menu-name: "";
 
     callback toggle-connect();
     callback select-profile(string);
@@ -452,6 +505,8 @@ export component AppWindow inherits Window {
     callback refresh-group(string);
     callback close-edit();
     callback save-group(string, string, string);
+    callback open-group-menu(string);
+    callback close-group-menu();
     callback toggle-ip();
 
     // Breakpoints are set from Rust by watching the actual window size. Deriving
@@ -495,11 +550,9 @@ export component AppWindow inherits Window {
                     status-text: root.status-text;
                     select(id) => { root.select-profile(id); }
                     ping(id) => { root.ping-profile(id); }
-                    edit-group(id) => { root.edit-group(id); }
-                    refresh-group(id) => { root.refresh-group(id); }
+                    open-group-menu(id) => { root.open-group-menu(id); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
-                    delete-group(id) => { root.delete-group(id); }
                 }
 
                 if root.page == 1 : SettingsPage {
@@ -571,6 +624,24 @@ export component AppWindow inherits Window {
             url <=> root.edit-url;
             close => { root.close-edit(); }
             save(id, name, url) => { root.save-group(id, name, url); }
+        }
+
+        if root.group-menu-open : GroupActionsMenu {
+            phone: root.phone;
+            name: root.group-menu-name;
+            edit => {
+                root.edit-group(root.group-menu-id);
+                root.close-group-menu();
+            }
+            refresh => {
+                root.refresh-group(root.group-menu-id);
+                root.close-group-menu();
+            }
+            delete => {
+                root.delete-group(root.group-menu-id);
+                root.close-group-menu();
+            }
+            close => { root.close-group-menu(); }
         }
     }
 }

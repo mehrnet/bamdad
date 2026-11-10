@@ -358,6 +358,24 @@ fn display_name(name: &str) -> String {
     out
 }
 
+fn is_rtl_name(name: &str) -> bool {
+    for ch in name.chars() {
+        if ch.is_alphabetic() {
+            let code = ch as u32;
+            return matches!(
+                code,
+                0x0590..=0x05FF
+                    | 0x0600..=0x06FF
+                    | 0x0750..=0x077F
+                    | 0x08A0..=0x08FF
+                    | 0xFB50..=0xFDFF
+                    | 0xFE70..=0xFEFF
+            );
+        }
+    }
+    false
+}
+
 fn name_parts(name: &str) -> Vec<NamePart> {
     let name = display_name(name);
     let name = name.as_str();
@@ -407,10 +425,15 @@ fn node_row(
         .get(&profile.id)
         .cloned()
         .unwrap_or_else(|| (initial_ping(profile), 0));
+    let rtl = is_rtl_name(&profile.name);
+    let mut parts = name_parts(&profile.name);
+    if rtl {
+        parts.reverse();
+    }
     ProfileRow {
         id: profile.id.as_str().into(),
         name: profile.name.as_str().into(),
-        name_parts: ModelRc::new(VecModel::from(name_parts(&profile.name))),
+        name_parts: ModelRc::new(VecModel::from(parts)),
         detail: format!(
             "{} · {}",
             protocol_label(&profile.protocol),
@@ -422,6 +445,7 @@ fn node_row(
         ping: ping.into(),
         ping_state,
         selected: selected_id == Some(profile.id.as_str()),
+        rtl,
     }
 }
 
@@ -506,6 +530,7 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
                 ping: ping.into(),
                 ping_state,
                 nodes: ModelRc::new(VecModel::from(node_rows)),
+                rtl: is_rtl_name(&title),
             }
         })
         .collect();
@@ -1057,6 +1082,7 @@ fn setup_callbacks(
         let logs = logs.clone();
         ui.on_delete_group(move |id| {
             let Some(ui) = weak.upgrade() else { return };
+            ui.set_group_menu_open(false);
             let removed = {
                 let mut guard = store.lock().unwrap();
                 let removed = guard.remove_group(id.as_str());
@@ -1071,6 +1097,35 @@ fn setup_callbacks(
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
                 push_log(&ui, &logs, "subscription deleted".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_open_group_menu(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let name = {
+                let guard = store.lock().unwrap();
+                guard
+                    .profiles
+                    .iter()
+                    .find(|profile| profile.group_key() == id.as_str())
+                    .map(|profile| profile.group_title())
+            };
+            let Some(name) = name else { return };
+            ui.set_group_menu_id(id.clone());
+            ui.set_group_menu_name(name.into());
+            ui.set_group_menu_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_group_menu(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_group_menu_open(false);
             }
         });
     }
@@ -1100,6 +1155,7 @@ fn setup_callbacks(
             ui.set_edit_group_id(id.clone());
             ui.set_edit_name(name.into());
             ui.set_edit_url(url.into());
+            ui.set_group_menu_open(false);
             ui.set_edit_open(true);
         });
     }
@@ -1153,6 +1209,7 @@ fn setup_callbacks(
         let logs = logs.clone();
         ui.on_refresh_group(move |id| {
             let Some(ui) = weak.upgrade() else { return };
+            ui.set_group_menu_open(false);
             let id = id.to_string();
             let info = {
                 let guard = store.lock().unwrap();
