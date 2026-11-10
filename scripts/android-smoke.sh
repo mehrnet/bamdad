@@ -15,8 +15,9 @@ adb install -r "$APK"
 adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null 2>&1 || true
 sleep 3
 adb shell am force-stop com.mehrnet.bamdad || true
-adb shell run-as com.mehrnet.bamdad mkdir -p files
-adb shell run-as com.mehrnet.bamdad sh -c 'cat > files/profiles.json' < scripts/android-test-profiles.json
+DATA_DIR=/data/user/0/com.mehrnet.bamdad/files
+adb shell run-as com.mehrnet.bamdad mkdir -p "$DATA_DIR"
+adb shell "run-as com.mehrnet.bamdad sh -c 'cat > $DATA_DIR/profiles.json'" < scripts/android-test-profiles.json
 adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
 adb shell settings put global hide_error_dialogs 1 || true
 adb shell settings put global anr_show_background 0 || true
