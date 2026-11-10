@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -18,6 +18,7 @@ pub(crate) type LogBuffer = Arc<Mutex<Vec<String>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
+static SWITCHING: AtomicBool = AtomicBool::new(false);
 
 pub fn init(
     ui: &AppWindow,
@@ -112,6 +113,7 @@ pub(crate) fn init_attached(
         ui.set_total_down_text(format_bytes(snapshot.total_down).into());
         match &snapshot.state {
             EngineState::Running => {
+                SWITCHING.store(false, Ordering::SeqCst);
                 ui.set_connected(true);
                 ui.set_busy(false);
                 ui.set_status_text("Connected".into());
@@ -132,6 +134,9 @@ pub(crate) fn init_attached(
                 ui.set_status_text("Core error".into());
             }
             EngineState::Stopped => {
+                if SWITCHING.load(Ordering::SeqCst) {
+                    return;
+                }
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Disconnected".into());
@@ -370,7 +375,7 @@ fn setup_callbacks(
             if ui.get_connected() || ui.get_busy() {
                 stop_connection(&ui, &store, &engine, &logs);
             } else {
-                start_connection(&ui, &store, &engine, &logs);
+                start_connection(&ui, &store, &engine, &logs, false);
             }
         });
     }
@@ -380,6 +385,7 @@ fn setup_callbacks(
         let store = store.clone();
         let pings = pings.clone();
         let logs = logs.clone();
+        let engine = engine.clone();
         ui.on_select_profile(move |id| {
             let Some(ui) = weak.upgrade() else { return };
             let selected = {
@@ -398,7 +404,20 @@ fn setup_callbacks(
             drop(guard);
 
             ui.set_selected_id(selected.id.as_str().into());
-            push_log(&ui, &logs, format!("selected profile: {}", selected.name));
+
+            if ui.get_connected() && !ui.get_busy() {
+                let message = format!(
+                    "switching to {} ({}) without dropping the tunnel",
+                    selected.name,
+                    selected.core.label()
+                );
+                #[cfg(target_os = "android")]
+                crate::logcat(&message);
+                push_log(&ui, &logs, message);
+                start_connection(&ui, &store, &engine, &logs, true);
+            } else {
+                push_log(&ui, &logs, format!("selected profile: {}", selected.name));
+            }
         });
     }
 
@@ -736,6 +755,7 @@ fn start_connection(
     store: &Arc<Mutex<Store>>,
     engine: &EngineHandle,
     logs: &LogBuffer,
+    switching: bool,
 ) {
     let (settings, profile) = {
         let guard = store.lock().unwrap();
@@ -855,6 +875,9 @@ fn start_connection(
         api_port,
     };
 
+    if switching {
+        SWITCHING.store(true, Ordering::SeqCst);
+    }
     engine.start(spec);
     ui.set_busy(true);
     ui.set_status_text("Starting…".into());
@@ -878,6 +901,7 @@ fn stop_connection(
     engine: &EngineHandle,
     logs: &LogBuffer,
 ) {
+    SWITCHING.store(false, Ordering::SeqCst);
     engine.stop();
     crate::stop_android_vpn();
     ui.set_busy(true);
@@ -1016,16 +1040,24 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 });
             }
             EngineState::Stopping => {
+                if SWITCHING.load(Ordering::SeqCst) {
+                    ui.set_busy(true);
+                    ui.set_status_text("Switching…".into());
+                    return;
+                }
                 ui.set_busy(true);
                 ui.set_status_text("Stopping…".into());
                 crate::stop_android_vpn();
             }
             EngineState::Error(message) => {
+                SWITCHING.store(false, Ordering::SeqCst);
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Core error".into());
-                crate::stop_android_vpn();
+                #[cfg(not(target_os = "android"))]
                 let _ = system_proxy::disable();
+                // Android: keep the TUN up as a blackhole so apps cannot fall
+                // back to the physical network. The user disconnects explicitly.
                 push_log(ui, logs, message);
             }
         },

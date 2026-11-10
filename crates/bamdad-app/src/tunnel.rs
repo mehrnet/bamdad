@@ -115,7 +115,8 @@ pub fn start(fd: i32, socks_port: u16) -> bool {
     true
 }
 
-/// Watch for an unexpected tunnel exit and tear the VPN down if it happens.
+/// Watch for an unexpected tunnel exit. The VPN is intentionally left up:
+/// stopping it would let apps fall back to the physical network and leak.
 fn spawn_monitor() {
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(2));
@@ -125,10 +126,11 @@ fn spawn_monitor() {
         };
         match child.try_wait() {
             Ok(Some(status)) => {
-                log(format!("tun2socks exited unexpectedly ({status})"));
+                log(format!(
+                    "tun2socks exited unexpectedly ({status}); VPN stays up and blocks traffic"
+                ));
                 *slot = None;
                 drop(slot);
-                crate::stop_android_vpn();
                 return;
             }
             Ok(None) => {}

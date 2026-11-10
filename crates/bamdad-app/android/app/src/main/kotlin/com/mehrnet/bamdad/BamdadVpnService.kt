@@ -56,9 +56,14 @@ class BamdadVpnService : VpnService() {
             .setMtu(MTU)
             .setBlocking(false)
             .addAddress("172.19.0.1", 30)
+            // Capture IPv6 as well. Even if the proxy has no IPv6 egress,
+            // capturing it prevents apps from leaking over the physical link.
+            .addAddress("fdfe:dcba:9876::1", 126)
             .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
+            .addDnsServer("2606:4700:4700::1111")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)

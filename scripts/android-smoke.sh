@@ -91,6 +91,27 @@ test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 grep -q 'VPN tunnel started' "$OUT/full-logcat.txt"
 grep -q 'proxy check: SOCKS CONNECT example.com:443 ok' "$OUT/full-logcat.txt"
 
+echo '--- ipv6 captured ---'
+if ! adb shell ip -6 addr show tun0 2>/dev/null | grep -q 'inet6 '; then
+    echo 'ipv6-not-captured'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
+
+echo '--- switch core while connected ---'
+adb shell input tap $((W / 2)) $((H * 1090 / 1920))
+sleep 5
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'vpn-dropped-on-switch'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
+adb shell /data/local/tmp/bamdad-netcheck example.com 80 | tee "$OUT/netcheck-after-switch.txt"
+grep -q 'HTTP/1' "$OUT/netcheck-after-switch.txt"
+grep -q 'switching to Direct' "$OUT/full-logcat.txt" || adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
+grep -q 'switching to Direct' "$OUT/full-logcat.txt"
+echo 'switch-ok'
+
 echo '--- close window, keep vpn ---'
 adb shell input keyevent KEYCODE_BACK
 sleep 4
