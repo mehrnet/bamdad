@@ -108,8 +108,17 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
 fi
 adb shell /data/local/tmp/bamdad-netcheck example.com 80 | tee "$OUT/netcheck-after-switch.txt"
 grep -q 'HTTP/1' "$OUT/netcheck-after-switch.txt"
-grep -q 'switching to Direct' "$OUT/full-logcat.txt" || adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
-grep -q 'switching to Direct' "$OUT/full-logcat.txt"
+adb shell run-as com.mehrnet.bamdad cat files/profiles.json > "$OUT/profiles-after-switch.json"
+python3 - "$OUT/profiles-after-switch.json" <<'PY'
+import json, sys
+store = json.load(open(sys.argv[1]))
+selected = store.get("selected_id")
+profile = next((p for p in store.get("profiles", []) if p.get("id") == selected), None)
+if not profile or "sing-box" not in profile.get("name", "").lower():
+    print("switch-not-applied")
+    sys.exit(1)
+print("switch-selected", profile.get("name"))
+PY
 echo 'switch-ok'
 
 echo '--- close window, keep vpn ---'
