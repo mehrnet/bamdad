@@ -204,6 +204,53 @@ fn setup_callbacks(
                 CoreKind::Xray
             };
 
+            let trimmed = raw.trim();
+            if trimmed.starts_with('{') {
+                match serde_json::from_str::<serde_json::Value>(trimmed) {
+                    Ok(config)
+                        if config.is_object()
+                            && config
+                                .get("outbounds")
+                                .is_some_and(|value| value.is_array()) =>
+                    {
+                        let name = format!("Custom · {}", core.label());
+                        let profile = config::Profile {
+                            id: config::new_id(),
+                            name: name.clone(),
+                            core,
+                            protocol: "custom".to_string(),
+                            address: String::new(),
+                            port: 0,
+                            config,
+                            source: None,
+                        };
+                        {
+                            let mut guard = store.lock().unwrap();
+                            guard.add_profile(profile);
+                            let _ = save_store(&guard);
+                        }
+                        let guard = store.lock().unwrap();
+                        ui.set_profiles(profile_model(&guard, &pings));
+                        ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
+                        drop(guard);
+                        push_log(&ui, &logs, format!("imported {name}"));
+                    }
+                    Ok(_) => {
+                        push_log(
+                            &ui,
+                            &logs,
+                            "import failed: JSON config needs an \"outbounds\" array".to_string(),
+                        );
+                        ui.set_status_text("Import failed".into());
+                    }
+                    Err(error) => {
+                        push_log(&ui, &logs, format!("import failed: {error}"));
+                        ui.set_status_text("Import failed".into());
+                    }
+                }
+                return;
+            }
+
             match link::parse(None, raw.as_str()) {
                 Ok(spec) => {
                     let mut core = core;

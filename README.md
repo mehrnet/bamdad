@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.10
-git push origin v0.1.10
+git tag v0.1.11
+git push origin v0.1.11
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -265,6 +265,24 @@ The suite includes:
 
 Both smoke tests skip automatically when the corresponding core is not
 installed.
+
+## Supported profiles
+
+| Input | Status |
+|---|---|
+| VLESS over TCP/Reality, WS, gRPC, HTTP/2, HTTPUpgrade, XHTTP/SpliHTTP | supported |
+| VLESS TLS/Reality, `flow`, WS early data (`ed`/`eh`), gRPC `mode=multi`, XHTTP `mode`/`extra` | supported |
+| VMess (TCP/WS/gRPC/HTTP) | supported |
+| Trojan (TLS/WS/gRPC) | supported |
+| Shadowsocks SIP002 / legacy links | supported |
+| Custom Xray or sing-box JSON | paste it into the Import box (must contain an `outbounds` array) |
+| Subscriptions | not yet |
+| SSR, SIP003 plugins (`obfs`, `v2ray-plugin`) | not yet |
+| Hysteria2, TUIC, WireGuard, OpenVPN | roadmap |
+
+XHTTP is Xray-only; imports that select sing-box are switched to Xray
+automatically. Link-based profiles are regenerated from their stored share link
+on startup, so config fixes apply without re-importing.
 
 ## Android VPN
 

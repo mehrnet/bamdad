@@ -89,6 +89,14 @@ pub struct ProxySpec {
     pub xhttp_mode: String,
     /// XHTTP `extra` object from the share link.
     pub xhttp_extra: Option<Value>,
+    /// WebSocket early-data length (`ed=`).
+    pub ws_max_early_data: u32,
+    /// WebSocket early-data header name (`eh=`).
+    pub ws_early_data_header: String,
+    /// gRPC `mode=multi`.
+    pub grpc_multi_mode: bool,
+    /// gRPC authority/host override.
+    pub grpc_authority: String,
 }
 
 impl ProxySpec {
@@ -197,6 +205,16 @@ fn fill_common(spec: &mut ProxySpec, params: &HashMap<String, String>, host: &st
     spec.xhttp_extra = params
         .get("extra")
         .and_then(|value| serde_json::from_str(&decode_percent(value)).ok());
+    spec.ws_max_early_data = params
+        .get("ed")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    spec.ws_early_data_header = params.get("eh").cloned().unwrap_or_default();
+    spec.grpc_multi_mode = params.get("mode").map(String::as_str) == Some("multi");
+    spec.grpc_authority = params.get("authority").cloned().unwrap_or_default();
+    if spec.network == "raw" {
+        spec.network = "tcp".to_string();
+    }
     spec.alpn = params
         .get("alpn")
         .map(|value| {
@@ -514,13 +532,27 @@ fn xray_stream_settings(spec: &ProxySpec) -> Value {
 
     match spec.network.as_str() {
         "ws" => {
-            stream["wsSettings"] = json!({
+            let mut settings = json!({
                 "path": spec.path,
                 "headers": { "Host": spec.host_header }
             });
+            if spec.ws_max_early_data > 0 {
+                settings["maxEarlyData"] = json!(spec.ws_max_early_data);
+            }
+            if !spec.ws_early_data_header.is_empty() {
+                settings["earlyDataHeaderName"] = json!(spec.ws_early_data_header);
+            }
+            stream["wsSettings"] = settings;
         }
         "grpc" => {
-            stream["grpcSettings"] = json!({ "serviceName": spec.service_name });
+            let mut settings = json!({ "serviceName": spec.service_name });
+            if spec.grpc_multi_mode {
+                settings["multiMode"] = json!(true);
+            }
+            if !spec.grpc_authority.is_empty() {
+                settings["authority"] = json!(spec.grpc_authority);
+            }
+            stream["grpcSettings"] = settings;
         }
         "h2" | "http" => {
             stream["httpSettings"] = json!({
@@ -666,11 +698,14 @@ fn singbox_transport(spec: &ProxySpec) -> Option<Value> {
         "ws" => Some(prune_nulls(json!({
             "type": "ws",
             "path": spec.path,
-            "headers": { "Host": spec.host_header }
+            "headers": { "Host": spec.host_header },
+            "max_early_data": if spec.ws_max_early_data > 0 { Some(spec.ws_max_early_data) } else { None },
+            "early_data_header_name": if spec.ws_early_data_header.is_empty() { None } else { Some(spec.ws_early_data_header.clone()) }
         }))),
         "grpc" => Some(prune_nulls(json!({
             "type": "grpc",
-            "service_name": spec.service_name
+            "service_name": spec.service_name,
+            "authority": if spec.grpc_authority.is_empty() { None } else { Some(spec.grpc_authority.clone()) }
         }))),
         "h2" | "http" => Some(prune_nulls(json!({
             "type": "http",
@@ -741,6 +776,39 @@ mod tests {
         assert_eq!(stream["xhttpSettings"]["path"], json!("/xhttp"));
         assert_eq!(stream["xhttpSettings"]["mode"], json!("auto"));
         assert_eq!(stream["xhttpSettings"]["host"], json!("example.com"));
+    }
+
+    #[test]
+    fn renders_ws_early_data_and_grpc_multi() {
+        let ws = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=ws&security=tls&path=%2Fws&host=example.com&ed=2048&eh=Sec-WebSocket-Protocol#WS",
+        )
+        .unwrap();
+        let ws_config = crate::config::config_from_spec(crate::CoreKind::Xray, &ws);
+        let ws_settings = &ws_config["outbounds"][0]["streamSettings"]["wsSettings"];
+        assert_eq!(ws_settings["maxEarlyData"], json!(2048));
+        assert_eq!(
+            ws_settings["earlyDataHeaderName"],
+            json!("Sec-WebSocket-Protocol")
+        );
+
+        let grpc = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=grpc&security=tls&serviceName=grpc&mode=multi&authority=grpc.example.com#GRPC",
+        )
+        .unwrap();
+        let grpc_config = crate::config::config_from_spec(crate::CoreKind::Xray, &grpc);
+        let grpc_settings = &grpc_config["outbounds"][0]["streamSettings"]["grpcSettings"];
+        assert_eq!(grpc_settings["multiMode"], json!(true));
+        assert_eq!(grpc_settings["authority"], json!("grpc.example.com"));
+
+        let raw = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=raw&security=reality&sni=example.com&pbk=abc&sid=01#Raw",
+        )
+        .unwrap();
+        assert_eq!(raw.network, "tcp");
     }
 
     #[test]
