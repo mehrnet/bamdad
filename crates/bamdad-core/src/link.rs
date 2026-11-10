@@ -202,9 +202,21 @@ fn fill_common(spec: &mut ProxySpec, params: &HashMap<String, String>, host: &st
         .unwrap_or_default();
     spec.header_type = params.get("headerType").cloned().unwrap_or_default();
     spec.xhttp_mode = params.get("mode").cloned().unwrap_or_default();
-    spec.xhttp_extra = params
-        .get("extra")
-        .and_then(|value| serde_json::from_str(&decode_percent(value)).ok());
+    spec.xhttp_extra = params.get("extra").and_then(|value| {
+        serde_json::from_str(value)
+            .ok()
+            .or_else(|| serde_json::from_str(&decode_percent(value)).ok())
+    });
+    if spec.xhttp_mode.is_empty() {
+        if let Some(mode) = spec
+            .xhttp_extra
+            .as_ref()
+            .and_then(|extra| extra.get("mode"))
+            .and_then(Value::as_str)
+        {
+            spec.xhttp_mode = mode.to_string();
+        }
+    }
     spec.ws_max_early_data = params
         .get("ed")
         .and_then(|value| value.parse().ok())
@@ -784,6 +796,18 @@ mod tests {
         assert_eq!(stream["xhttpSettings"]["path"], json!("/xhttp"));
         assert_eq!(stream["xhttpSettings"]["mode"], json!("auto"));
         assert_eq!(stream["xhttpSettings"]["host"], json!("example.com"));
+    }
+
+    #[test]
+    fn reads_double_encoded_xhttp_extra_and_mode() {
+        let spec = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=xhttp&security=tls&path=%2Fx&host=example.com&extra=%257B%2522mode%2522%253A%2522stream-up%2522%252C%2522scMaxEachPostBytes%2522%253A5000000%257D#X",
+        )
+        .unwrap();
+        assert_eq!(spec.xhttp_mode, "stream-up");
+        let extra = spec.xhttp_extra.as_ref().unwrap();
+        assert_eq!(extra["scMaxEachPostBytes"], json!(5_000_000));
     }
 
     #[test]
