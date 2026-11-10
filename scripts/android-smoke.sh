@@ -29,7 +29,7 @@ echo "screen ${W}x${H}"
 CONSENT=$(find /home/runner/work -type f -name 'android-consent.py' -print -quit)
 consented=false
 for offset in 180 150 210; do
-    adb shell input tap $((W / 2)) $((H - offset))
+    adb shell input tap $((W * 9 / 10)) $((H - offset))
     sleep 3
     for _ in 1 2 3 4; do
         adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
@@ -160,7 +160,7 @@ grep -q 'HTTP/1' "$OUT/netcheck-after-reopen.txt"
 echo 'vpn-survived-window-close'
 
 echo '--- disconnect ---'
-adb shell input tap $((W / 2)) $((H - 180))
+adb shell input tap $((W * 9 / 10)) $((H - 180))
 sleep 4
 adb exec-out screencap -p > "$OUT/disconnected.png"
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
