@@ -91,6 +91,31 @@ test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 grep -q 'VPN tunnel started' "$OUT/full-logcat.txt"
 grep -q 'proxy check: SOCKS CONNECT example.com:443 ok' "$OUT/full-logcat.txt"
 
+echo '--- close window, keep vpn ---'
+adb shell input keyevent KEYCODE_BACK
+sleep 4
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'vpn-stopped-on-window-close'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
+if ! adb shell dumpsys activity services com.mehrnet.bamdad | grep -q 'BamdadVpnService'; then
+    echo 'vpn-service-stopped-on-window-close'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
+adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null
+sleep 6
+adb exec-out screencap -p > "$OUT/reopened.png"
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'vpn-stopped-on-reopen'
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    exit 1
+fi
+adb shell /data/local/tmp/bamdad-netcheck example.com 80 | tee "$OUT/netcheck-after-reopen.txt"
+grep -q 'HTTP/1' "$OUT/netcheck-after-reopen.txt"
+echo 'vpn-survived-window-close'
+
 echo '--- disconnect ---'
 adb shell input tap $((W / 2)) $((H - 180))
 sleep 4

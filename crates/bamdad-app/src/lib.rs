@@ -6,23 +6,39 @@
 
 use slint::ComponentHandle;
 
+#[cfg(target_os = "android")]
+mod android_session;
 pub mod controller;
 #[cfg(target_os = "android")]
 mod tunnel;
 
 slint::include_modules!();
 
-fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+pub(crate) fn register_emoji_font() {
+    use slint::fontique_011::fontique;
+
+    let bytes = include_bytes!("../assets/NotoEmoji.ttf").to_vec();
+    let blob = fontique::Blob::new(std::sync::Arc::new(bytes));
+    let mut collection = slint::fontique_011::shared_collection();
+    let families = collection.register_fonts(blob, None);
+    for script in [*b"Zyyy", *b"Zsye"] {
+        collection.append_fallbacks(
+            fontique::FallbackKey::new(fontique::Script::from_bytes(script), None),
+            families.iter().map(|family| family.0),
+        );
+    }
+}
+
+pub(crate) fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?)
 }
 
+#[cfg(not(target_os = "android"))]
 fn run_ui(ui: AppWindow, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    #[cfg(target_os = "android")]
-    tunnel::set_event_sender(event_tx.clone());
     let _guard = runtime.enter();
     let engine = bamdad_core::engine::spawn(event_tx);
     drop(_guard);
@@ -48,8 +64,16 @@ pub fn run() -> anyhow::Result<()> {
 
     bamdad_core::paths::ensure_layout()?;
     let ui = AppWindow::new()?;
-    let runtime = build_runtime()?;
-    run_ui(ui, runtime)
+    register_emoji_font();
+    #[cfg(target_os = "android")]
+    {
+        android_session::run(ui)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let runtime = build_runtime()?;
+        run_ui(ui, runtime)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,8 +316,8 @@ mod android {
         let result = (|| -> anyhow::Result<()> {
             bamdad_core::paths::ensure_layout()?;
             let ui = AppWindow::new()?;
-            let runtime = build_runtime()?;
-            run_ui(ui, runtime)
+            register_emoji_font();
+            android_session::run(ui)
         })();
         android_ping_call("contentReady");
         if let Err(error) = result {

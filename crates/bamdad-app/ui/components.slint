@@ -404,7 +404,7 @@ export component ConnectOrb inherits Rectangle {
     border-color: connected ? #4ade80 : Theme.border-strong;
 
     Icon {
-        source: @image-url("icons/power.svg");
+        source: root.connected ? @image-url("icons/stop.svg") : @image-url("icons/power.svg");
         tint: root.busy ? Theme.muted : #04121e;
         icon-size: root.orb-size * 0.42;
         x: (parent.width - self.width) / 2;

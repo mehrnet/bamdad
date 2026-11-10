@@ -844,6 +844,35 @@ mod tests {
     }
 
     #[test]
+    fn decodes_emoji_names() {
+        let vless = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=tcp#%F0%9F%9A%80%20Fast",
+        )
+        .unwrap();
+        assert_eq!(vless.name, "🚀 Fast");
+
+        let payload = serde_json::json!({
+            "v": "2",
+            "ps": "🔥 Node",
+            "add": "example.com",
+            "port": "443",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "net": "ws",
+            "path": "/ws",
+            "host": "example.com",
+            "tls": "tls"
+        })
+        .to_string();
+        let link = format!(
+            "vmess://{}",
+            base64::engine::general_purpose::STANDARD.encode(payload)
+        );
+        let vmess = parse(None, &link).unwrap();
+        assert_eq!(vmess.name, "🔥 Node");
+    }
+
+    #[test]
     fn parses_shadowsocks_sip002() {
         let userinfo =
             base64::engine::general_purpose::STANDARD_NO_PAD.encode("aes-128-gcm:secret");

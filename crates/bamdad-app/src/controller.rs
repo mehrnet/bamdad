@@ -13,7 +13,7 @@ use bamdad_core::{binary, link, paths, probe, CoreKind};
 
 use crate::{AppWindow, ProfileRow};
 
-type LogBuffer = Arc<Mutex<Vec<String>>>;
+pub(crate) type LogBuffer = Arc<Mutex<Vec<String>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
@@ -63,6 +63,84 @@ pub fn init(
         );
         std::mem::forget(timer);
     }
+}
+
+/// Shared state that survives activity destruction on Android.
+#[derive(Clone)]
+pub(crate) struct SessionSnapshot {
+    pub state: EngineState,
+    pub total_up: u64,
+    pub total_down: u64,
+}
+
+impl Default for SessionSnapshot {
+    fn default() -> Self {
+        Self {
+            state: EngineState::Stopped,
+            total_up: 0,
+            total_down: 0,
+        }
+    }
+}
+
+/// Attach a (new) UI to an already running Android engine session.
+pub(crate) fn init_attached(
+    ui: &AppWindow,
+    engine: EngineHandle,
+    runtime: tokio::runtime::Handle,
+    logs: LogBuffer,
+    snapshot: Arc<Mutex<SessionSnapshot>>,
+    events: Receiver<EngineEvent>,
+) {
+    let store = Arc::new(Mutex::new(load_store()));
+    let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
+
+    seed(ui, &store, &pings);
+    {
+        let items: Vec<SharedString> = logs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|line| SharedString::from(line.as_str()))
+            .collect();
+        ui.set_logs(ModelRc::new(VecModel::from(items)));
+    }
+    {
+        let snapshot = snapshot.lock().unwrap();
+        ui.set_total_up_text(format_bytes(snapshot.total_up).into());
+        ui.set_total_down_text(format_bytes(snapshot.total_down).into());
+        match &snapshot.state {
+            EngineState::Running => {
+                ui.set_connected(true);
+                ui.set_busy(false);
+                ui.set_status_text("Connected".into());
+            }
+            EngineState::Starting => {
+                ui.set_connected(false);
+                ui.set_busy(true);
+                ui.set_status_text("Starting…".into());
+            }
+            EngineState::Stopping => {
+                ui.set_connected(false);
+                ui.set_busy(true);
+                ui.set_status_text("Stopping…".into());
+            }
+            EngineState::Error(_) => {
+                ui.set_connected(false);
+                ui.set_busy(false);
+                ui.set_status_text("Core error".into());
+            }
+            EngineState::Stopped => {
+                ui.set_connected(false);
+                ui.set_busy(false);
+                ui.set_status_text("Disconnected".into());
+            }
+        }
+    }
+
+    setup_callbacks(ui, engine, runtime, store, logs.clone(), pings.clone());
+    start_size_watch(ui);
+    start_bridge(ui.as_weak(), events, logs);
 }
 
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {

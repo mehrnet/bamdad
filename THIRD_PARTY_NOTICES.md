@@ -26,6 +26,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Noto Emoji
+
+- Project: https://github.com/googlefonts/noto-emoji
+- License: SIL Open Font License 1.1
+- Embedded at `crates/bamdad-app/assets/NotoEmoji.ttf` for emoji fallback.
+
 ## Proxy cores
 
 Xray-core is MPL-2.0 and sing-box is GPL-3.0. They are shipped as separate

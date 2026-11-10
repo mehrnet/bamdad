@@ -30,6 +30,7 @@ slint = { version = "1.18", default-features = false, features = [
     "renderer-femtovg",
     "renderer-software",
     "accessibility",
+    "unstable-fontique-011",
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -40,6 +41,7 @@ slint = { version = "1.18", default-features = false, features = [
     "backend-android-activity-06",
     "renderer-skia-opengl",
     "accessibility",
+    "unstable-fontique-011",
 ] }
 
 [build-dependencies]
