@@ -20,10 +20,10 @@ export component ProfilesPage inherits Rectangle {
     in property <string> status-text: "Disconnected";
     callback select(string);
     callback ping(string);
-    callback ping-all();
-    callback reload();
     callback toggle-group(string);
     callback ping-group(string);
+    callback edit-group(string);
+    callback refresh-group(string);
     callback delete-group(string);
 
     width: 100%;
@@ -32,21 +32,7 @@ export component ProfilesPage inherits Rectangle {
 
     VerticalLayout {
         padding: root.phone ? 16px : 28px;
-        spacing: 12px;
-
-        HorizontalLayout {
-            spacing: 8px;
-            SecondaryButton {
-                text: "Ping all";
-                horizontal-stretch: 1;
-                clicked => { root.ping-all(); }
-            }
-            SecondaryButton {
-                text: "Reload";
-                horizontal-stretch: 1;
-                clicked => { root.reload(); }
-            }
-        }
+        spacing: 10px;
 
         if root.status-text != "Connected" && root.status-text != "Disconnected" : Text {
             text: root.status-text;
@@ -55,30 +41,23 @@ export component ProfilesPage inherits Rectangle {
             overflow: elide;
         }
 
-        Card {
+        ScrollView {
             vertical-stretch: 1;
+            vertical-scrollbar-policy: always-off;
 
             VerticalLayout {
-                padding: 10px;
                 spacing: 8px;
 
-                ScrollView {
-                    vertical-stretch: 1;
-                    vertical-scrollbar-policy: always-off;
-
-                    VerticalLayout {
-                        spacing: 6px;
-
-                        for group in root.groups : GroupCard {
-                            group-data: group;
-                            compact: root.phone;
-                            toggle(id) => { root.toggle-group(id); }
-                            ping-group(id) => { root.ping-group(id); }
-                            delete-group(id) => { root.delete-group(id); }
-                            select(id) => { root.select(id); }
-                            ping(id) => { root.ping(id); }
-                        }
-                    }
+                for group in root.groups : GroupCard {
+                    group-data: group;
+                    compact: root.phone;
+                    toggle(id) => { root.toggle-group(id); }
+                    ping-group(id) => { root.ping-group(id); }
+                    edit-group(id) => { root.edit-group(id); }
+                    refresh-group(id) => { root.refresh-group(id); }
+                    delete-group(id) => { root.delete-group(id); }
+                    select(id) => { root.select(id); }
+                    ping(id) => { root.ping(id); }
                 }
             }
         }

@@ -74,9 +74,7 @@ component ConnectionBar inherits Rectangle {
     callback toggle-connect();
     callback toggle-ip();
 
-    height: root.connected
-        ? (root.phone ? 84px : 76px)
-        : (root.phone ? 64px : 60px);
+    height: root.phone ? 84px : 76px;
     background: Theme.bg-raised;
 
     Rectangle {
@@ -93,8 +91,9 @@ component ConnectionBar inherits Rectangle {
         spacing: 10px;
         cross-axis-alignment: center;
 
-        if root.connected : VerticalLayout {
+        VerticalLayout {
             horizontal-stretch: 1;
+            visible: root.connected;
             spacing: 3px;
             TransferRow {
                 down: root.down;
@@ -316,6 +315,77 @@ component SubscriptionDialog inherits Rectangle {
     }
 }
 
+component EditGroupDialog inherits Rectangle {
+    in property <bool> phone;
+    in property <string> group-id;
+    in-out property <string> name;
+    in-out property <string> url;
+    callback close();
+    callback save(string, string, string);
+
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea { clicked => { root.close(); } }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 520px;
+        height: 314px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 9px;
+
+            Text {
+                text: "Edit profile";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            Text {
+                text: "NAME";
+                color: Theme.muted;
+                font-size: 9px;
+                font-weight: 700;
+            }
+            TextField {
+                text <=> root.name;
+                placeholder: "Profile name";
+            }
+            Text {
+                text: "SUBSCRIPTION URL";
+                color: Theme.muted;
+                font-size: 9px;
+                font-weight: 700;
+            }
+            TextField {
+                text <=> root.url;
+                placeholder: "https://example.com/sub";
+            }
+            HorizontalLayout {
+                spacing: 7px;
+                Rectangle { horizontal-stretch: 1; }
+                SecondaryButton {
+                    width: 84px;
+                    text: "Cancel";
+                    clicked => { root.close(); }
+                }
+                PrimaryButton {
+                    width: 96px;
+                    text: "Save";
+                    enabled: root.name != "";
+                    clicked => {
+                        root.save(root.group-id, root.name, root.url);
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Bamdad";
     preferred-width: 1120px;
@@ -350,6 +420,10 @@ export component AppWindow inherits Window {
     in-out property <bool> import-open: false;
     in-out property <bool> subscription-open: false;
     in-out property <string> subscription-url: "";
+    in-out property <bool> edit-open: false;
+    in-out property <string> edit-group-id: "";
+    in-out property <string> edit-name: "";
+    in-out property <string> edit-url: "";
 
     callback toggle-connect();
     callback select-profile(string);
@@ -374,6 +448,10 @@ export component AppWindow inherits Window {
     callback close-subscription();
     callback add-subscription-url(string);
     callback add-manual();
+    callback edit-group(string);
+    callback refresh-group(string);
+    callback close-edit();
+    callback save-group(string, string, string);
     callback toggle-ip();
 
     // Breakpoints are set from Rust by watching the actual window size. Deriving
@@ -417,8 +495,8 @@ export component AppWindow inherits Window {
                     status-text: root.status-text;
                     select(id) => { root.select-profile(id); }
                     ping(id) => { root.ping-profile(id); }
-                    ping-all => { root.ping-all(); }
-                    reload => { root.reload-profiles(); }
+                    edit-group(id) => { root.edit-group(id); }
+                    refresh-group(id) => { root.refresh-group(id); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
                     delete-group(id) => { root.delete-group(id); }
@@ -484,6 +562,15 @@ export component AppWindow inherits Window {
             url <=> root.subscription-url;
             close => { root.close-subscription(); }
             add(url) => { root.add-subscription-url(url); }
+        }
+
+        if root.edit-open : EditGroupDialog {
+            phone: root.phone;
+            group-id: root.edit-group-id;
+            name <=> root.edit-name;
+            url <=> root.edit-url;
+            close => { root.close-edit(); }
+            save(id, name, url) => { root.save-group(id, name, url); }
         }
     }
 }

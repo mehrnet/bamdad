@@ -1077,6 +1077,172 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_edit_group(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            if id.as_str() == "default" {
+                return;
+            }
+            let (name, url) = {
+                let guard = store.lock().unwrap();
+                let Some(node) = guard
+                    .profiles
+                    .iter()
+                    .find(|profile| profile.group_key() == id.as_str())
+                else {
+                    return;
+                };
+                (
+                    node.group_title(),
+                    node.group_url.clone().unwrap_or_default(),
+                )
+            };
+            ui.set_edit_group_id(id.clone());
+            ui.set_edit_name(name.into());
+            ui.set_edit_url(url.into());
+            ui.set_edit_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_edit(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_edit_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_save_group(move |id, name, url| {
+            let Some(ui) = weak.upgrade() else { return };
+            let name = name.trim();
+            if name.is_empty() {
+                return;
+            }
+            let url = url.trim();
+            let mut guard = store.lock().unwrap();
+            let mut changed = false;
+            for profile in &mut guard.profiles {
+                if profile.group_key() == id.as_str() {
+                    profile.group_name = Some(name.to_string());
+                    if !url.is_empty() {
+                        profile.group_url = Some(url.to_string());
+                    }
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = save_store(&guard);
+                ui.set_groups(group_model(&guard, &pings));
+            }
+            drop(guard);
+            ui.set_edit_open(false);
+            push_log(&ui, &logs, "profile updated".to_string());
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_refresh_group(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let id = id.to_string();
+            let info = {
+                let guard = store.lock().unwrap();
+                guard
+                    .profiles
+                    .iter()
+                    .find(|profile| profile.group_key() == id)
+                    .map(|profile| (profile.group_url.clone(), profile.group_title()))
+            };
+            let Some((Some(url), old_name)) = info else {
+                push_log(
+                    &ui,
+                    &logs,
+                    "this profile has no subscription URL".to_string(),
+                );
+                return;
+            };
+            push_log(&ui, &logs, "refreshing subscription…".to_string());
+
+            let weak = weak.clone();
+            let store = store.clone();
+            let pings = pings.clone();
+            let logs = logs.clone();
+            std::thread::spawn(move || {
+                let result = fetch_subscription(&url);
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = weak.upgrade() else { return };
+                    match result {
+                        Ok((new_name, nodes)) if !nodes.is_empty() => {
+                            let group_name = new_name.unwrap_or(old_name);
+                            let previous = store.lock().unwrap().selected_profile().cloned();
+                            let selected_in_group = previous
+                                .as_ref()
+                                .is_some_and(|profile| profile.group_key() == id);
+                            let selected_source = previous
+                                .as_ref()
+                                .filter(|profile| profile.group_key() == id)
+                                .and_then(|profile| profile.source.clone());
+
+                            let mut guard = store.lock().unwrap();
+                            guard.profiles.retain(|profile| profile.group_key() != id);
+                            let mut first_id = None;
+                            let mut keep_id = None;
+                            for mut node in nodes {
+                                node.group_id = Some(id.clone());
+                                node.group_name = Some(group_name.clone());
+                                node.group_url = Some(url.clone());
+                                if first_id.is_none() {
+                                    first_id = Some(node.id.clone());
+                                }
+                                if selected_source.as_deref() == node.source.as_deref() {
+                                    keep_id = Some(node.id.clone());
+                                }
+                                guard.profiles.push(node);
+                            }
+                            if selected_in_group {
+                                if let Some(selected) = keep_id.or(first_id) {
+                                    guard.selected_id = Some(selected.clone());
+                                    guard.selected = guard
+                                        .profiles
+                                        .iter()
+                                        .find(|profile| profile.id == selected)
+                                        .map(|profile| profile.name.clone());
+                                    ui.set_selected_id(selected.into());
+                                }
+                            }
+                            let _ = save_store(&guard);
+                            ui.set_groups(group_model(&guard, &pings));
+                            let count = guard
+                                .profiles
+                                .iter()
+                                .filter(|profile| profile.group_key() == id)
+                                .count();
+                            drop(guard);
+                            push_log(&ui, &logs, format!("subscription updated: {count} configs"));
+                        }
+                        Ok(_) => {
+                            push_log(&ui, &logs, "subscription is empty".to_string());
+                        }
+                        Err(error) => {
+                            push_log(&ui, &logs, format!("subscription failed: {error}"));
+                        }
+                    }
+                });
+            });
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let runtime = runtime.clone();
         let store = store.clone();
         let pings = pings.clone();

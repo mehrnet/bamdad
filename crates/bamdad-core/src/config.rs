@@ -159,8 +159,17 @@ impl Store {
             Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| Self::default()),
             Err(_) => Self::default(),
         };
+        store.remove_legacy_defaults();
         store.ensure_defaults();
         store
+    }
+
+    fn remove_legacy_defaults(&mut self) {
+        self.profiles.retain(|profile| {
+            !(profile.source.is_none()
+                && profile.protocol.eq_ignore_ascii_case("direct")
+                && matches!(profile.name.as_str(), "Direct · Xray" | "Direct · sing-box"))
+        });
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -195,10 +204,6 @@ impl Store {
                     }
                 }
             }
-        }
-
-        if self.profiles.is_empty() {
-            self.profiles = default_profiles();
         }
 
         // Migrate a legacy name-based selection.

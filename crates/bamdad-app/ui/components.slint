@@ -474,11 +474,10 @@ export component ProfileRowView inherits Rectangle {
     callback select(string);
     callback ping(string);
 
-    height: 62px;
+    height: 56px;
     border-radius: Theme.radius-sm;
-    background: row-data.selected ? Theme.surface-2 : Theme.bg-raised;
-    border-width: 1px;
-    border-color: row-data.selected ? Theme.border-strong : Theme.border;
+    background: row-data.selected ? Theme.surface-2 : transparent;
+    border-width: 0px;
 
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -708,11 +707,13 @@ export component GroupCard inherits Rectangle {
     in property <bool> compact: false;
     callback toggle(string);
     callback ping-group(string);
+    callback edit-group(string);
+    callback refresh-group(string);
     callback delete-group(string);
     callback select(string);
     callback ping(string);
 
-    height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 68px + 6px : 0px);
+    height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 62px : 0px);
     border-radius: Theme.radius-sm;
     background: Theme.bg-raised;
     border-width: 1px;
@@ -760,8 +761,18 @@ export component GroupCard inherits Rectangle {
                 clicked => { root.ping-group(root.group-data.id); }
             }
             if root.group-data.deletable : HeaderButton {
+                icon: @image-url("icons/pencil.svg");
+                button-size: 28px;
+                clicked => { root.edit-group(root.group-data.id); }
+            }
+            if root.group-data.deletable : HeaderButton {
+                icon: @image-url("icons/reload.svg");
+                button-size: 28px;
+                clicked => { root.refresh-group(root.group-data.id); }
+            }
+            if root.group-data.deletable : HeaderButton {
                 icon: @image-url("icons/trash.svg");
-                button-size: 30px;
+                button-size: 28px;
                 clicked => { root.delete-group(root.group-data.id); }
             }
         }
@@ -792,34 +803,59 @@ export component TransferRow inherits Rectangle {
     in property <string> down;
     in property <string> up;
 
-    height: 24px;
+    height: 22px;
     background: transparent;
 
     HorizontalLayout {
-        spacing: 6px;
+        spacing: 8px;
         cross-axis-alignment: center;
-        ColoredIcon {
-            source: @image-url("icons/download.svg");
-            icon-size: 14px;
+
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 22px;
+            background: transparent;
+            HorizontalLayout {
+                spacing: 5px;
+                cross-axis-alignment: center;
+                ColoredIcon {
+                    source: @image-url("icons/download.svg");
+                    icon-size: 14px;
+                }
+                Text {
+                    text: root.down;
+                    color: Theme.text;
+                    font-size: 10px;
+                    font-family: "monospace";
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+            }
         }
-        Text {
-            text: root.down;
-            color: Theme.text;
-            font-size: 11px;
-            font-weight: 600;
-            vertical-alignment: center;
-        }
-        Rectangle { width: 8px; background: transparent; }
-        ColoredIcon {
-            source: @image-url("icons/upload.svg");
-            icon-size: 14px;
-        }
-        Text {
-            text: root.up;
-            color: Theme.text;
-            font-size: 11px;
-            font-weight: 600;
-            vertical-alignment: center;
+
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 22px;
+            background: transparent;
+            HorizontalLayout {
+                spacing: 5px;
+                cross-axis-alignment: center;
+                ColoredIcon {
+                    source: @image-url("icons/upload.svg");
+                    icon-size: 14px;
+                }
+                Text {
+                    text: root.up;
+                    color: Theme.text;
+                    font-size: 10px;
+                    font-family: "monospace";
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+            }
         }
     }
 }
@@ -831,43 +867,63 @@ export component IpRow inherits Rectangle {
     in property <bool> revealed;
     callback toggle();
 
-    height: 24px;
+    height: 22px;
     background: transparent;
 
     HorizontalLayout {
-        spacing: 6px;
+        spacing: 5px;
         cross-axis-alignment: center;
 
         ColoredIcon {
             source: @image-url("icons/ip.svg");
             icon-size: 14px;
         }
-        if root.country.width > 0 : Image {
-            source: root.country;
-            width: 16px;
-            height: 16px;
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            background: transparent;
+            if root.country.width > 0 : Image {
+                source: root.country;
+                width: 16px;
+                height: 16px;
+                x: 1px;
+                y: 1px;
+            }
         }
-        if root.ipv4 != "" : Text {
-            text: root.revealed ? root.ipv4 : "v4 ••••";
-            color: Theme.text;
-            font-size: 10px;
-            font-weight: 600;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        if root.ipv6 != "" : Text {
-            text: root.revealed ? root.ipv6 : "v6 ••••";
-            color: Theme.text;
-            font-size: 10px;
-            font-weight: 600;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        if root.ipv4 == "" && root.ipv6 == "" : Text {
-            text: "—";
-            color: Theme.muted;
-            font-size: 11px;
-            vertical-alignment: center;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 22px;
+            background: transparent;
+            HorizontalLayout {
+                spacing: 5px;
+                cross-axis-alignment: center;
+                if root.ipv4 != "" : Text {
+                    text: root.revealed ? root.ipv4 : "v4 ••••";
+                    color: Theme.text;
+                    font-size: 9px;
+                    font-family: "monospace";
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                if root.ipv6 != "" : Text {
+                    text: root.revealed ? root.ipv6 : "v6 ••••";
+                    color: Theme.text;
+                    font-size: 9px;
+                    font-family: "monospace";
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                if root.ipv4 == "" && root.ipv6 == "" : Text {
+                    text: "—";
+                    color: Theme.muted;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+            }
         }
         Icon {
             source: root.revealed ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
@@ -881,3 +937,4 @@ export component IpRow inherits Rectangle {
         clicked => { root.toggle(); }
     }
 }
+

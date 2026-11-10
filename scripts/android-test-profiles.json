@@ -1,0 +1,96 @@
+{
+  "settings": {
+    "socks_port": 10808,
+    "http_port": 10809,
+    "system_proxy": false,
+    "api_addr": "127.0.0.1"
+  },
+  "profiles": [
+    {
+      "id": "test-1",
+      "name": "Test · Xray",
+      "core": "xray",
+      "protocol": "direct",
+      "address": "local",
+      "port": 0,
+      "config": {
+        "inbounds": [
+          {
+            "listen": "127.0.0.1",
+            "port": 10808,
+            "protocol": "socks",
+            "settings": {
+              "auth": "noauth",
+              "udp": true
+            },
+            "tag": "socks"
+          },
+          {
+            "listen": "127.0.0.1",
+            "port": 10809,
+            "protocol": "http",
+            "settings": {},
+            "tag": "http"
+          }
+        ],
+        "log": {
+          "loglevel": "warning"
+        },
+        "outbounds": [
+          {
+            "protocol": "freedom",
+            "tag": "direct"
+          },
+          {
+            "protocol": "blackhole",
+            "tag": "block"
+          }
+        ]
+      }
+    },
+    {
+      "id": "test-2",
+      "name": "Test · sing-box",
+      "core": "sing-box",
+      "protocol": "direct",
+      "address": "local",
+      "port": 0,
+      "config": {
+        "inbounds": [
+          {
+            "listen": "127.0.0.1",
+            "listen_port": 10808,
+            "tag": "socks",
+            "type": "socks"
+          },
+          {
+            "listen": "127.0.0.1",
+            "listen_port": 10809,
+            "tag": "http",
+            "type": "http"
+          }
+        ],
+        "log": {
+          "level": "warn",
+          "timestamp": true
+        },
+        "outbounds": [
+          {
+            "tag": "direct",
+            "type": "direct"
+          },
+          {
+            "tag": "block",
+            "type": "block"
+          }
+        ],
+        "route": {
+          "auto_detect_interface": true,
+          "final": "direct"
+        }
+      }
+    }
+  ],
+  "selected": null,
+  "selected_id": "test-1"
+}

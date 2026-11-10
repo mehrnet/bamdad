@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-app"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "bamdad-core",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-core"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-netcheck"
-version = "0.1.21"
+version = "0.1.22"
 
 [[package]]
 name = "base64"
