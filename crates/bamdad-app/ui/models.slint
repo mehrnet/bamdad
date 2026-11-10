@@ -1,6 +1,13 @@
+export struct NamePart {
+    text: string,
+    image: image,
+    is-emoji: bool,
+}
+
 export struct ProfileRow {
     id: string,
     name: string,
+    name-parts: [NamePart],
     detail: string,
     protocol: string,
     core: string,

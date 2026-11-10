@@ -26,6 +26,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Twemoji
+
+- Project: https://github.com/jdecked/twemoji
+- License: CC-BY 4.0
+- Emoji SVGs are embedded in `crates/bamdad-app/assets/twemoji.zip` and rendered
+  as color images in profile names.
+
 ## Noto Emoji
 
 - Project: https://github.com/googlefonts/noto-emoji

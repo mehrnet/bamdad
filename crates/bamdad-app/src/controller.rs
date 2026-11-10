@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
@@ -11,7 +12,7 @@ use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, Lo
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
-use crate::{AppWindow, ProfileRow};
+use crate::{AppWindow, NamePart, ProfileRow};
 
 pub(crate) type LogBuffer = Arc<Mutex<Vec<String>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
@@ -169,6 +170,110 @@ fn core_version(kind: CoreKind) -> String {
     }
 }
 
+static EMOJI_ZIP: &[u8] = include_bytes!("../assets/twemoji.zip");
+
+thread_local! {
+    static EMOJI_CACHE: RefCell<HashMap<String, Option<slint::Image>>> =
+        RefCell::new(HashMap::new());
+}
+
+fn emoji_candidates(grapheme: &str) -> Vec<String> {
+    let codepoints: Vec<u32> = grapheme.chars().map(|c| c as u32).collect();
+    let full = codepoints
+        .iter()
+        .map(|c| format!("{c:x}"))
+        .collect::<Vec<_>>()
+        .join("-");
+    let no_variation = codepoints
+        .iter()
+        .filter(|&&c| c != 0xFE0F)
+        .map(|c| format!("{c:x}"))
+        .collect::<Vec<_>>()
+        .join("-");
+    let first = codepoints
+        .first()
+        .map(|c| format!("{c:x}"))
+        .unwrap_or_default();
+
+    let mut candidates = vec![full];
+    if no_variation != candidates[0] {
+        candidates.push(no_variation);
+    }
+    if first != candidates[0] {
+        candidates.push(first);
+    }
+    candidates
+}
+
+fn emoji_image(grapheme: &str) -> Option<slint::Image> {
+    EMOJI_CACHE.with(|cache| {
+        if let Some(cached) = cache.borrow().get(grapheme) {
+            return cached.clone();
+        }
+
+        let mut result = None;
+        for candidate in emoji_candidates(grapheme) {
+            let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(EMOJI_ZIP)) else {
+                break;
+            };
+            let Ok(mut file) = archive.by_name(&format!("{candidate}.svg")) else {
+                continue;
+            };
+            let mut data = Vec::new();
+            if std::io::Read::read_to_end(&mut file, &mut data).is_err() {
+                continue;
+            }
+            if let Ok(image) = slint::Image::load_from_svg_data(&data) {
+                result = Some(image);
+                break;
+            }
+        }
+
+        cache
+            .borrow_mut()
+            .insert(grapheme.to_string(), result.clone());
+        result
+    })
+}
+
+fn name_parts(name: &str) -> Vec<NamePart> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut parts = Vec::new();
+    let mut text = String::new();
+
+    let push_text = |parts: &mut Vec<NamePart>, text: &mut String| {
+        if text.is_empty() {
+            return;
+        }
+        parts.push(NamePart {
+            text: text.as_str().into(),
+            image: Default::default(),
+            is_emoji: false,
+        });
+        text.clear();
+    };
+
+    for grapheme in name.graphemes(true) {
+        if emojis::get(grapheme).is_some() {
+            push_text(&mut parts, &mut text);
+            if let Some(image) = emoji_image(grapheme) {
+                parts.push(NamePart {
+                    text: Default::default(),
+                    image,
+                    is_emoji: true,
+                });
+            } else {
+                text.push_str(grapheme);
+            }
+        } else {
+            text.push_str(grapheme);
+        }
+    }
+    push_text(&mut parts, &mut text);
+    parts
+}
+
 fn profile_model(store: &Store, pings: &PingState) -> ModelRc<ProfileRow> {
     let pings = pings.lock().unwrap();
     let rows: Vec<ProfileRow> = store
@@ -182,6 +287,7 @@ fn profile_model(store: &Store, pings: &PingState) -> ModelRc<ProfileRow> {
             ProfileRow {
                 id: profile.id.as_str().into(),
                 name: profile.name.as_str().into(),
+                name_parts: ModelRc::new(VecModel::from(name_parts(&profile.name))),
                 detail: format!(
                     "{} · {}",
                     protocol_label(&profile.protocol),

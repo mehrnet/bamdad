@@ -501,12 +501,28 @@ export component ProfileRowView inherits Rectangle {
         VerticalLayout {
             horizontal-stretch: 1;
             spacing: 2px;
-            Text {
-                text: root.row-data.name;
-                color: root.row-data.selected ? Theme.text : Theme.text-2;
-                font-size: 13px;
-                font-weight: 600;
-                overflow: elide;
+            Rectangle {
+                height: 16px;
+                clip: true;
+                HorizontalLayout {
+                    spacing: 1px;
+                    cross-axis-alignment: center;
+                    for part in root.row-data.name-parts : HorizontalLayout {
+                        spacing: 0px;
+                        cross-axis-alignment: center;
+                        if part.is-emoji : Image {
+                            source: part.image;
+                            width: 15px;
+                            height: 15px;
+                        }
+                        if !part.is-emoji : Text {
+                            text: part.text;
+                            color: root.row-data.selected ? Theme.text : Theme.text-2;
+                            font-size: 13px;
+                            font-weight: 600;
+                        }
+                    }
+                }
             }
             Text {
                 text: root.row-data.detail;
