@@ -5,11 +5,12 @@ import {
     ChoicePill,
     ConnectSquare,
     HeaderButton,
-    InfoRow,
+    IpRow,
     LogoMark,
     PrimaryButton,
     SecondaryButton,
     TextField,
+    TransferRow,
 } from "components.slint";
 import { ProfilesPage, SettingsPage } from "pages.slint";
 
@@ -66,14 +67,16 @@ component ConnectionBar inherits Rectangle {
     in property <bool> busy;
     in property <string> down;
     in property <string> up;
-    in property <string> status-text;
-    in property <string> location;
-    in property <string> ip;
+    in property <string> ipv4;
+    in property <string> ipv6;
+    in property <image> country;
     in property <bool> revealed;
     callback toggle-connect();
     callback toggle-ip();
 
-    height: root.phone ? 84px : 76px;
+    height: root.connected
+        ? (root.phone ? 84px : 76px)
+        : (root.phone ? 64px : 60px);
     background: Theme.bg-raised;
 
     Rectangle {
@@ -85,47 +88,36 @@ component ConnectionBar inherits Rectangle {
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        padding-top: 7px;
-        padding-bottom: 7px;
+        padding-top: 6px;
+        padding-bottom: 6px;
         spacing: 10px;
         cross-axis-alignment: center;
 
-        VerticalLayout {
+        if root.connected : VerticalLayout {
             horizontal-stretch: 1;
-            spacing: 1px;
-            InfoRow { label: "DL"; value: root.down; }
-            InfoRow { label: "UP"; value: root.up; }
-        }
-        VerticalLayout {
-            horizontal-stretch: 1;
-            spacing: 1px;
-            InfoRow { label: "LOC"; value: root.location; }
-            InfoRow {
-                label: "IP";
-                value: root.ip;
-                revealable: true;
+            spacing: 3px;
+            TransferRow {
+                down: root.down;
+                up: root.up;
+            }
+            IpRow {
+                ipv4: root.ipv4;
+                ipv6: root.ipv6;
+                country: root.country;
                 revealed: root.revealed;
                 toggle => { root.toggle-ip(); }
             }
         }
-        VerticalLayout {
-            alignment: center;
-            spacing: 2px;
-            ConnectSquare {
-                button-size: root.phone ? 54px : 48px;
-                connected: root.connected;
-                busy: root.busy;
-                clicked => { root.toggle-connect(); }
-            }
-            Text {
-                text: root.status-text;
-                color: root.connected ? Theme.success : Theme.muted;
-                font-size: 9px;
-                font-weight: 600;
-                horizontal-alignment: center;
-                overflow: elide;
-                width: 70px;
-            }
+        if !root.connected : Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+        }
+
+        ConnectSquare {
+            button-size: root.phone ? 54px : 48px;
+            connected: root.connected;
+            busy: root.busy;
+            clicked => { root.toggle-connect(); }
         }
     }
 }
@@ -337,8 +329,9 @@ export component AppWindow inherits Window {
     in-out property <string> status-text: "Disconnected";
     in-out property <string> total-down-text: "0 B";
     in-out property <string> total-up-text: "0 B";
-    in-out property <string> location-text: "—";
-    in-out property <string> ip-text: "—";
+    in-out property <string> ipv4-text: "";
+    in-out property <string> ipv6-text: "";
+    in-out property <image> country-flag;
     in-out property <bool> show-ip: false;
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
@@ -457,9 +450,9 @@ export component AppWindow inherits Window {
                 busy: root.busy;
                 down: root.total-down-text;
                 up: root.total-up-text;
-                status-text: root.status-text;
-                location: root.location-text;
-                ip: root.ip-text;
+                ipv4: root.ipv4-text;
+                ipv6: root.ipv6-text;
+                country: root.country-flag;
                 revealed: root.show-ip;
                 toggle-connect => { root.toggle-connect(); }
                 toggle-ip => { root.toggle-ip(); }

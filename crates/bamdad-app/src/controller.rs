@@ -5,7 +5,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel, Weak};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
 use bamdad_core::config::{self, load_store, save_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
@@ -19,8 +19,9 @@ type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
 static SWITCHING: AtomicBool = AtomicBool::new(false);
-static LAST_IP: Mutex<String> = Mutex::new(String::new());
-static LAST_LOCATION: Mutex<String> = Mutex::new(String::new());
+static LAST_IPV4: Mutex<String> = Mutex::new(String::new());
+static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
+static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 
 pub fn init(
     ui: &AppWindow,
@@ -152,57 +153,91 @@ pub(crate) fn init_attached(
     start_bridge(ui.as_weak(), events, logs);
 }
 
-fn set_last_network(ip: &str, location: &str) {
-    *LAST_IP.lock().unwrap() = ip.to_string();
-    *LAST_LOCATION.lock().unwrap() = location.to_string();
+fn set_last_network(ipv4: Option<&str>, ipv6: Option<&str>, country: Option<&str>) {
+    *LAST_IPV4.lock().unwrap() = ipv4.unwrap_or("").to_string();
+    *LAST_IPV6.lock().unwrap() = ipv6.unwrap_or("").to_string();
+    *LAST_COUNTRY.lock().unwrap() = country.unwrap_or("").to_string();
 }
 
 fn clear_last_network() {
-    LAST_IP.lock().unwrap().clear();
-    LAST_LOCATION.lock().unwrap().clear();
+    LAST_IPV4.lock().unwrap().clear();
+    LAST_IPV6.lock().unwrap().clear();
+    LAST_COUNTRY.lock().unwrap().clear();
+}
+
+fn country_flag(code: &str) -> slint::Image {
+    if code.len() != 2 || !code.is_ascii() {
+        return Default::default();
+    }
+    let mut flag = String::new();
+    for ch in code.chars() {
+        let base = 0x1F1E6u32 + (ch.to_ascii_uppercase() as u32 - 'A' as u32);
+        let Some(ch) = char::from_u32(base) else {
+            return Default::default();
+        };
+        flag.push(ch);
+    }
+    emoji_image(&flag).unwrap_or_default()
 }
 
 fn seed_last_network(ui: &AppWindow) {
-    let ip = LAST_IP.lock().unwrap().clone();
-    let location = LAST_LOCATION.lock().unwrap().clone();
-    ui.set_ip_text(if ip.is_empty() {
-        "—".into()
+    let ipv4 = LAST_IPV4.lock().unwrap().clone();
+    let ipv6 = LAST_IPV6.lock().unwrap().clone();
+    let country = LAST_COUNTRY.lock().unwrap().clone();
+    ui.set_ipv4_text(ipv4.into());
+    ui.set_ipv6_text(ipv6.into());
+    ui.set_country_flag(if country.is_empty() {
+        Default::default()
     } else {
-        ip.into()
-    });
-    ui.set_location_text(if location.is_empty() {
-        "—".into()
-    } else {
-        location.into()
+        country_flag(&country)
     });
 }
 
-fn fetch_exit_ip(port: u16) -> Option<(String, String)> {
-    const ECHOES: &[(&str, &str)] = &[
-        ("ifconfig.me", "/ip"),
+fn fetch_exit_ips(port: u16) -> Option<(Option<std::net::IpAddr>, Option<std::net::IpAddr>)> {
+    const V4_ECHOES: &[(&str, &str)] = &[
         ("api.ipify.org", "/"),
         ("ipv4.icanhazip.com", "/"),
+        ("ifconfig.me", "/ip"),
         ("checkip.amazonaws.com", "/"),
     ];
+    const V6_ECHOES: &[(&str, &str)] = &[("api6.ipify.org", "/"), ("ipv6.icanhazip.com", "/")];
 
-    for (host, path) in ECHOES {
-        let Ok(body) = bamdad_core::socks::http_get(port, host, path, Duration::from_secs(8))
+    let mut ipv4 = None;
+    let mut ipv6 = None;
+
+    for (host, path) in V4_ECHOES {
+        let Ok(body) = bamdad_core::socks::http_get(port, host, path, Duration::from_secs(6))
         else {
             continue;
         };
         let candidate = body.lines().next().unwrap_or("").trim();
-        let Ok(ip) = candidate.parse::<std::net::IpAddr>() else {
+        if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
+            if ip.is_ipv4() {
+                ipv4 = Some(ip);
+                break;
+            }
+        }
+    }
+
+    for (host, path) in V6_ECHOES {
+        let Ok(body) = bamdad_core::socks::http_get(port, host, path, Duration::from_secs(6))
+        else {
             continue;
         };
-        let location = match crate::country::lookup(ip) {
-            Some(code) => crate::country_names::name(code)
-                .map(|name| format!("{code} · {name}"))
-                .unwrap_or_else(|| code.to_string()),
-            None => "Unknown".to_string(),
-        };
-        return Some((ip.to_string(), location));
+        let candidate = body.lines().next().unwrap_or("").trim();
+        if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
+            if ip.is_ipv6() {
+                ipv6 = Some(ip);
+                break;
+            }
+        }
     }
-    None
+
+    if ipv4.is_none() && ipv6.is_none() {
+        None
+    } else {
+        Some((ipv4, ipv6))
+    }
 }
 
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
@@ -1430,8 +1465,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Disconnected".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
-                ui.set_ip_text("—".into());
-                ui.set_location_text("—".into());
+                ui.set_ipv4_text("".into());
+                ui.set_ipv6_text("".into());
+                ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
                 let _ = system_proxy::disable();
             }
@@ -1442,8 +1478,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Starting…".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
-                ui.set_ip_text("—".into());
-                ui.set_location_text("—".into());
+                ui.set_ipv4_text("".into());
+                ui.set_ipv6_text("".into());
+                ui.set_country_flag(Default::default());
             }
             EngineState::Running => {
                 SWITCHING.store(false, Ordering::SeqCst);
@@ -1484,14 +1521,24 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                     };
 
                     let network = if status.is_none() {
-                        fetch_exit_ip(port)
+                        fetch_exit_ips(port)
                     } else {
                         None
                     };
-                    let (ip, location) = network
-                        .clone()
-                        .unwrap_or_else(|| ("—".to_string(), "—".to_string()));
-                    set_last_network(&ip, &location);
+                    let (ipv4, ipv6, country) = match network {
+                        Some((ipv4, ipv6)) => {
+                            let country = ipv4
+                                .or(ipv6)
+                                .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
+                            (
+                                ipv4.map(|ip| ip.to_string()),
+                                ipv6.map(|ip| ip.to_string()),
+                                country,
+                            )
+                        }
+                        None => (None, None, None),
+                    };
+                    set_last_network(ipv4.as_deref(), ipv6.as_deref(), country.as_deref());
 
                     #[cfg(target_os = "android")]
                     crate::logcat(&message);
@@ -1499,8 +1546,13 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = weak_for_log.upgrade() {
                             push_log(&ui, &logs, message);
-                            ui.set_ip_text(ip.into());
-                            ui.set_location_text(location.into());
+                            if ui.get_connected() {
+                                ui.set_ipv4_text(ipv4.unwrap_or_default().into());
+                                ui.set_ipv6_text(ipv6.unwrap_or_default().into());
+                                ui.set_country_flag(
+                                    country.as_deref().map(country_flag).unwrap_or_default(),
+                                );
+                            }
                             if let Some(status) = status {
                                 if ui.get_connected() {
                                     ui.set_status_text(status.into());
@@ -1526,8 +1578,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Core error".into());
-                ui.set_ip_text("—".into());
-                ui.set_location_text("—".into());
+                ui.set_ipv4_text("".into());
+                ui.set_ipv6_text("".into());
+                ui.set_country_flag(Default::default());
                 #[cfg(not(target_os = "android"))]
                 let _ = system_proxy::disable();
                 // Android: keep the TUN up as a blackhole so apps cannot fall
