@@ -536,6 +536,57 @@ fn start_connection(
         return;
     };
 
+    // Log the transport shape (never credentials) so reports can identify
+    // slow XHTTP modes, missing ALPN or a fallback transport.
+    if let Some(outbound) = profile
+        .config
+        .get("outbounds")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|outbounds| outbounds.first())
+    {
+        if let Some(stream) = outbound.get("streamSettings") {
+            let network = stream
+                .get("network")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let security = stream
+                .get("security")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let mode = stream
+                .get("xhttpSettings")
+                .and_then(|settings| settings.get("mode"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let alpn = stream
+                .get("tlsSettings")
+                .and_then(|tls| tls.get("alpn"))
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let extra = stream
+                .get("xhttpSettings")
+                .and_then(|settings| settings.get("extra"))
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            push_log(
+                ui,
+                logs,
+                format!("transport: {network}/{security} mode={mode} alpn={alpn} extra={extra}"),
+            );
+        } else {
+            let kind = outbound
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let transport = outbound
+                .get("transport")
+                .and_then(|value| value.get("type"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            push_log(ui, logs, format!("transport: {kind}/{transport}"));
+        }
+    }
+
     let Some(binary_path) = binary::resolve_kind(profile.core) else {
         push_log(
             ui,

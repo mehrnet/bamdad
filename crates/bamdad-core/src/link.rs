@@ -226,6 +226,14 @@ fn fill_common(spec: &mut ProxySpec, params: &HashMap<String, String>, host: &st
                 .collect()
         })
         .unwrap_or_default();
+    // Many XHTTP/HTTPUpgrade links omit ALPN. Without it TLS may settle on
+    // HTTP/1.1, which is dramatically slower for XHTTP downloads.
+    if spec.alpn.is_empty()
+        && spec.security == Security::Tls
+        && matches!(spec.network.as_str(), "xhttp" | "splithttp" | "httpupgrade")
+    {
+        spec.alpn = vec!["h2".to_string(), "http/1.1".to_string()];
+    }
 }
 
 fn parse_vless(rest: &str) -> Result<ProxySpec> {
