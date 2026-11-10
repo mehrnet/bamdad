@@ -734,13 +734,12 @@ export component GroupCard inherits Rectangle {
             spacing: 7px;
             cross-axis-alignment: center;
 
-            Text {
-                text: root.group-data.expanded ? "▾" : "▸";
-                color: Theme.muted;
-                font-size: 13px;
-                width: 14px;
-                vertical-alignment: center;
-                horizontal-alignment: center;
+            Icon {
+                source: root.group-data.expanded
+                    ? @image-url("icons/chevron-down.svg")
+                    : @image-url("icons/chevron-right.svg");
+                tint: Theme.muted;
+                icon-size: 13px;
             }
             Text {
                 text: root.group-data.name;
