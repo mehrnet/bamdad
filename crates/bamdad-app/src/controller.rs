@@ -654,6 +654,104 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_open_menu(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_menu_open(true);
+                ui.set_import_open(false);
+                push_log(&ui, &logs, "choose how to add a profile".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_menu(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_menu_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_open_import(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_menu_open(false);
+                ui.set_import_open(true);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_import(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_import_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_paste_import(move || {
+            if let Some(ui) = weak.upgrade() {
+                let text = crate::read_clipboard();
+                let text = text.trim();
+                if text.is_empty() {
+                    push_log(&ui, &logs, "clipboard is empty".to_string());
+                    return;
+                }
+                ui.set_link_input(text.into());
+                ui.set_menu_open(false);
+                ui.set_import_open(true);
+                push_log(&ui, &logs, "clipboard loaded".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_add_subscription(move || {
+            if let Some(ui) = weak.upgrade() {
+                push_log(
+                    &ui,
+                    &logs,
+                    "subscription profiles arrive in the next update".to_string(),
+                );
+                ui.set_menu_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_add_manual(move || {
+            if let Some(ui) = weak.upgrade() {
+                push_log(
+                    &ui,
+                    &logs,
+                    "manual protocol setup arrives in the next update".to_string(),
+                );
+                ui.set_menu_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_toggle_ip(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_show_ip(!ui.get_show_ip());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let runtime = runtime.clone();
         let store = store.clone();
         let pings = pings.clone();

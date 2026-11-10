@@ -92,6 +92,22 @@ class MainActivity : NativeActivity() {
             Log.i("BamdadTunnel", line)
         }
 
+        /** Reads plain text from the clipboard for the import dialog. */
+        @JvmStatic
+        fun readClipboard(): String {
+            val activity = instance ?: return ""
+            return try {
+                val clipboard =
+                    activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = clipboard.primaryClip ?: return ""
+                if (clip.itemCount == 0) return ""
+                clip.getItemAt(0).coerceToText(activity).toString()
+            } catch (error: Throwable) {
+                Log.w(TAG, "readClipboard failed", error)
+                ""
+            }
+        }
+
         /** Copies the current Settings log to the clipboard. */
         @JvmStatic
         fun copyLogs(text: String) {

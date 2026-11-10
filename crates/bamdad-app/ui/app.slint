@@ -1,20 +1,26 @@
 import { Theme } from "theme.slint";
 import { ProfileRow } from "models.slint";
 import {
-    BottomTab,
-    ConnectOrb,
+    Card,
+    ChoicePill,
+    ConnectSquare,
+    HeaderButton,
+    LocationChip,
     LogoMark,
-    NavItem,
+    PrimaryButton,
+    SecondaryButton,
+    TextField,
     TotalsBadge,
 } from "components.slint";
 import { ProfilesPage, SettingsPage } from "pages.slint";
 
 component TopBar inherits Rectangle {
-    in property <int> page;
-    in property <string> total-down;
-    in property <string> total-up;
+    in property <bool> settings;
+    callback add();
+    callback open-settings();
+    callback close-settings();
 
-    height: 54px;
+    height: 56px;
     background: Theme.bg-raised;
 
     HorizontalLayout {
@@ -25,7 +31,7 @@ component TopBar inherits Rectangle {
 
         LogoMark { mark-size: 28px; }
         Text {
-            text: root.page == 0 ? "Profiles" : "Settings";
+            text: root.settings ? "Settings" : "Profiles";
             color: Theme.text;
             font-size: Theme.font-brand;
             font-weight: 700;
@@ -33,10 +39,17 @@ component TopBar inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        TotalsBadge {
-            width: 158px;
-            down: root.total-down;
-            up: root.total-up;
+        if !root.settings : HeaderButton {
+            icon: @image-url("icons/plus.svg");
+            clicked => { root.add(); }
+        }
+        if root.settings : HeaderButton {
+            icon: @image-url("icons/close.svg");
+            clicked => { root.close-settings(); }
+        }
+        if !root.settings : HeaderButton {
+            icon: @image-url("icons/settings.svg");
+            clicked => { root.open-settings(); }
         }
     }
 
@@ -48,139 +61,20 @@ component TopBar inherits Rectangle {
     }
 }
 
-component Sidebar inherits Rectangle {
-    in property <bool> rail;
-    in property <int> page;
+component ConnectionBar inherits Rectangle {
+    in property <bool> phone;
     in property <bool> connected;
     in property <bool> busy;
-    in property <string> total-down;
-    in property <string> total-up;
-    in property <string> socks-port;
-    in property <string> http-port;
-    callback set-page(int);
+    in property <string> down;
+    in property <string> up;
+    in property <string> status-text;
+    in property <string> location;
+    in property <string> ip;
+    in property <bool> revealed;
     callback toggle-connect();
+    callback toggle-ip();
 
-    width: rail ? Theme.rail-width : Theme.sidebar-width;
-    height: 100%;
-    background: Theme.bg-raised;
-
-    Rectangle {
-        x: parent.width - 1px;
-        width: 1px;
-        height: 100%;
-        background: Theme.border;
-    }
-
-    VerticalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        padding-top: 14px;
-        padding-bottom: 14px;
-        spacing: 5px;
-
-        HorizontalLayout {
-            height: 48px;
-            spacing: 9px;
-            cross-axis-alignment: center;
-            LogoMark { mark-size: 30px; }
-            if !root.rail : VerticalLayout {
-                spacing: 0px;
-                Text {
-                    text: "Bamdad";
-                    color: Theme.text;
-                    font-size: Theme.font-brand;
-                    font-weight: 700;
-                }
-                Text {
-                    text: "proxy client";
-                    color: Theme.muted;
-                    font-size: Theme.font-xs;
-                }
-            }
-        }
-
-        Rectangle { height: 8px; }
-
-        NavItem {
-            label: "Profiles";
-            icon: @image-url("icons/profiles.svg");
-            compact: root.rail;
-            active: root.page == 0;
-            clicked => { root.set-page(0); }
-        }
-        NavItem {
-            label: "Settings";
-            icon: @image-url("icons/settings.svg");
-            compact: root.rail;
-            active: root.page == 1;
-            clicked => { root.set-page(1); }
-        }
-
-        Rectangle { vertical-stretch: 1; background: transparent; }
-
-        VerticalLayout {
-            spacing: 5px;
-            Rectangle {
-                width: 100%;
-                height: root.rail ? 50px : 62px;
-                ConnectOrb {
-                    orb-size: root.rail ? 46px : 56px;
-                    connected: root.connected;
-                    busy: root.busy;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    clicked => { root.toggle-connect(); }
-                }
-            }
-            if !root.rail : Text {
-                text: root.connected ? "Disconnect" : "Connect";
-                color: root.connected ? Theme.success : Theme.accent;
-                font-size: 11px;
-                font-weight: 700;
-                horizontal-alignment: center;
-                width: 100%;
-            }
-        }
-
-        if !root.rail : VerticalLayout {
-            height: 78px;
-            spacing: 5px;
-            Rectangle { height: 1px; background: Theme.border; }
-            TotalsBadge {
-                width: 100%;
-                down: root.total-down;
-                up: root.total-up;
-            }
-            Text {
-                text: "SOCKS 127.0.0.1:" + root.socks-port;
-                color: Theme.muted;
-                font-size: Theme.font-xs;
-                overflow: elide;
-            }
-            Text {
-                text: "HTTP 127.0.0.1:" + root.http-port;
-                color: Theme.muted;
-                font-size: Theme.font-xs;
-                overflow: elide;
-            }
-        }
-        if root.rail : TotalsBadge {
-            width: 100%;
-            compact: true;
-            down: root.total-down;
-            up: root.total-up;
-        }
-    }
-}
-
-component BottomNav inherits Rectangle {
-    in property <int> page;
-    in property <bool> connected;
-    in property <bool> busy;
-    callback set-page(int);
-    callback toggle-connect();
-
-    height: 64px;
+    height: root.phone ? 116px : 78px;
     background: Theme.bg-raised;
 
     Rectangle {
@@ -189,32 +83,228 @@ component BottomNav inherits Rectangle {
         background: Theme.border;
     }
 
-    HorizontalLayout {
-        BottomTab {
-            horizontal-stretch: 1;
-            label: "Profiles";
-            icon: @image-url("icons/profiles.svg");
-            active: root.page == 0;
-            clicked => { root.set-page(0); }
+    if root.phone : VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            cross-axis-alignment: center;
+            TotalsBadge {
+                horizontal-stretch: 1;
+                down: root.down;
+                up: root.up;
+            }
+            LocationChip {
+                width: 154px;
+                location: root.location;
+                ip: root.ip;
+                revealed: root.revealed;
+                toggle => { root.toggle-ip(); }
+            }
         }
-        Rectangle {
-            width: 76px;
-            height: 100%;
-            ConnectOrb {
-                orb-size: 52px;
+        HorizontalLayout {
+            spacing: 10px;
+            cross-axis-alignment: center;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text {
+                    text: root.status-text;
+                    color: root.connected ? Theme.success : Theme.text-2;
+                    font-size: 11px;
+                    font-weight: 700;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.connected ? "Traffic is routed through Bamdad" : "Tap connect to start";
+                    color: Theme.muted;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+            ConnectSquare {
+                button-size: 56px;
                 connected: root.connected;
                 busy: root.busy;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
                 clicked => { root.toggle-connect(); }
             }
         }
-        BottomTab {
+    }
+
+    if !root.phone : HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 12px;
+        cross-axis-alignment: center;
+
+        TotalsBadge {
+            width: 190px;
+            down: root.down;
+            up: root.up;
+        }
+        LocationChip {
+            width: 200px;
+            location: root.location;
+            ip: root.ip;
+            revealed: root.revealed;
+            toggle => { root.toggle-ip(); }
+        }
+        Text {
+            text: root.status-text;
+            color: root.connected ? Theme.success : Theme.text-2;
+            font-size: 11px;
+            font-weight: 600;
             horizontal-stretch: 1;
-            label: "Settings";
-            icon: @image-url("icons/settings.svg");
-            active: root.page == 1;
-            clicked => { root.set-page(1); }
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        ConnectSquare {
+            button-size: 52px;
+            connected: root.connected;
+            busy: root.busy;
+            clicked => { root.toggle-connect(); }
+        }
+    }
+}
+
+component ImportMenu inherits Rectangle {
+    in property <bool> phone;
+    callback close();
+    callback import-text();
+    callback paste();
+    callback subscription();
+    callback manual();
+
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 420px;
+        height: 322px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 9px;
+
+            Text {
+                text: "Add profile";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            SecondaryButton {
+                text: "Import link or JSON";
+                clicked => { root.import-text(); }
+            }
+            SecondaryButton {
+                text: "Paste from clipboard";
+                clicked => { root.paste(); }
+            }
+            SecondaryButton {
+                text: "Add subscription URL (soon)";
+                enabled: false;
+            }
+            SecondaryButton {
+                text: "Add configuration manually (soon)";
+                enabled: false;
+            }
+            PrimaryButton {
+                text: "Cancel";
+                clicked => { root.close(); }
+            }
+        }
+    }
+}
+
+component ImportDialog inherits Rectangle {
+    in property <bool> phone;
+    in-out property <string> link-input;
+    in-out property <int> core-choice;
+    callback close();
+    callback import(string, int);
+
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 520px;
+        height: 268px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 10px;
+
+            Text {
+                text: "Import link or JSON";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            Text {
+                text: "Paste a vless://, vmess://, trojan:// or ss:// link, or a native Xray/sing-box JSON config.";
+                color: Theme.muted;
+                font-size: 10px;
+                wrap: word-wrap;
+            }
+            TextField {
+                text <=> root.link-input;
+                placeholder: "vless://  vmess://  trojan://  ss://  { ... }";
+                accepted => {
+                    root.import(root.link-input, root.core-choice);
+                    root.link-input = "";
+                }
+            }
+            HorizontalLayout {
+                spacing: 7px;
+                cross-axis-alignment: center;
+                ChoicePill {
+                    width: 60px;
+                    text: "Xray";
+                    active: root.core-choice == 0;
+                    clicked => { root.core-choice = 0; }
+                }
+                ChoicePill {
+                    width: 80px;
+                    text: "sing-box";
+                    active: root.core-choice == 1;
+                    clicked => { root.core-choice = 1; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                SecondaryButton {
+                    width: 84px;
+                    text: "Cancel";
+                    clicked => { root.close(); }
+                }
+                PrimaryButton {
+                    width: 96px;
+                    text: "Import";
+                    enabled: root.link-input != "";
+                    clicked => {
+                        root.import(root.link-input, root.core-choice);
+                        root.link-input = "";
+                    }
+                }
+            }
         }
     }
 }
@@ -232,6 +322,9 @@ export component AppWindow inherits Window {
     in-out property <string> status-text: "Disconnected";
     in-out property <string> total-down-text: "0 B";
     in-out property <string> total-up-text: "0 B";
+    in-out property <string> location-text: "—";
+    in-out property <string> ip-text: "—";
+    in-out property <bool> show-ip: false;
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
     in-out property <bool> system-proxy: false;
@@ -245,6 +338,8 @@ export component AppWindow inherits Window {
     in-out property <string> selected-id: "";
     in-out property <[string]> logs;
     in-out property <string> link-input: "";
+    in-out property <bool> menu-open: false;
+    in-out property <bool> import-open: false;
 
     callback toggle-connect();
     callback select-profile(string);
@@ -257,6 +352,14 @@ export component AppWindow inherits Window {
     callback share-logs();
     callback ping-profile(string);
     callback ping-all();
+    callback open-menu();
+    callback close-menu();
+    callback open-import();
+    callback close-import();
+    callback paste-import();
+    callback add-subscription();
+    callback add-manual();
+    callback toggle-ip();
 
     // Breakpoints are set from Rust by watching the actual window size. Deriving
     // them from root.width inside the layout creates a binding loop in Slint.
@@ -280,75 +383,81 @@ export component AppWindow inherits Window {
             padding-bottom: root.inset-bottom;
             spacing: 0px;
 
-            if root.phone : TopBar {
-                page: root.page;
-                total-down: root.total-down-text;
-                total-up: root.total-up-text;
+            TopBar {
+                settings: root.page == 1;
+                add => { root.open-menu(); }
+                open-settings => { root.page = 1; }
+                close-settings => { root.page = 0; }
             }
 
-            HorizontalLayout {
+            Rectangle {
                 vertical-stretch: 1;
-                spacing: 0px;
+                width: 100%;
+                clip: true;
 
-                if !root.phone : Sidebar {
-                    rail: root.tablet;
-                    page: root.page;
-                    connected: root.connected;
-                    busy: root.busy;
-                    total-down: root.total-down-text;
-                    total-up: root.total-up-text;
-                    socks-port: root.socks-port;
-                    http-port: root.http-port;
-                    set-page(page) => { root.page = page; }
-                    toggle-connect => { root.toggle-connect(); }
+                if root.page == 0 : ProfilesPage {
+                    phone: root.phone;
+                    profiles: root.profiles;
+                    selected-id: root.selected-id;
+                    status-text: root.status-text;
+                    select(id) => { root.select-profile(id); }
+                    ping(id) => { root.ping-profile(id); }
+                    ping-all => { root.ping-all(); }
+                    reload => { root.reload-profiles(); }
                 }
 
-                Rectangle {
-                    horizontal-stretch: 1;
-                    height: 100%;
-                    clip: true;
-
-                    if root.page == 0 : ProfilesPage {
-                        phone: root.phone;
-                        profiles: root.profiles;
-                        selected-id: root.selected-id;
-                        status-text: root.status-text;
-                        link-input <=> root.link-input;
-                        core-choice <=> root.core-choice;
-                        select(id) => { root.select-profile(id); }
-                        import-link(link, core) => { root.import-link(link, core); }
-                        ping(id) => { root.ping-profile(id); }
-                        ping-all => { root.ping-all(); }
-                        reload => { root.reload-profiles(); }
+                if root.page == 1 : SettingsPage {
+                    phone: root.phone;
+                    mobile: root.mobile;
+                    xray-version: root.xray-version;
+                    singbox-version: root.singbox-version;
+                    data-dir: root.data-dir;
+                    logs: root.logs;
+                    socks-port <=> root.socks-port;
+                    http-port <=> root.http-port;
+                    system-proxy <=> root.system-proxy;
+                    save-settings(socks, http, proxy) => {
+                        root.save-settings(socks, http, proxy);
                     }
-
-                    if root.page == 1 : SettingsPage {
-                        phone: root.phone;
-                        mobile: root.mobile;
-                        xray-version: root.xray-version;
-                        singbox-version: root.singbox-version;
-                        data-dir: root.data-dir;
-                        logs: root.logs;
-                        socks-port <=> root.socks-port;
-                        http-port <=> root.http-port;
-                        system-proxy <=> root.system-proxy;
-                        save-settings(socks, http, proxy) => {
-                            root.save-settings(socks, http, proxy);
-                        }
-                        clear-logs => { root.clear-logs(); }
-                        test-proxy => { root.test-proxy(); }
-                        copy-logs => { root.copy-logs(); }
-                        share-logs => { root.share-logs(); }
-                    }
+                    clear-logs => { root.clear-logs(); }
+                    test-proxy => { root.test-proxy(); }
+                    copy-logs => { root.copy-logs(); }
+                    share-logs => { root.share-logs(); }
                 }
             }
 
-            if root.phone : BottomNav {
-                page: root.page;
+            if root.page == 0 : ConnectionBar {
+                phone: root.phone;
                 connected: root.connected;
                 busy: root.busy;
-                set-page(page) => { root.page = page; }
+                down: root.total-down-text;
+                up: root.total-up-text;
+                status-text: root.status-text;
+                location: root.location-text;
+                ip: root.ip-text;
+                revealed: root.show-ip;
                 toggle-connect => { root.toggle-connect(); }
+                toggle-ip => { root.toggle-ip(); }
+            }
+        }
+
+        if root.menu-open : ImportMenu {
+            phone: root.phone;
+            close => { root.close-menu(); }
+            import-text => { root.open-import(); }
+            paste => { root.paste-import(); }
+            subscription => { root.add-subscription(); }
+            manual => { root.add-manual(); }
+        }
+
+        if root.import-open : ImportDialog {
+            phone: root.phone;
+            link-input <=> root.link-input;
+            core-choice <=> root.core-choice;
+            close => { root.close-import(); }
+            import(link, core) => {
+                root.import-link(link, core);
+                root.import-open = false;
             }
         }
     }

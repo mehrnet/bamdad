@@ -9,6 +9,7 @@ use slint::ComponentHandle;
 #[cfg(target_os = "android")]
 mod android_session;
 pub mod controller;
+mod country;
 #[cfg(target_os = "android")]
 mod tunnel;
 
@@ -263,6 +264,10 @@ mod android {
         });
     }
 
+    pub(super) fn read_clipboard() -> String {
+        android_string_call("readClipboard").unwrap_or_default()
+    }
+
     pub(super) fn copy_logs(text: &str) {
         string_activity_call("copyLogs", text);
     }
@@ -349,6 +354,16 @@ mod android {
 #[cfg(target_os = "android")]
 pub(crate) fn logcat(line: &str) {
     android::logcat(line);
+}
+
+#[cfg(target_os = "android")]
+pub fn read_clipboard() -> String {
+    android::read_clipboard()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn read_clipboard() -> String {
+    String::new()
 }
 
 #[cfg(target_os = "android")]

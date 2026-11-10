@@ -26,6 +26,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## MehrNet BGP country database
+
+- Project: https://github.com/mehrnet/bgp-api
+- File: `crates/bamdad-app/assets/country.mncc` (MNCC format)
+- Derived from RIR allocations and geofeeds; used for offline IP-to-country lookup.
+- Refresh with `scripts/fetch-country-db.sh`.
+
 ## Twemoji
 
 - Project: https://github.com/jdecked/twemoji

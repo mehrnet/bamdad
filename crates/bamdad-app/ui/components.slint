@@ -549,3 +549,109 @@ export component ProfileRowView inherits Rectangle {
         }
     }
 }
+
+export component HeaderButton inherits Rectangle {
+    in property <image> icon;
+    in property <length> button-size: 38px;
+    callback clicked();
+
+    width: button-size;
+    height: button-size;
+    border-radius: 10px;
+    background: touch.pressed ? Theme.surface-2 : transparent;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    Icon {
+        source: root.icon;
+        tint: Theme.text-2;
+        icon-size: 17px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ConnectSquare inherits Rectangle {
+    in property <bool> connected: false;
+    in property <bool> busy: false;
+    in property <length> button-size: 60px;
+    callback clicked();
+
+    width: button-size;
+    height: button-size;
+    border-radius: button-size * 0.24;
+    background: root.busy ? Theme.surface-3 : (root.connected ? Theme.success : Theme.accent);
+    border-width: 2px;
+    border-color: root.connected ? #4ade80 : Theme.border-strong;
+
+    Icon {
+        source: root.connected ? @image-url("icons/stop.svg") : @image-url("icons/power.svg");
+        tint: root.busy ? Theme.muted : #04121e;
+        icon-size: root.button-size * 0.42;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    touch := TouchArea {
+        enabled: !root.busy;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component LocationChip inherits Rectangle {
+    in property <string> location: "—";
+    in property <string> ip: "—";
+    in property <bool> revealed: false;
+    callback toggle();
+
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.surface-2;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 7px;
+        spacing: 5px;
+        cross-axis-alignment: center;
+
+        Icon {
+            source: @image-url("icons/location.svg");
+            tint: Theme.accent;
+            icon-size: 13px;
+        }
+        Text {
+            text: root.location;
+            color: Theme.text-2;
+            font-size: 10px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: root.revealed ? root.ip : "••••••";
+            color: Theme.text;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: "monospace";
+            vertical-alignment: center;
+        }
+        Icon {
+            source: root.revealed ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
+            tint: Theme.muted;
+            icon-size: 13px;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(); }
+    }
+}

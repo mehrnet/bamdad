@@ -18,10 +18,7 @@ export component ProfilesPage inherits Rectangle {
     in property <[ProfileRow]> profiles;
     in property <string> selected-id;
     in property <string> status-text: "Disconnected";
-    in-out property <string> link-input;
-    in-out property <int> core-choice: 0;
     callback select(string);
-    callback import-link(string, int);
     callback ping(string);
     callback ping-all();
     callback reload();
@@ -34,7 +31,7 @@ export component ProfilesPage inherits Rectangle {
         padding: root.phone ? 16px : 28px;
         spacing: 12px;
 
-        if root.phone : HorizontalLayout {
+        HorizontalLayout {
             spacing: 8px;
             SecondaryButton {
                 text: "Ping all";
@@ -44,27 +41,6 @@ export component ProfilesPage inherits Rectangle {
             SecondaryButton {
                 text: "Reload";
                 horizontal-stretch: 1;
-                clicked => { root.reload(); }
-            }
-        }
-        if !root.phone : HorizontalLayout {
-            spacing: 8px;
-            cross-axis-alignment: center;
-            Text {
-                text: "Profiles";
-                color: Theme.text;
-                font-size: Theme.font-title;
-                font-weight: 700;
-                horizontal-stretch: 1;
-            }
-            SecondaryButton {
-                width: 100px;
-                text: "Ping all";
-                clicked => { root.ping-all(); }
-            }
-            SecondaryButton {
-                width: 90px;
-                text: "Reload";
                 clicked => { root.reload(); }
             }
         }
@@ -74,88 +50,6 @@ export component ProfilesPage inherits Rectangle {
             color: Theme.warn;
             font-size: 11px;
             overflow: elide;
-        }
-
-        if root.phone : Card {
-            height: 152px;
-            VerticalLayout {
-                padding: 14px;
-                spacing: 9px;
-                Text {
-                    text: "Import a share link";
-                    color: Theme.text;
-                    font-size: 13px;
-                    font-weight: 600;
-                }
-                TextField {
-                    text <=> root.link-input;
-                    placeholder: "vless://  vmess://  trojan://  ss://";
-                    accepted => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
-                }
-                HorizontalLayout {
-                    spacing: 7px;
-                    cross-axis-alignment: center;
-                    ChoicePill {
-                        width: 60px;
-                        text: "Xray";
-                        active: root.core-choice == 0;
-                        clicked => { root.core-choice = 0; }
-                    }
-                    ChoicePill {
-                        width: 80px;
-                        text: "sing-box";
-                        active: root.core-choice == 1;
-                        clicked => { root.core-choice = 1; }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    PrimaryButton {
-                        width: 96px;
-                        text: "Import";
-                        enabled: root.link-input != "";
-                        clicked => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
-                    }
-                }
-            }
-        }
-        if !root.phone : Card {
-            VerticalLayout {
-                padding: 14px;
-                spacing: 9px;
-                Text {
-                    text: "Import a share link";
-                    color: Theme.text;
-                    font-size: 13px;
-                    font-weight: 600;
-                }
-                HorizontalLayout {
-                    spacing: 7px;
-                    cross-axis-alignment: center;
-                    TextField {
-                        horizontal-stretch: 1;
-                        text <=> root.link-input;
-                        placeholder: "vless://  vmess://  trojan://  ss://";
-                        accepted => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
-                    }
-                    ChoicePill {
-                        width: 60px;
-                        text: "Xray";
-                        active: root.core-choice == 0;
-                        clicked => { root.core-choice = 0; }
-                    }
-                    ChoicePill {
-                        width: 80px;
-                        text: "sing-box";
-                        active: root.core-choice == 1;
-                        clicked => { root.core-choice = 1; }
-                    }
-                    PrimaryButton {
-                        width: 96px;
-                        text: "Import";
-                        enabled: root.link-input != "";
-                        clicked => { root.import-link(root.link-input, root.core-choice); root.link-input = ""; }
-                    }
-                }
-            }
         }
 
         Card {
@@ -173,7 +67,7 @@ export component ProfilesPage inherits Rectangle {
                         spacing: 6px;
 
                         if root.profiles.length == 0 : Text {
-                            text: "No profiles yet. Import a share link above.";
+                            text: "No profiles yet. Use + to add a link.";
                             color: Theme.muted;
                             font-size: 12px;
                             horizontal-alignment: center;
@@ -216,13 +110,6 @@ export component SettingsPage inherits Rectangle {
         VerticalLayout {
             padding: root.phone ? 16px : 28px;
             spacing: 14px;
-
-            if !root.phone : Text {
-                text: "Settings";
-                color: Theme.text;
-                font-size: Theme.font-title;
-                font-weight: 700;
-            }
 
             Card {
                 VerticalLayout {
