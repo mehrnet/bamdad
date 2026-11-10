@@ -1,13 +1,13 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { ProfileRow } from "models.slint";
+import { GroupRow } from "models.slint";
 import {
     Badge,
     Card,
     ChoicePill,
     FieldLabel,
+    GroupCard,
     PrimaryButton,
-    ProfileRowView,
     SecondaryButton,
     Switch,
     TextField,
@@ -15,13 +15,16 @@ import {
 
 export component ProfilesPage inherits Rectangle {
     in property <bool> phone;
-    in property <[ProfileRow]> profiles;
+    in property <[GroupRow]> groups;
     in property <string> selected-id;
     in property <string> status-text: "Disconnected";
     callback select(string);
     callback ping(string);
     callback ping-all();
     callback reload();
+    callback toggle-group(string);
+    callback ping-group(string);
+    callback delete-group(string);
 
     width: 100%;
     height: 100%;
@@ -66,16 +69,12 @@ export component ProfilesPage inherits Rectangle {
                     VerticalLayout {
                         spacing: 6px;
 
-                        if root.profiles.length == 0 : Text {
-                            text: "No profiles yet. Use + to add a link.";
-                            color: Theme.muted;
-                            font-size: 12px;
-                            horizontal-alignment: center;
-                        }
-
-                        for row in root.profiles : ProfileRowView {
-                            row-data: row;
+                        for group in root.groups : GroupCard {
+                            group-data: group;
                             compact: root.phone;
+                            toggle(id) => { root.toggle-group(id); }
+                            ping-group(id) => { root.ping-group(id); }
+                            delete-group(id) => { root.delete-group(id); }
                             select(id) => { root.select(id); }
                             ping(id) => { root.ping(id); }
                         }

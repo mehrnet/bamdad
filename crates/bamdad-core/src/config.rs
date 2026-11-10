@@ -65,6 +65,15 @@ pub struct Profile {
     /// Original share link, if imported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Subscription group id. `None` means the pinned Default group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// Human-readable subscription group name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_name: Option<String>,
+    /// Subscription source URL, if this node came from a subscription.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_url: Option<String>,
 }
 
 impl Profile {
@@ -78,7 +87,26 @@ impl Profile {
             port: spec.port,
             config: config_from_spec(core, spec),
             source: Some(spec.source.clone()),
+            group_id: None,
+            group_name: None,
+            group_url: None,
         }
+    }
+
+    pub fn group_key(&self) -> String {
+        self.group_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string())
+    }
+
+    pub fn group_title(&self) -> String {
+        self.group_name
+            .clone()
+            .unwrap_or_else(|| "Default".to_string())
+    }
+
+    pub fn is_default_group(&self) -> bool {
+        self.group_id.is_none()
     }
 
     pub fn endpoint(&self) -> String {
@@ -230,6 +258,25 @@ impl Store {
         }
         true
     }
+
+    /// Remove every node belonging to a subscription group. The pinned
+    /// Default group (`None`) cannot be removed.
+    pub fn remove_group(&mut self, group_id: &str) -> bool {
+        if group_id == "default" || group_id.is_empty() {
+            return false;
+        }
+        let before = self.profiles.len();
+        self.profiles
+            .retain(|profile| profile.group_id.as_deref() != Some(group_id));
+        if self
+            .selected_id
+            .as_ref()
+            .is_some_and(|id| self.profile_by_id(id).is_none())
+        {
+            self.selected_id = self.profiles.first().map(|profile| profile.id.clone());
+        }
+        self.profiles.len() != before
+    }
 }
 
 pub fn new_id() -> String {
@@ -260,6 +307,9 @@ pub fn default_profiles() -> Vec<Profile> {
             address: "local".to_string(),
             port: 0,
             source: None,
+            group_id: None,
+            group_name: None,
+            group_url: None,
             config: json!({
                 "log": { "loglevel": "warning" },
                 "inbounds": [
@@ -292,6 +342,9 @@ pub fn default_profiles() -> Vec<Profile> {
             address: "local".to_string(),
             port: 0,
             source: None,
+            group_id: None,
+            group_name: None,
+            group_url: None,
             config: json!({
                 "log": { "level": "warn", "timestamp": true },
                 "inbounds": [
@@ -753,6 +806,9 @@ mod tests {
                 port: 0,
                 config: default_profile().config,
                 source: None,
+                group_id: None,
+                group_name: None,
+                group_url: None,
             }],
             ..Default::default()
         };
@@ -775,6 +831,9 @@ mod tests {
                 port: 443,
                 config: json!({ "outbounds": [] }),
                 source: Some(source.to_string()),
+                group_id: None,
+                group_name: None,
+                group_url: None,
             }],
             ..Default::default()
         };

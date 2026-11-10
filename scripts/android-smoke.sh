@@ -99,7 +99,7 @@ if ! adb shell ip -6 addr show tun0 2>/dev/null | grep -q 'inet6 '; then
 fi
 
 echo '--- switch core while connected ---'
-adb shell input tap $((W / 2)) $((H * 1090 / 1920))
+adb shell input tap $((W / 2)) $((H * 410 / 1000))
 sleep 10
 if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     echo 'vpn-dropped-on-switch'

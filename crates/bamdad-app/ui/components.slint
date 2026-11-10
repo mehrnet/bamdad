@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { ProfileRow } from "models.slint";
+import { GroupRow, ProfileRow } from "models.slint";
 
 component Icon inherits Image {
     in property <length> icon-size: 18px;
@@ -653,5 +653,131 @@ export component LocationChip inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.toggle(); }
+    }
+}
+
+export component InfoRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> revealable: false;
+    in property <bool> revealed: false;
+    callback toggle();
+
+    height: 25px;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: 2px;
+        padding-right: 2px;
+        spacing: 6px;
+        cross-axis-alignment: center;
+
+        Text {
+            text: root.label;
+            color: Theme.muted;
+            font-size: 9px;
+            font-weight: 700;
+            width: 38px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: (root.revealable && !root.revealed) ? "••••••" : root.value;
+            color: Theme.text;
+            font-size: 11px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.revealable : Icon {
+            source: root.revealed ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
+            tint: Theme.muted;
+            icon-size: 13px;
+        }
+    }
+
+    if root.revealable : TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(); }
+    }
+}
+
+
+export component GroupCard inherits Rectangle {
+    in property <GroupRow> group-data;
+    in property <bool> compact: false;
+    callback toggle(string);
+    callback ping-group(string);
+    callback delete-group(string);
+    callback select(string);
+    callback ping(string);
+
+    height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 68px + 6px : 0px);
+    border-radius: Theme.radius-sm;
+    background: Theme.bg-raised;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(root.group-data.id); }
+    }
+
+    VerticalLayout {
+        padding-top: 7px;
+        padding-bottom: 7px;
+
+        HorizontalLayout {
+            height: 44px;
+            padding-left: 10px;
+            padding-right: 8px;
+            spacing: 7px;
+            cross-axis-alignment: center;
+
+            Text {
+                text: root.group-data.expanded ? "▾" : "▸";
+                color: Theme.muted;
+                font-size: 13px;
+                width: 14px;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: root.group-data.name;
+                color: Theme.text;
+                font-size: 13px;
+                font-weight: 700;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Badge {
+                label: root.group-data.kind;
+                tint: root.group-data.id == "default" ? Theme.text-2 : Theme.accent;
+            }
+            PingButton {
+                text: root.group-data.ping;
+                state: root.group-data.ping-state;
+                clicked => { root.ping-group(root.group-data.id); }
+            }
+            if root.group-data.deletable : HeaderButton {
+                icon: @image-url("icons/trash.svg");
+                button-size: 30px;
+                clicked => { root.delete-group(root.group-data.id); }
+            }
+        }
+
+        if root.group-data.expanded : VerticalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-bottom: 4px;
+            spacing: 6px;
+            for node in root.group-data.nodes : ProfileRowView {
+                row-data: node;
+                compact: root.compact;
+                select(id) => { root.select(id); }
+                ping(id) => { root.ping(id); }
+            }
+        }
     }
 }

@@ -95,6 +95,26 @@ pub fn http_through(socks_port: u16, host: &str, port: u16, timeout: Duration) -
     Ok(line)
 }
 
+/// Fetch a small plain-HTTP resource through the local SOCKS5 listener.
+/// Used for exit-IP lookups; all traffic stays inside the tunnel.
+pub fn http_get(socks_port: u16, host: &str, path: &str, timeout: Duration) -> Result<String> {
+    let mut stream = open_through(socks_port, host, 80, timeout)?;
+    stream.write_all(
+        format!(
+            "GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: bamdad-exit-ip\r\n\r\n"
+        )
+        .as_bytes(),
+    )?;
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or("");
+    Ok(body.trim().to_string())
+}
+
 fn skip_bound_address(stream: &mut TcpStream, address_type: u8) -> Result<()> {
     let length = match address_type {
         0x01 => 4,

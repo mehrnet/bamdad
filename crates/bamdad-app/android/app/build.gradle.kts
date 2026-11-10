@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.19"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.1.20"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }

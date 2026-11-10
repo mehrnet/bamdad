@@ -25,6 +25,13 @@ export ANDROID_BUILD_TOOLS_VERSION="${ANDROID_BUILD_TOOLS_VERSION:-35.0.0}"
 rm -rf "$JNI_DIR"
 mkdir -p "$JNI_DIR"
 
+# rustls/ring need the NDK C compiler explicitly when cross-compiling.
+NDK_TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+export CC_aarch64_linux_android="$NDK_TOOLCHAIN/aarch64-linux-android26-clang"
+export AR_aarch64_linux_android="$NDK_TOOLCHAIN/llvm-ar"
+export CC_x86_64_linux_android="$NDK_TOOLCHAIN/x86_64-linux-android26-clang"
+export AR_x86_64_linux_android="$NDK_TOOLCHAIN/llvm-ar"
+
 cargo ndk \
     --manifest-path "$REPO_ROOT/Cargo.toml" \
     "${ABIS[@]/#/--target=}" \

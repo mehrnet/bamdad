@@ -12,13 +12,15 @@ use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, Lo
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
-use crate::{AppWindow, NamePart, ProfileRow};
+use crate::{AppWindow, GroupRow, NamePart, ProfileRow};
 
 pub(crate) type LogBuffer = Arc<Mutex<Vec<String>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
 static SWITCHING: AtomicBool = AtomicBool::new(false);
+static LAST_IP: Mutex<String> = Mutex::new(String::new());
+static LAST_LOCATION: Mutex<String> = Mutex::new(String::new());
 
 pub fn init(
     ui: &AppWindow,
@@ -98,6 +100,7 @@ pub(crate) fn init_attached(
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
     seed(ui, &store, &pings);
+    seed_last_network(ui);
     {
         let items: Vec<SharedString> = logs
             .lock()
@@ -149,10 +152,63 @@ pub(crate) fn init_attached(
     start_bridge(ui.as_weak(), events, logs);
 }
 
+fn set_last_network(ip: &str, location: &str) {
+    *LAST_IP.lock().unwrap() = ip.to_string();
+    *LAST_LOCATION.lock().unwrap() = location.to_string();
+}
+
+fn clear_last_network() {
+    LAST_IP.lock().unwrap().clear();
+    LAST_LOCATION.lock().unwrap().clear();
+}
+
+fn seed_last_network(ui: &AppWindow) {
+    let ip = LAST_IP.lock().unwrap().clone();
+    let location = LAST_LOCATION.lock().unwrap().clone();
+    ui.set_ip_text(if ip.is_empty() {
+        "—".into()
+    } else {
+        ip.into()
+    });
+    ui.set_location_text(if location.is_empty() {
+        "—".into()
+    } else {
+        location.into()
+    });
+}
+
+fn fetch_exit_ip(port: u16) -> Option<(String, String)> {
+    const ECHOES: &[(&str, &str)] = &[
+        ("ifconfig.me", "/ip"),
+        ("api.ipify.org", "/"),
+        ("ipv4.icanhazip.com", "/"),
+        ("checkip.amazonaws.com", "/"),
+    ];
+
+    for (host, path) in ECHOES {
+        let Ok(body) = bamdad_core::socks::http_get(port, host, path, Duration::from_secs(8))
+        else {
+            continue;
+        };
+        let candidate = body.lines().next().unwrap_or("").trim();
+        let Ok(ip) = candidate.parse::<std::net::IpAddr>() else {
+            continue;
+        };
+        let location = match crate::country::lookup(ip) {
+            Some(code) => crate::country_names::name(code)
+                .map(|name| format!("{code} · {name}"))
+                .unwrap_or_else(|| code.to_string()),
+            None => "Unknown".to_string(),
+        };
+        return Some((ip.to_string(), location));
+    }
+    None
+}
+
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     let store = store.lock().unwrap();
 
-    ui.set_profiles(profile_model(&store, pings));
+    ui.set_groups(group_model(&store, pings));
     ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
     ui.set_mobile(cfg!(target_os = "android"));
     ui.set_total_down_text("0 B".into());
@@ -180,6 +236,7 @@ static EMOJI_ZIP: &[u8] = include_bytes!("../assets/twemoji.zip");
 thread_local! {
     static EMOJI_CACHE: RefCell<HashMap<String, Option<slint::Image>>> =
         RefCell::new(HashMap::new());
+    static GROUP_STATE: RefCell<HashMap<String, bool>> = RefCell::new(HashMap::new());
 }
 
 fn emoji_candidates(grapheme: &str) -> Vec<String> {
@@ -306,31 +363,114 @@ fn name_parts(name: &str) -> Vec<NamePart> {
     parts
 }
 
-fn profile_model(store: &Store, pings: &PingState) -> ModelRc<ProfileRow> {
+fn node_row(
+    profile: &config::Profile,
+    pings: &HashMap<String, (String, i32)>,
+    selected_id: Option<&str>,
+) -> ProfileRow {
+    let (ping, ping_state) = pings
+        .get(&profile.id)
+        .cloned()
+        .unwrap_or_else(|| (initial_ping(profile), 0));
+    ProfileRow {
+        id: profile.id.as_str().into(),
+        name: profile.name.as_str().into(),
+        name_parts: ModelRc::new(VecModel::from(name_parts(&profile.name))),
+        detail: format!(
+            "{} · {}",
+            protocol_label(&profile.protocol),
+            profile.endpoint()
+        )
+        .into(),
+        protocol: protocol_label(&profile.protocol).into(),
+        core: profile.core.label().into(),
+        ping: ping.into(),
+        ping_state,
+        selected: selected_id == Some(profile.id.as_str()),
+    }
+}
+
+fn group_ping(nodes: &[&config::Profile], pings: &HashMap<String, (String, i32)>) -> (String, i32) {
+    if nodes.is_empty() {
+        return ("—".to_string(), 0);
+    }
+    let mut testing = false;
+    let mut timeout = false;
+    let mut best: Option<(u64, i32)> = None;
+
+    for node in nodes {
+        match pings.get(&node.id) {
+            Some((text, state)) => {
+                if *state == 1 {
+                    testing = true;
+                }
+                if *state == 4 {
+                    timeout = true;
+                }
+                if let Some(ms) = text
+                    .strip_suffix(" ms")
+                    .and_then(|value| value.parse::<u64>().ok())
+                {
+                    if best.is_none_or(|(current, _)| ms < current) {
+                        best = Some((ms, *state));
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
+    if testing {
+        ("…".to_string(), 1)
+    } else if let Some((ms, state)) = best {
+        (format!("{ms} ms"), state)
+    } else if timeout {
+        ("timeout".to_string(), 4)
+    } else {
+        ("Ping".to_string(), 0)
+    }
+}
+
+fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
     let pings = pings.lock().unwrap();
-    let rows: Vec<ProfileRow> = store
-        .profiles
-        .iter()
-        .map(|profile| {
-            let (ping, ping_state) = pings
-                .get(&profile.id)
-                .cloned()
-                .unwrap_or_else(|| (initial_ping(profile), 0));
-            ProfileRow {
-                id: profile.id.as_str().into(),
-                name: profile.name.as_str().into(),
-                name_parts: ModelRc::new(VecModel::from(name_parts(&profile.name))),
-                detail: format!(
-                    "{} · {}",
-                    protocol_label(&profile.protocol),
-                    profile.endpoint()
-                )
-                .into(),
-                protocol: protocol_label(&profile.protocol).into(),
-                core: profile.core.label().into(),
+    let mut groups: Vec<(String, String, Vec<&config::Profile>)> =
+        vec![("default".to_string(), "Default".to_string(), Vec::new())];
+    let mut index: HashMap<String, usize> = HashMap::new();
+    index.insert("default".to_string(), 0);
+
+    for profile in &store.profiles {
+        let key = profile.group_key();
+        if let Some(&position) = index.get(&key) {
+            groups[position].2.push(profile);
+        } else {
+            index.insert(key.clone(), groups.len());
+            groups.push((key, profile.group_title(), vec![profile]));
+        }
+    }
+
+    let rows: Vec<GroupRow> = groups
+        .into_iter()
+        .map(|(key, title, nodes)| {
+            let expanded = GROUP_STATE.with(|state| {
+                *state
+                    .borrow_mut()
+                    .entry(key.clone())
+                    .or_insert(key == "default")
+            });
+            let node_rows: Vec<ProfileRow> = nodes
+                .iter()
+                .map(|profile| node_row(profile, &pings, store.selected_id.as_deref()))
+                .collect();
+            let (ping, ping_state) = group_ping(&nodes, &pings);
+            GroupRow {
+                id: key.as_str().into(),
+                name: title.as_str().into(),
+                kind: if key == "default" { "DEFAULT" } else { "SUB" }.into(),
+                expanded,
+                deletable: key != "default",
                 ping: ping.into(),
                 ping_state,
-                selected: store.selected_id.as_deref() == Some(profile.id.as_str()),
+                nodes: ModelRc::new(VecModel::from(node_rows)),
             }
         })
         .collect();
@@ -400,7 +540,7 @@ fn setup_callbacks(
             };
 
             let guard = store.lock().unwrap();
-            ui.set_profiles(profile_model(&guard, &pings));
+            ui.set_groups(group_model(&guard, &pings));
             drop(guard);
 
             ui.set_selected_id(selected.id.as_str().into());
@@ -453,6 +593,9 @@ fn setup_callbacks(
                             port: 0,
                             config,
                             source: None,
+                            group_id: None,
+                            group_name: None,
+                            group_url: None,
                         };
                         {
                             let mut guard = store.lock().unwrap();
@@ -460,7 +603,7 @@ fn setup_callbacks(
                             let _ = save_store(&guard);
                         }
                         let guard = store.lock().unwrap();
-                        ui.set_profiles(profile_model(&guard, &pings));
+                        ui.set_groups(group_model(&guard, &pings));
                         ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                         drop(guard);
                         push_log(&ui, &logs, format!("imported {name}"));
@@ -505,7 +648,7 @@ fn setup_callbacks(
                     }
 
                     let guard = store.lock().unwrap();
-                    ui.set_profiles(profile_model(&guard, &pings));
+                    ui.set_groups(group_model(&guard, &pings));
                     ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                     drop(guard);
 
@@ -580,7 +723,7 @@ fn setup_callbacks(
             let fresh = load_store();
             *store.lock().unwrap() = fresh;
             let guard = store.lock().unwrap();
-            ui.set_profiles(profile_model(&guard, &pings));
+            ui.set_groups(group_model(&guard, &pings));
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "profiles reloaded".to_string());
@@ -713,16 +856,91 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
-        let logs = logs.clone();
         ui.on_add_subscription(move || {
             if let Some(ui) = weak.upgrade() {
-                push_log(
-                    &ui,
-                    &logs,
-                    "subscription profiles arrive in the next update".to_string(),
-                );
                 ui.set_menu_open(false);
+                ui.set_subscription_url("".into());
+                ui.set_subscription_open(true);
             }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_subscription(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_subscription_open(false);
+                ui.set_subscription_url("".into());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_add_subscription_url(move |url| {
+            let Some(ui) = weak.upgrade() else { return };
+            let url = url.trim().to_string();
+            if url.is_empty() {
+                return;
+            }
+            ui.set_subscription_open(false);
+            ui.set_subscription_url("".into());
+            push_log(&ui, &logs, "fetching subscription…".to_string());
+
+            let weak = weak.clone();
+            let store = store.clone();
+            let pings = pings.clone();
+            let logs = logs.clone();
+            std::thread::spawn(move || {
+                let result = fetch_subscription(&url);
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = weak.upgrade() else { return };
+                    match result {
+                        Ok((group_name, nodes)) => {
+                            if nodes.is_empty() {
+                                push_log(
+                                    &ui,
+                                    &logs,
+                                    "subscription contains no supported configs".to_string(),
+                                );
+                                return;
+                            }
+                            let group_id = config::new_id();
+                            let group_name = group_name.unwrap_or_else(|| "Subscription".into());
+                            let first_id = nodes[0].id.clone();
+                            let mut guard = store.lock().unwrap();
+                            for mut node in nodes {
+                                node.group_id = Some(group_id.clone());
+                                node.group_name = Some(group_name.clone());
+                                node.group_url = Some(url.clone());
+                                guard.profiles.push(node);
+                            }
+                            guard.selected_id = Some(first_id.clone());
+                            guard.selected = guard
+                                .profiles
+                                .iter()
+                                .find(|profile| profile.id == first_id)
+                                .map(|profile| profile.name.clone());
+                            let _ = save_store(&guard);
+                            ui.set_groups(group_model(&guard, &pings));
+                            ui.set_selected_id(first_id.into());
+                            let count = guard
+                                .profiles
+                                .iter()
+                                .filter(|profile| profile.group_id == Some(group_id.clone()))
+                                .count();
+                            drop(guard);
+                            push_log(&ui, &logs, format!("subscription added: {count} configs"));
+                        }
+                        Err(error) => {
+                            push_log(&ui, &logs, format!("subscription failed: {error}"));
+                        }
+                    }
+                });
+            });
         });
     }
 
@@ -762,6 +980,68 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        ui.on_toggle_group(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            GROUP_STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                let value = state.entry(id.to_string()).or_insert(true);
+                *value = !*value;
+            });
+            let guard = store.lock().unwrap();
+            ui.set_groups(group_model(&guard, &pings));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let runtime = runtime.clone();
+        let store = store.clone();
+        let pings = pings.clone();
+        ui.on_ping_group(move |id| {
+            let ids: Vec<String> = {
+                let guard = store.lock().unwrap();
+                guard
+                    .profiles
+                    .iter()
+                    .filter(|profile| profile.group_key() == id.as_str())
+                    .map(|profile| profile.id.clone())
+                    .collect()
+            };
+            for id in ids {
+                begin_ping(&weak, &runtime, &store, &pings, id);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_delete_group(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let removed = {
+                let mut guard = store.lock().unwrap();
+                let removed = guard.remove_group(id.as_str());
+                if removed {
+                    let _ = save_store(&guard);
+                }
+                removed
+            };
+            if removed {
+                let guard = store.lock().unwrap();
+                ui.set_groups(group_model(&guard, &pings));
+                ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
+                drop(guard);
+                push_log(&ui, &logs, "subscription deleted".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let runtime = runtime.clone();
         let store = store.clone();
         let pings = pings.clone();
@@ -781,6 +1061,81 @@ fn setup_callbacks(
     }
 }
 
+fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::Profile>)> {
+    let response = ureq::get(url)
+        .timeout(Duration::from_secs(25))
+        .call()
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let title = response
+        .header("profile-title")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let body = response
+        .into_string()
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let mut links: Vec<String> = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.starts_with("vless://")
+                || line.starts_with("vmess://")
+                || line.starts_with("trojan://")
+                || line.starts_with("ss://")
+        })
+        .map(ToOwned::to_owned)
+        .collect();
+
+    if links.is_empty() {
+        let cleaned: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+        for engine in [
+            base64::engine::general_purpose::STANDARD,
+            base64::engine::general_purpose::STANDARD_NO_PAD,
+            base64::engine::general_purpose::URL_SAFE,
+            base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        ] {
+            if let Ok(decoded) = base64::Engine::decode(&engine, cleaned.as_bytes()) {
+                if let Ok(text) = String::from_utf8(decoded) {
+                    links = text
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| {
+                            line.starts_with("vless://")
+                                || line.starts_with("vmess://")
+                                || line.starts_with("trojan://")
+                                || line.starts_with("ss://")
+                        })
+                        .map(ToOwned::to_owned)
+                        .collect();
+                    if !links.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut nodes = Vec::new();
+    for line in links {
+        let Ok(spec) = link::parse(None, &line) else {
+            continue;
+        };
+        let core = if matches!(spec.network.as_str(), "xhttp" | "splithttp") {
+            CoreKind::Xray
+        } else {
+            CoreKind::Xray
+        };
+        nodes.push(config::Profile::from_spec(&spec, core));
+    }
+
+    let title = title.or_else(|| {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|url| url.host_str().map(|host| format!("Subscription · {host}")))
+    });
+    Ok((title, nodes))
+}
+
 fn begin_ping(
     weak: &Weak<AppWindow>,
     runtime: &tokio::runtime::Handle,
@@ -793,14 +1148,15 @@ fn begin_ping(
     let Some(profile) = profile else { return };
 
     if profile.address.is_empty() || profile.address == "local" || profile.port == 0 {
-        set_ping(&ui, pings, &id, "—".to_string(), 0);
+        set_ping(&ui, store, pings, &id, "—".to_string(), 0);
         return;
     }
 
-    set_ping(&ui, pings, &id, "…".to_string(), 1);
+    set_ping(&ui, store, pings, &id, "…".to_string(), 1);
 
     let weak = weak.clone();
     let pings = pings.clone();
+    let store = store.clone();
     let runtime = runtime.clone();
     runtime.spawn(async move {
         let result =
@@ -813,7 +1169,7 @@ fn begin_ping(
 
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {
-                set_ping(&ui, &pings, &id, text, state);
+                set_ping(&ui, &store, &pings, &id, text, state);
             }
         });
     });
@@ -829,23 +1185,18 @@ fn latency_state(ms: u64) -> i32 {
     }
 }
 
-fn set_ping(ui: &AppWindow, pings: &PingState, id: &str, text: String, state: i32) {
-    pings
-        .lock()
-        .unwrap()
-        .insert(id.to_string(), (text.clone(), state));
+fn set_ping(
+    ui: &AppWindow,
+    store: &Arc<Mutex<Store>>,
+    pings: &PingState,
+    id: &str,
+    text: String,
+    state: i32,
+) {
+    pings.lock().unwrap().insert(id.to_string(), (text, state));
 
-    let model = ui.get_profiles();
-    for index in 0..model.row_count() {
-        if let Some(mut row) = model.row_data(index) {
-            if row.id.as_str() == id {
-                row.ping = text.into();
-                row.ping_state = state;
-                model.set_row_data(index, row);
-                break;
-            }
-        }
-    }
+    let guard = store.lock().unwrap();
+    ui.set_groups(group_model(&guard, pings));
 }
 
 fn start_connection(
@@ -1075,18 +1426,24 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 }
                 ui.set_connected(false);
                 ui.set_busy(false);
+                clear_last_network();
                 ui.set_status_text("Disconnected".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
+                ui.set_ip_text("—".into());
+                ui.set_location_text("—".into());
                 crate::stop_android_vpn();
                 let _ = system_proxy::disable();
             }
             EngineState::Starting => {
+                clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(true);
                 ui.set_status_text("Starting…".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
+                ui.set_ip_text("—".into());
+                ui.set_location_text("—".into());
             }
             EngineState::Running => {
                 SWITCHING.store(false, Ordering::SeqCst);
@@ -1126,12 +1483,24 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         }
                     };
 
+                    let network = if status.is_none() {
+                        fetch_exit_ip(port)
+                    } else {
+                        None
+                    };
+                    let (ip, location) = network
+                        .clone()
+                        .unwrap_or_else(|| ("—".to_string(), "—".to_string()));
+                    set_last_network(&ip, &location);
+
                     #[cfg(target_os = "android")]
                     crate::logcat(&message);
                     let weak_for_log = weak.clone();
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = weak_for_log.upgrade() {
                             push_log(&ui, &logs, message);
+                            ui.set_ip_text(ip.into());
+                            ui.set_location_text(location.into());
                             if let Some(status) = status {
                                 if ui.get_connected() {
                                     ui.set_status_text(status.into());
@@ -1153,9 +1522,12 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
             }
             EngineState::Error(message) => {
                 SWITCHING.store(false, Ordering::SeqCst);
+                clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Core error".into());
+                ui.set_ip_text("—".into());
+                ui.set_location_text("—".into());
                 #[cfg(not(target_os = "android"))]
                 let _ = system_proxy::disable();
                 // Android: keep the TUN up as a blackhole so apps cannot fall

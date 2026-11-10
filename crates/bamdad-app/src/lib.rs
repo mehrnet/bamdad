@@ -9,7 +9,8 @@ use slint::ComponentHandle;
 #[cfg(target_os = "android")]
 mod android_session;
 pub mod controller;
-mod country;
+pub(crate) mod country;
+pub(crate) mod country_names;
 #[cfg(target_os = "android")]
 mod tunnel;
 

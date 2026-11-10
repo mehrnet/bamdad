@@ -15,3 +15,14 @@ export struct ProfileRow {
     ping-state: int,
     selected: bool,
 }
+
+export struct GroupRow {
+    id: string,
+    name: string,
+    kind: string,
+    expanded: bool,
+    deletable: bool,
+    ping: string,
+    ping-state: int,
+    nodes: [ProfileRow],
+}
