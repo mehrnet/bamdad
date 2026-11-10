@@ -431,7 +431,14 @@ fn ensure_dns_route(core: CoreKind, object: &mut serde_json::Map<String, Value>)
     match core {
         CoreKind::Xray => {
             if !object.contains_key("dns") {
-                object.insert("dns".into(), json!({ "servers": ["1.1.1.1", "8.8.8.8"] }));
+                object.insert(
+                    "dns".into(),
+                    json!({
+                        // DoH/DoT travel over the proxy's TCP stream, so DNS
+                        // does not depend on the server supporting UDP.
+                        "servers": ["https://1.1.1.1/dns-query", "tcp://8.8.8.8"]
+                    }),
+                );
             }
             if !object.contains_key("outbounds") {
                 object.insert("outbounds".into(), json!([]));
@@ -475,8 +482,13 @@ fn ensure_dns_route(core: CoreKind, object: &mut serde_json::Map<String, Value>)
                     "dns".into(),
                     json!({
                         "servers": [
-                            { "type": "udp", "tag": "dns-1", "server": "1.1.1.1" },
-                            { "type": "udp", "tag": "dns-2", "server": "8.8.8.8" }
+                            {
+                                "type": "https",
+                                "tag": "dns-1",
+                                "server": "1.1.1.1",
+                                "path": "/dns-query"
+                            },
+                            { "type": "tcp", "tag": "dns-2", "server": "8.8.8.8" }
                         ]
                     }),
                 );

@@ -7,12 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import java.net.Inet6Address
 
 /**
  * Android has no general app-level proxy API. To route other apps through the
@@ -51,39 +49,16 @@ class BamdadVpnService : VpnService() {
     private fun startTunnel() {
         if (tunFd != null) return
 
-        // Capture the physical network before the VPN becomes active.
-        val connectivity = getSystemService(ConnectivityManager::class.java)
-        val underlying = connectivity?.activeNetwork
-
-        // Only advertise IPv6 when the physical network actually has a global
-        // IPv6 address. Advertising an IPv6 route on an IPv4-only network makes
-        // apps prefer IPv6 destinations that can never connect.
-        val hasIpv6 = try {
-            val links = underlying?.let { connectivity?.getLinkProperties(it) }
-            links?.linkAddresses?.any { link ->
-                val address = link.address
-                address is Inet6Address && !address.isLinkLocalAddress
-            } == true
-        } catch (error: Throwable) {
-            Log.w(TAG, "could not inspect IPv6 support: ${error.message}")
-            false
-        }
-
+        // IPv4-only by default: many mobile networks advertise IPv6 but the
+        // proxy egress cannot reach it, which makes apps hang on AAAA records.
         val builder = Builder()
-            .setSession(if (hasIpv6) "Bamdad" else "Bamdad (IPv4)")
+            .setSession("Bamdad")
             .setMtu(MTU)
             .setBlocking(false)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
-        if (hasIpv6) {
-            builder
-                .addAddress("fdfe:dcba:9876::1", 126)
-                .addRoute("::", 0)
-                .addDnsServer("2606:4700:4700::1111")
-        }
-        Log.i(TAG, "IPv6 on underlying network: $hasIpv6")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -107,19 +82,6 @@ class BamdadVpnService : VpnService() {
             stopTunnel()
             stopSelf()
             return
-        }
-
-        // Give the tunnel an explicit underlying network. Without this some
-        // devices leave the VPN without a working uplink.
-        try {
-            if (underlying != null) {
-                setUnderlyingNetworks(arrayOf(underlying))
-            } else {
-                setUnderlyingNetworks(null)
-            }
-            Log.i(TAG, "underlying network: $underlying")
-        } catch (error: Throwable) {
-            Log.w(TAG, "setUnderlyingNetworks failed: ${error.message}")
         }
 
         if (!MainActivity.startTunnel(fd.fd, socksPort)) {
@@ -216,7 +178,7 @@ class BamdadVpnService : VpnService() {
         private const val TAG = "BamdadVpn"
         private const val CHANNEL_ID = "bamdad_vpn"
         private const val NOTIFICATION_ID = 2001
-        private const val MTU = 1500
+        private const val MTU = 1400
 
         const val ACTION_STOP = "com.mehrnet.bamdad.VPN_STOP"
         const val EXTRA_SOCKS_PORT = "socks_port"
