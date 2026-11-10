@@ -89,6 +89,7 @@ grep -Ei 'BamdadVpn|tun2socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/f
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 ! grep -q 'FATAL EXCEPTION' "$OUT/full-logcat.txt"
 grep -q 'VPN tunnel started' "$OUT/full-logcat.txt"
+grep -q 'proxy check: SOCKS CONNECT example.com:443 ok' "$OUT/full-logcat.txt"
 
 echo '--- disconnect ---'
 adb shell input tap $((W / 2)) $((H - 180))

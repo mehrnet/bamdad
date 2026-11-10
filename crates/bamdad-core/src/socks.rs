@@ -7,12 +7,17 @@ use std::time::Duration;
 
 use crate::error::{CoreError, Result};
 
-/// Open an HTTP request through the local SOCKS5 listener and return the
-/// response status line (for example `HTTP/1.0 200 OK`).
+/// Open a TCP connection through the local SOCKS5 listener. Success means the
+/// proxy accepted the request and established the upstream connection.
 ///
-/// The destination is sent to the proxy as a domain name (SOCKS `ATYP=3`), so
-/// this also verifies that the proxy can resolve names on the remote side.
-pub fn http_through(socks_port: u16, host: &str, port: u16, timeout: Duration) -> Result<String> {
+/// The destination is sent as a domain name (SOCKS `ATYP=3`), so this also
+/// verifies that the proxy can resolve names on the remote side.
+pub fn open_through(
+    socks_port: u16,
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> Result<TcpStream> {
     let proxy = SocketAddr::from((Ipv4Addr::LOCALHOST, socks_port));
     let mut stream = TcpStream::connect_timeout(&proxy, timeout).map_err(|error| {
         CoreError::Spawn(format!(
@@ -58,6 +63,13 @@ pub fn http_through(socks_port: u16, host: &str, port: u16, timeout: Duration) -
         )));
     }
     skip_bound_address(&mut stream, reply[3])?;
+    Ok(stream)
+}
+
+/// Open an HTTP request through the local SOCKS5 listener and return the
+/// response status line (for example `HTTP/1.0 200 OK`).
+pub fn http_through(socks_port: u16, host: &str, port: u16, timeout: Duration) -> Result<String> {
+    let mut stream = open_through(socks_port, host, port, timeout)?;
 
     stream.write_all(
         format!(

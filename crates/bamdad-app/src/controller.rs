@@ -321,18 +321,14 @@ fn setup_callbacks(
                     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_err() {
                         format!("test: SOCKS 127.0.0.1:{port} is not running")
                     } else {
-                        match bamdad_core::socks::http_through(
-                            port,
-                            "example.com",
-                            80,
-                            Duration::from_secs(12),
-                        ) {
-                            Ok(status) => {
-                                format!("test: {status} via SOCKS 127.0.0.1:{port}")
-                            }
-                            Err(error) => format!("test FAILED: {error}"),
+                        match proxy_probe(port) {
+                            ProxyProbe::Ok(message)
+                            | ProxyProbe::Dns(message)
+                            | ProxyProbe::Failed(message) => message,
                         }
                     };
+                #[cfg(target_os = "android")]
+                crate::logcat(&message);
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = weak.upgrade() {
                         push_log(&ui, &logs, message);
@@ -563,6 +559,45 @@ fn start_bridge(weak: Weak<AppWindow>, events: Receiver<EngineEvent>, logs: LogB
     });
 }
 
+enum ProxyProbe {
+    Ok(String),
+    Dns(String),
+    Failed(String),
+}
+
+/// Verify the running core end to end. A SOCKS `CONNECT` to port 443 is used
+/// because many providers block plain HTTP; the IP fallback separates a remote
+/// DNS problem from a dead proxy.
+fn proxy_probe(port: u16) -> ProxyProbe {
+    use bamdad_core::socks::open_through;
+
+    let mut last_error = String::new();
+    for attempt in 0..2 {
+        match open_through(port, "example.com", 443, Duration::from_secs(15)) {
+            Ok(_) => {
+                return ProxyProbe::Ok(format!(
+                    "proxy check: SOCKS CONNECT example.com:443 ok via 127.0.0.1:{port}"
+                ));
+            }
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt == 0 {
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
+    match open_through(port, "1.1.1.1", 443, Duration::from_secs(10)) {
+        Ok(_) => ProxyProbe::Dns(format!(
+            "proxy check: example.com:443 failed ({last_error}), but 1.1.1.1:443 works — remote DNS/domain issue"
+        )),
+        Err(ip_error) => ProxyProbe::Failed(format!(
+            "proxy check FAILED via SOCKS 127.0.0.1:{port}: {last_error}; 1.1.1.1 fallback: {ip_error}"
+        )),
+    }
+}
+
 fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
     match event {
         EngineEvent::State(state) => match state {
@@ -606,35 +641,29 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         crate::start_android_vpn(port);
                     }
 
-                    let (message, ok) = if !ready {
+                    let (message, status) = if !ready {
                         (
                             format!("proxy check: SOCKS 127.0.0.1:{port} never opened"),
-                            false,
+                            Some("Proxy unreachable"),
                         )
                     } else {
-                        match bamdad_core::socks::http_through(
-                            port,
-                            "example.com",
-                            80,
-                            Duration::from_secs(12),
-                        ) {
-                            Ok(status) => (
-                                format!("proxy check: {status} via SOCKS 127.0.0.1:{port}"),
-                                true,
-                            ),
-                            Err(error) => (
-                                format!("proxy check FAILED via SOCKS 127.0.0.1:{port}: {error}"),
-                                false,
-                            ),
+                        match proxy_probe(port) {
+                            ProxyProbe::Ok(message) => (message, None),
+                            ProxyProbe::Dns(message) => (message, Some("Proxy DNS issue")),
+                            ProxyProbe::Failed(message) => (message, Some("Proxy unreachable")),
                         }
                     };
 
+                    #[cfg(target_os = "android")]
+                    crate::logcat(&message);
                     let weak_for_log = weak.clone();
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = weak_for_log.upgrade() {
                             push_log(&ui, &logs, message);
-                            if !ok && ui.get_connected() {
-                                ui.set_status_text("Proxy unreachable".into());
+                            if let Some(status) = status {
+                                if ui.get_connected() {
+                                    ui.set_status_text(status.into());
+                                }
                             }
                         }
                     });
