@@ -63,7 +63,9 @@ export component SettingsPage inherits Rectangle {
     in-out property <string> socks-port;
     in-out property <string> http-port;
     in-out property <bool> system-proxy;
+    in-out property <string> theme: "system";
     callback save-settings(string, string, bool);
+    callback set-theme(string);
     callback clear-logs();
     callback test-proxy();
     callback copy-logs();
@@ -77,6 +79,45 @@ export component SettingsPage inherits Rectangle {
         VerticalLayout {
             padding: root.phone ? 16px : 28px;
             spacing: 14px;
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+                    Text {
+                        text: "Appearance";
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+                    Text {
+                        text: "The interface updates immediately.";
+                        color: Theme.muted;
+                        font-size: 10px;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ChoicePill {
+                            text: "System";
+                            horizontal-stretch: 1;
+                            active: root.theme == "system";
+                            clicked => { root.set-theme("system"); }
+                        }
+                        ChoicePill {
+                            text: "Dark";
+                            horizontal-stretch: 1;
+                            active: root.theme == "dark";
+                            clicked => { root.set-theme("dark"); }
+                        }
+                        ChoicePill {
+                            text: "Light";
+                            horizontal-stretch: 1;
+                            active: root.theme == "light";
+                            clicked => { root.set-theme("light"); }
+                        }
+                    }
+                }
+            }
 
             Card {
                 VerticalLayout {
@@ -246,7 +287,7 @@ export component SettingsPage inherits Rectangle {
                     }
                     Rectangle {
                         height: root.phone ? 420px : 480px;
-                        background: #070a10;
+                        background: Theme.log-bg;
                         border-radius: Theme.radius-sm;
                         border-width: 1px;
                         border-color: Theme.border;
@@ -257,7 +298,7 @@ export component SettingsPage inherits Rectangle {
                                 spacing: 2px;
                                 for line in root.logs : Text {
                                     text: line;
-                                    color: #a9b7c9;
+                                    color: Theme.log-text;
                                     font-size: 10px;
                                     font-family: "monospace";
                                     wrap: word-wrap;

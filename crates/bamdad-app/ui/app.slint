@@ -69,6 +69,8 @@ component ConnectionBar inherits Rectangle {
     in property <string> up;
     in property <string> ipv4;
     in property <string> ipv6;
+    in property <string> ipv4-mask;
+    in property <string> ipv6-mask;
     in property <image> country;
     in property <bool> revealed;
     callback toggle-connect();
@@ -102,6 +104,8 @@ component ConnectionBar inherits Rectangle {
             IpRow {
                 ipv4: root.ipv4;
                 ipv6: root.ipv6;
+                ipv4-mask: root.ipv4-mask;
+                ipv6-mask: root.ipv6-mask;
                 country: root.country;
                 revealed: root.revealed;
                 toggle => { root.toggle-ip(); }
@@ -131,7 +135,7 @@ component ImportMenu inherits Rectangle {
 
     width: 100%;
     height: 100%;
-    background: #00000088;
+    background: Theme.scrim;
 
     TouchArea {
         clicked => { root.close(); }
@@ -186,7 +190,7 @@ component ImportDialog inherits Rectangle {
 
     width: 100%;
     height: 100%;
-    background: #00000088;
+    background: Theme.scrim;
 
     TouchArea {
         clicked => { root.close(); }
@@ -265,7 +269,7 @@ component SubscriptionDialog inherits Rectangle {
 
     width: 100%;
     height: 100%;
-    background: #00000088;
+    background: Theme.scrim;
 
     TouchArea { clicked => { root.close(); } }
 
@@ -325,7 +329,7 @@ component EditGroupDialog inherits Rectangle {
 
     width: 100%;
     height: 100%;
-    background: #00000088;
+    background: Theme.scrim;
 
     TouchArea { clicked => { root.close(); } }
 
@@ -396,7 +400,7 @@ component GroupActionsMenu inherits Rectangle {
 
     width: 100%;
     height: 100%;
-    background: #00000088;
+    background: Theme.scrim;
 
     TouchArea { clicked => { root.close(); } }
 
@@ -444,6 +448,13 @@ export component AppWindow inherits Window {
     min-height: 480px;
     background: Theme.bg;
 
+    init => {
+        Theme.mode = root.theme-mode;
+        Theme.palette-dark = root.palette-dark;
+    }
+    changed theme-mode => { Theme.mode = root.theme-mode; }
+    changed palette-dark => { Theme.palette-dark = root.palette-dark; }
+
     in-out property <bool> connected: false;
     in-out property <bool> busy: false;
     in-out property <string> status-text: "Disconnected";
@@ -451,11 +462,15 @@ export component AppWindow inherits Window {
     in-out property <string> total-up-text: "0 B";
     in-out property <string> ipv4-text: "";
     in-out property <string> ipv6-text: "";
+    in-out property <string> ipv4-mask: "";
+    in-out property <string> ipv6-mask: "";
     in-out property <image> country-flag;
     in-out property <bool> show-ip: false;
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
     in-out property <bool> system-proxy: false;
+    in-out property <string> theme-mode: "system";
+    in-out property <bool> palette-dark: true;
     in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
@@ -482,6 +497,7 @@ export component AppWindow inherits Window {
     callback select-profile(string);
     callback import-link(string, int);
     callback save-settings(string, string, bool);
+    callback set-theme-mode(string);
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
@@ -565,9 +581,11 @@ export component AppWindow inherits Window {
                     socks-port <=> root.socks-port;
                     http-port <=> root.http-port;
                     system-proxy <=> root.system-proxy;
+                    theme <=> root.theme-mode;
                     save-settings(socks, http, proxy) => {
                         root.save-settings(socks, http, proxy);
                     }
+                    set-theme(mode) => { root.set-theme-mode(mode); }
                     clear-logs => { root.clear-logs(); }
                     test-proxy => { root.test-proxy(); }
                     copy-logs => { root.copy-logs(); }
@@ -583,6 +601,8 @@ export component AppWindow inherits Window {
                 up: root.total-up-text;
                 ipv4: root.ipv4-text;
                 ipv6: root.ipv6-text;
+                ipv4-mask: root.ipv4-mask;
+                ipv6-mask: root.ipv6-mask;
                 country: root.country-flag;
                 revealed: root.show-ip;
                 toggle-connect => { root.toggle-connect(); }

@@ -401,11 +401,11 @@ export component ConnectOrb inherits Rectangle {
     border-radius: orb-size / 2;
     background: busy ? Theme.surface-3 : (connected ? Theme.success : Theme.accent);
     border-width: 2px;
-    border-color: connected ? #4ade80 : Theme.border-strong;
+    border-color: connected ? Theme.success : Theme.border-strong;
 
     Icon {
         source: root.connected ? @image-url("icons/stop.svg") : @image-url("icons/power.svg");
-        tint: root.busy ? Theme.muted : #04121e;
+        tint: root.busy ? Theme.muted : Theme.accent-ink;
         icon-size: root.orb-size * 0.42;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
@@ -588,11 +588,11 @@ export component ConnectSquare inherits Rectangle {
     border-radius: button-size * 0.24;
     background: root.busy ? #F59E0B : (root.connected ? Theme.success : Theme.accent);
     border-width: 2px;
-    border-color: root.busy ? #FBBF24 : (root.connected ? #4ade80 : Theme.border-strong);
+    border-color: root.busy ? Theme.warn : (root.connected ? Theme.success : Theme.border-strong);
 
     Icon {
         source: root.connected ? @image-url("icons/stop.svg") : @image-url("icons/power.svg");
-        tint: root.busy ? Theme.muted : #04121e;
+        tint: root.busy ? Theme.muted : Theme.accent-ink;
         icon-size: root.button-size * 0.42;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
@@ -851,6 +851,8 @@ export component TransferRow inherits Rectangle {
 export component IpRow inherits Rectangle {
     in property <string> ipv4;
     in property <string> ipv6;
+    in property <string> ipv4-mask;
+    in property <string> ipv6-mask;
     in property <image> country;
     in property <bool> revealed;
     callback toggle();
@@ -859,13 +861,11 @@ export component IpRow inherits Rectangle {
     background: transparent;
 
     HorizontalLayout {
-        spacing: 5px;
+        spacing: 6px;
         cross-axis-alignment: center;
 
-        ColoredIcon {
-            source: @image-url("icons/ip.svg");
-            icon-size: 14px;
-        }
+        // Country flag slot. While it loads (or when the country is unknown)
+        // the globe acts as a placeholder.
         Rectangle {
             width: 18px;
             height: 18px;
@@ -877,28 +877,39 @@ export component IpRow inherits Rectangle {
                 x: 1px;
                 y: 1px;
             }
+            if root.country.width <= 0 : ColoredIcon {
+                source: @image-url("icons/ip.svg");
+                icon-size: 14px;
+                x: 2px;
+                y: 2px;
+            }
         }
+
         Rectangle {
             horizontal-stretch: 1;
             height: 22px;
             background: transparent;
             HorizontalLayout {
-                spacing: 5px;
+                spacing: 4px;
                 cross-axis-alignment: center;
                 if root.ipv4 != "" : Text {
-                    text: root.revealed ? root.ipv4 : "v4 ••••";
+                    text: root.revealed ? root.ipv4 : root.ipv4-mask;
                     color: Theme.text;
-                    font-size: 9px;
+                    font-size: 10px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    overflow: elide;
+                }
+                if root.ipv4 != "" && root.ipv6 != "" : Text {
+                    text: ",";
+                    color: Theme.muted;
+                    font-size: 10px;
+                    vertical-alignment: center;
                 }
                 if root.ipv6 != "" : Text {
-                    text: root.revealed ? root.ipv6 : "v6 ••••";
+                    text: root.revealed ? root.ipv6 : root.ipv6-mask;
                     color: Theme.text;
-                    font-size: 9px;
+                    font-size: 10px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
@@ -906,17 +917,12 @@ export component IpRow inherits Rectangle {
                     overflow: elide;
                 }
                 if root.ipv4 == "" && root.ipv6 == "" : Text {
-                    text: "—";
+                    text: "...";
                     color: Theme.muted;
-                    font-size: 10px;
+                    font-size: 11px;
                     vertical-alignment: center;
                 }
             }
-        }
-        Icon {
-            source: root.revealed ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-            tint: Theme.muted;
-            icon-size: 13px;
         }
     }
 
@@ -925,4 +931,3 @@ export component IpRow inherits Rectangle {
         clicked => { root.toggle(); }
     }
 }
-

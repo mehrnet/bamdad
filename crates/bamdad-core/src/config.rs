@@ -21,6 +21,8 @@ pub struct AppSettings {
     pub system_proxy: bool,
     #[serde(default = "default_api_addr")]
     pub api_addr: String,
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 impl Default for AppSettings {
@@ -30,6 +32,7 @@ impl Default for AppSettings {
             http_port: default_http_port(),
             system_proxy: false,
             api_addr: default_api_addr(),
+            theme: default_theme(),
         }
     }
 }
@@ -42,6 +45,10 @@ fn default_http_port() -> u16 {
 }
 fn default_api_addr() -> String {
     "127.0.0.1".to_string()
+}
+
+fn default_theme() -> String {
+    "system".to_string()
 }
 fn custom_protocol() -> String {
     "custom".to_string()

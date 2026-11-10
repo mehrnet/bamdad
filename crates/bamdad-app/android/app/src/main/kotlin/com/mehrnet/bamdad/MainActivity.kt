@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -90,6 +91,14 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         fun logLine(line: String) {
             Log.i("BamdadTunnel", line)
+        }
+
+        /** Resolves the current Android system theme for the appearance setting. */
+        @JvmStatic
+        fun systemTheme(): String {
+            val uiMode = instance?.resources?.configuration?.uiMode ?: 0
+            return if ((uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
         }
 
         /** Reads plain text from the clipboard for the import dialog. */

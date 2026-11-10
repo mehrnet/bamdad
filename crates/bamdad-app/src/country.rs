@@ -132,7 +132,7 @@ impl Family {
         let start = block.checked_mul(stride)?;
         let bytes = self.index.get(start..start + key_bytes)?;
         let mut key = 0u64;
-        for byte in bytes {
+        for byte in bytes.iter().rev() {
             key = (key << 8) | *byte as u64;
         }
         Some(key)
@@ -223,6 +223,7 @@ mod tests {
     fn looks_up_a_known_country() {
         let db = bundled().expect("bundled country database");
         assert_eq!(db.lookup("185.51.200.1".parse().unwrap()), Some("IR"));
+        assert_eq!(db.lookup("91.98.100.24".parse().unwrap()), Some("DE"));
         assert_eq!(
             db.lookup("::ffff:185.51.200.1".parse().unwrap()),
             Some("IR")

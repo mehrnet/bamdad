@@ -184,13 +184,135 @@ fn seed_last_network(ui: &AppWindow) {
     let ipv4 = LAST_IPV4.lock().unwrap().clone();
     let ipv6 = LAST_IPV6.lock().unwrap().clone();
     let country = LAST_COUNTRY.lock().unwrap().clone();
-    ui.set_ipv4_text(ipv4.into());
-    ui.set_ipv6_text(ipv6.into());
+    set_network_text(ui, &ipv4, &ipv6);
     ui.set_country_flag(if country.is_empty() {
         Default::default()
     } else {
         country_flag(&country)
     });
+}
+
+fn mask_ipv4(ip: &str) -> String {
+    let mut parts = ip.split('.');
+    let (Some(a), Some(b), Some(c), Some(_)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return ip.to_string();
+    };
+    format!("{a}.{b}.{c}.***")
+}
+
+fn mask_ipv6(ip: &str) -> String {
+    if ip.is_empty() {
+        return String::new();
+    }
+    if let Some((prefix, _)) = ip.split_once("::") {
+        if prefix.is_empty() {
+            return "::***".to_string();
+        }
+        return format!("{prefix}::***");
+    }
+    let visible: Vec<&str> = ip.split(':').take(3).collect();
+    format!("{}:***", visible.join(":"))
+}
+
+fn set_network_text(ui: &AppWindow, ipv4: &str, ipv6: &str) {
+    ui.set_ipv4_text(ipv4.into());
+    ui.set_ipv6_text(ipv6.into());
+    ui.set_ipv4_mask(mask_ipv4(ipv4).into());
+    ui.set_ipv6_mask(mask_ipv6(ipv6).into());
+}
+
+fn apply_theme(ui: &AppWindow, mode: &str) {
+    let mode = match mode {
+        "dark" => "dark",
+        "light" => "light",
+        _ => "system",
+    };
+    let dark = match mode {
+        "dark" => true,
+        "light" => false,
+        _ => system_prefers_dark(),
+    };
+    ui.set_theme_mode(mode.into());
+    ui.set_palette_dark(dark);
+}
+
+#[cfg(target_os = "android")]
+fn system_prefers_dark() -> bool {
+    crate::android::system_theme()
+        .map(|theme| theme.eq_ignore_ascii_case("dark"))
+        .unwrap_or(true)
+}
+
+#[cfg(target_os = "windows")]
+fn system_prefers_dark() -> bool {
+    let Ok(output) = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "/v",
+            "AppsUseLightTheme",
+        ])
+        .output()
+    else {
+        return true;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    if text.contains("0x0") {
+        true
+    } else if text.contains("0x1") {
+        false
+    } else {
+        true
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn system_prefers_dark() -> bool {
+    let Ok(output) = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output()
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .eq_ignore_ascii_case("dark")
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
+fn system_prefers_dark() -> bool {
+    if let Ok(output) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+        .output()
+    {
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if value.contains("dark") {
+                return true;
+            }
+            if value.contains("light") || value.contains("default") {
+                return false;
+            }
+        }
+    }
+    if let Ok(value) = std::env::var("GTK_THEME") {
+        if value.to_ascii_lowercase().contains("dark") {
+            return true;
+        }
+    }
+    true
+}
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    unix
+)))]
+fn system_prefers_dark() -> bool {
+    true
 }
 
 fn fetch_exit_ips(port: u16) -> Option<(Option<std::net::IpAddr>, Option<std::net::IpAddr>)> {
@@ -251,6 +373,8 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_socks_port(store.settings.socks_port.to_string().into());
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
+    ui.set_theme_mode(store.settings.theme.clone().into());
+    apply_theme(ui, &store.settings.theme);
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_xray_version(core_version(CoreKind::Xray).into());
     ui.set_singbox_version(core_version(CoreKind::SingBox).into());
@@ -784,6 +908,26 @@ fn setup_callbacks(
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "profiles reloaded".to_string());
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_set_theme_mode(move |mode| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mode = match mode.as_str() {
+                "dark" => "dark",
+                "light" => "light",
+                _ => "system",
+            };
+            {
+                let mut guard = store.lock().unwrap();
+                guard.settings.theme = mode.to_string();
+                let _ = save_store(&guard);
+            }
+            ui.set_theme_mode(mode.into());
+            apply_theme(&ui, mode);
         });
     }
 
@@ -1685,8 +1829,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Disconnected".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
-                ui.set_ipv4_text("".into());
-                ui.set_ipv6_text("".into());
+                set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
                 let _ = system_proxy::disable();
@@ -1698,8 +1841,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Starting…".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
-                ui.set_ipv4_text("".into());
-                ui.set_ipv6_text("".into());
+                set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
             }
             EngineState::Running => {
@@ -1767,8 +1909,11 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         if let Some(ui) = weak_for_log.upgrade() {
                             push_log(&ui, &logs, message);
                             if ui.get_connected() {
-                                ui.set_ipv4_text(ipv4.unwrap_or_default().into());
-                                ui.set_ipv6_text(ipv6.unwrap_or_default().into());
+                                set_network_text(
+                                    &ui,
+                                    ipv4.as_deref().unwrap_or_default(),
+                                    ipv6.as_deref().unwrap_or_default(),
+                                );
                                 ui.set_country_flag(
                                     country.as_deref().map(country_flag).unwrap_or_default(),
                                 );
@@ -1798,8 +1943,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Core error".into());
-                ui.set_ipv4_text("".into());
-                ui.set_ipv6_text("".into());
+                set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 #[cfg(not(target_os = "android"))]
                 let _ = system_proxy::disable();
@@ -1892,11 +2036,23 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::display_name;
+    use super::{display_name, mask_ipv4, mask_ipv6};
 
     #[test]
     fn folds_decorative_unicode_but_keeps_superscripts() {
         assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND²");
         assert_eq!(display_name("🇹🇷 | TR > 𝗧𝘂𝗻 [1]"), "🇹🇷 | TR > Tun [1]");
+    }
+
+    #[test]
+    fn masks_exit_addresses() {
+        assert_eq!(mask_ipv4("1.2.3.4"), "1.2.3.***");
+        assert_eq!(mask_ipv4(""), "");
+        assert_eq!(
+            mask_ipv6("2a01:5ec0:1003:8a2e:3c1d:7f2a:9b4e:1f07"),
+            "2a01:5ec0:1003:***"
+        );
+        assert_eq!(mask_ipv6("2001:db8::1"), "2001:db8::***");
+        assert_eq!(mask_ipv6(""), "");
     }
 }

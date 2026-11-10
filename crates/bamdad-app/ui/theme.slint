@@ -1,23 +1,31 @@
-// Shared design tokens. Keep the UI local instead of depending on the host
-// theme so desktop and mobile look consistent.
+// Shared design tokens. The palettes are selected at runtime so the UI can
+// switch between system, dark, and light without rebuilding the window.
 
 export global Theme {
-    out property <color> bg: #0a0e14;
-    out property <color> bg-raised: #0c111a;
-    out property <color> surface: #101724;
-    out property <color> surface-2: #172131;
-    out property <color> surface-3: #1d2a3d;
-    out property <color> border: #1c2839;
-    out property <color> border-strong: #2a3b52;
-    out property <color> accent: #38bdf8;
-    out property <color> accent-strong: #0ea5e9;
-    out property <color> accent-ink: #04121e;
-    out property <color> text: #eef4fb;
-    out property <color> text-2: #9aa8bd;
-    out property <color> muted: #68778d;
-    out property <color> success: #34d399;
-    out property <color> warn: #fbbf24;
-    out property <color> danger: #f87171;
+    // Selected preference: "system", "dark", or "light".
+    in-out property <string> mode: "system";
+    // Resolved palette; the controller resolves "system" before setting this.
+    in-out property <bool> palette-dark: true;
+
+    out property <color> bg: palette-dark ? #11161d : #eef1f5;
+    out property <color> bg-raised: palette-dark ? #161c25 : #f7f9fc;
+    out property <color> surface: palette-dark ? #1b2432 : #ffffff;
+    out property <color> surface-2: palette-dark ? #243043 : #e9eef5;
+    out property <color> surface-3: palette-dark ? #2d3b50 : #dde5ef;
+    out property <color> border: palette-dark ? #2b3a4f : #d7dfea;
+    out property <color> border-strong: palette-dark ? #3d5069 : #b9c6d8;
+    out property <color> accent: palette-dark ? #38bdf8 : #0284c7;
+    out property <color> accent-strong: palette-dark ? #0ea5e9 : #0369a1;
+    out property <color> accent-ink: palette-dark ? #04121e : #ffffff;
+    out property <color> text: palette-dark ? #eef4fb : #0f172a;
+    out property <color> text-2: palette-dark ? #a3b1c4 : #475569;
+    out property <color> muted: palette-dark ? #7b8a9f : #6b7a8f;
+    out property <color> success: palette-dark ? #34d399 : #15803d;
+    out property <color> warn: palette-dark ? #fbbf24 : #b45309;
+    out property <color> danger: palette-dark ? #f87171 : #dc2626;
+    out property <color> scrim: palette-dark ? #00000088 : #0b152855;
+    out property <color> log-bg: palette-dark ? #0b0f15 : #f3f6fa;
+    out property <color> log-text: palette-dark ? #a9b7c9 : #334155;
 
     out property <length> radius: 16px;
     out property <length> radius-sm: 10px;

@@ -225,6 +225,10 @@ mod android {
         })
     }
 
+    pub(super) fn system_theme() -> Option<String> {
+        android_string_call("systemTheme")
+    }
+
     pub(super) fn logcat(line: &str) {
         with_activity(|env, class| {
             let method_id = env
