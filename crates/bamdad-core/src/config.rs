@@ -147,6 +147,26 @@ impl Store {
     pub fn ensure_defaults(&mut self) {
         for profile in &mut self.profiles {
             profile.ensure_fields();
+            // Link-based profiles are generated artifacts: re-render them so
+            // transport/config fixes (for example XHTTP settings) reach users
+            // without requiring a re-import.
+            if let Some(source) = profile.source.clone() {
+                if !source.trim().is_empty() {
+                    if let Ok(spec) = crate::link::parse(Some(&profile.name), &source) {
+                        let mut core = profile.core;
+                        if matches!(spec.network.as_str(), "xhttp" | "splithttp")
+                            && core == CoreKind::SingBox
+                        {
+                            core = CoreKind::Xray;
+                        }
+                        profile.core = core;
+                        profile.protocol = spec.protocol.as_str().to_string();
+                        profile.address = spec.address.clone();
+                        profile.port = spec.port;
+                        profile.config = config_from_spec(core, &spec);
+                    }
+                }
+            }
         }
 
         if self.profiles.is_empty() {
@@ -731,6 +751,35 @@ mod tests {
         assert!(!store.profiles[0].id.is_empty());
         assert_eq!(store.profiles[0].core, CoreKind::Xray);
         assert_eq!(store.profiles[0].protocol, "custom");
+    }
+
+    #[test]
+    fn regenerates_xhttp_profiles_on_load() {
+        let source = "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=xhttp&security=tls&sni=example.com&path=%2Fxhttp&host=example.com&mode=auto#XHTTP";
+        let mut store = Store {
+            profiles: vec![Profile {
+                id: "p1".to_string(),
+                name: "XHTTP".to_string(),
+                core: CoreKind::SingBox,
+                protocol: "vless".to_string(),
+                address: "example.com".to_string(),
+                port: 443,
+                config: json!({ "outbounds": [] }),
+                source: Some(source.to_string()),
+            }],
+            ..Default::default()
+        };
+        store.ensure_defaults();
+        let profile = &store.profiles[0];
+        assert_eq!(profile.core, CoreKind::Xray);
+        assert_eq!(
+            profile.config["outbounds"][0]["streamSettings"]["network"],
+            json!("xhttp")
+        );
+        assert_eq!(
+            profile.config["outbounds"][0]["streamSettings"]["xhttpSettings"]["mode"],
+            json!("auto")
+        );
     }
 
     #[test]
