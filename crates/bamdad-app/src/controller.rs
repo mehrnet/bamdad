@@ -340,6 +340,30 @@ fn setup_callbacks(
 
     {
         let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_copy_logs(move || {
+            if let Some(ui) = weak.upgrade() {
+                let text = logs.lock().unwrap().join("\n");
+                crate::copy_logs(&text);
+                push_log(&ui, &logs, "logs copied to the clipboard".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        ui.on_share_logs(move || {
+            if let Some(ui) = weak.upgrade() {
+                let text = logs.lock().unwrap().join("\n");
+                crate::share_logs(&text);
+                push_log(&ui, &logs, "logs ready to share".to_string());
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let runtime = runtime.clone();
         let store = store.clone();
         let pings = pings.clone();

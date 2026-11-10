@@ -205,6 +205,8 @@ export component SettingsPage inherits Rectangle {
     callback save-settings(string, string, bool);
     callback clear-logs();
     callback test-proxy();
+    callback copy-logs();
+    callback share-logs();
 
     width: 100%;
     height: 100%;
@@ -383,7 +385,7 @@ export component SettingsPage inherits Rectangle {
                         }
                     }
                     Rectangle {
-                        height: 220px;
+                        height: root.phone ? 420px : 480px;
                         background: #070a10;
                         border-radius: Theme.radius-sm;
                         border-width: 1px;
@@ -398,9 +400,22 @@ export component SettingsPage inherits Rectangle {
                                     color: #a9b7c9;
                                     font-size: 10px;
                                     font-family: "monospace";
-                                    wrap: no-wrap;
+                                    wrap: word-wrap;
                                 }
                             }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SecondaryButton {
+                            text: "Copy logs";
+                            horizontal-stretch: 1;
+                            clicked => { root.copy-logs(); }
+                        }
+                        SecondaryButton {
+                            text: "Share logs";
+                            horizontal-stretch: 1;
+                            clicked => { root.share-logs(); }
                         }
                     }
                 }

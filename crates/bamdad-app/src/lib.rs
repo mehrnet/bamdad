@@ -199,6 +199,34 @@ mod android {
         });
     }
 
+    fn string_activity_call(method: &str, value: &str) {
+        with_activity(|env, class| {
+            let method_id = env
+                .get_static_method_id(class, method, "(Ljava/lang/String;)V")
+                .ok()?;
+            let text = env.new_string(value).ok()?;
+            let args = [JValue::Object(&text).as_jni()];
+            // SAFETY: method_id was resolved from this exact jclass.
+            let _ = unsafe {
+                env.call_static_method_unchecked(
+                    class,
+                    method_id,
+                    ReturnType::Primitive(Primitive::Void),
+                    &args,
+                )
+            };
+            Some(())
+        });
+    }
+
+    pub(super) fn copy_logs(text: &str) {
+        string_activity_call("copyLogs", text);
+    }
+
+    pub(super) fn share_logs(text: &str) {
+        string_activity_call("shareLogs", text);
+    }
+
     pub(super) fn start_vpn(port: u16) {
         android_int_call("startVpn", port as i32);
     }
@@ -277,6 +305,25 @@ mod android {
 #[cfg(target_os = "android")]
 pub(crate) fn logcat(line: &str) {
     android::logcat(line);
+}
+
+#[cfg(target_os = "android")]
+pub fn copy_logs(text: &str) {
+    android::copy_logs(text);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn copy_logs(_text: &str) {}
+
+#[cfg(target_os = "android")]
+pub fn share_logs(text: &str) {
+    android::share_logs(text);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn share_logs(text: &str) {
+    let path = bamdad_core::paths::data_dir().join("bamdad-logs.txt");
+    let _ = std::fs::write(path, text);
 }
 
 #[cfg(target_os = "android")]

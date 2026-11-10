@@ -2,6 +2,8 @@ package com.mehrnet.bamdad
 
 import android.Manifest
 import android.app.NativeActivity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 
 class MainActivity : NativeActivity() {
     // Registered by Rust from android_main via RegisterNatives.
@@ -87,6 +90,32 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         fun logLine(line: String) {
             Log.i("BamdadTunnel", line)
+        }
+
+        /** Copies the current Settings log to the clipboard. */
+        @JvmStatic
+        fun copyLogs(text: String) {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                val clipboard =
+                    activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Bamdad logs", text))
+                Toast.makeText(activity, "Bamdad logs copied", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        /** Opens the Android share sheet so logs can be sent or saved. */
+        @JvmStatic
+        fun shareLogs(text: String) {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Bamdad logs")
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                activity.startActivity(Intent.createChooser(intent, "Share Bamdad logs"))
+            }
         }
 
         /** Starts tun2socks against the VpnService descriptor (Rust native). */

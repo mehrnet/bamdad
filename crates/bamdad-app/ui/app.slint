@@ -253,6 +253,8 @@ export component AppWindow inherits Window {
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
+    callback copy-logs();
+    callback share-logs();
     callback ping-profile(string);
     callback ping-all();
 
@@ -335,6 +337,8 @@ export component AppWindow inherits Window {
                         }
                         clear-logs => { root.clear-logs(); }
                         test-proxy => { root.test-proxy(); }
+                        copy-logs => { root.copy-logs(); }
+                        share-logs => { root.share-logs(); }
                     }
                 }
             }
