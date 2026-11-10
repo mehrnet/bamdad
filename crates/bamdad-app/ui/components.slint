@@ -502,12 +502,15 @@ export component ProfileRowView inherits Rectangle {
             spacing: 2px;
             Rectangle {
                 height: 16px;
+                horizontal-stretch: 1;
                 clip: true;
                 HorizontalLayout {
                     spacing: 1px;
+                    alignment: root.row-data.rtl ? end : start;
                     cross-axis-alignment: center;
                     for part in root.row-data.name-parts : HorizontalLayout {
                         spacing: 0px;
+                        horizontal-stretch: 0;
                         cross-axis-alignment: center;
                         if part.is-emoji : Image {
                             source: part.image;

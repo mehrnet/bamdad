@@ -333,9 +333,9 @@ fn emoji_image(grapheme: &str) -> Option<slint::Image> {
     })
 }
 
-/// Fold decorative Unicode (mathematical alphanumerics, fullwidth, super- and
-/// subscripts) to ASCII for display. System fonts often lack these glyphs and
-/// show boxes. Other scripts are left untouched.
+/// Fold decorative Unicode (mathematical alphanumerics and fullwidth forms) to
+/// ASCII for display. System fonts often lack these glyphs and show boxes.
+/// Superscripts such as `²` are kept as-is. Other scripts are left untouched.
 fn display_name(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
 
@@ -343,13 +343,10 @@ fn display_name(name: &str) -> String {
     for ch in name.chars() {
         let code = ch as u32;
         if (0x1D400..=0x1D7FF).contains(&code)
-            || (0x2070..=0x209F).contains(&code)
             || (0x2100..=0x214F).contains(&code)
-            || (0x00B2..=0x00B3).contains(&code)
-            || code == 0x00B9
             || (0xFF00..=0xFFEF).contains(&code)
         {
-            // NFKD maps math/fullwidth letters and super/subscripts to ASCII.
+            // NFKD maps math/fullwidth letters to ASCII.
             out.extend(ch.to_string().nfkd());
         } else {
             out.push(ch);
@@ -377,8 +374,6 @@ fn is_rtl_name(name: &str) -> bool {
 }
 
 fn name_parts(name: &str) -> Vec<NamePart> {
-    let name = display_name(name);
-    let name = name.as_str();
     use unicode_segmentation::UnicodeSegmentation;
 
     let mut parts = Vec::new();
@@ -426,7 +421,7 @@ fn node_row(
         .cloned()
         .unwrap_or_else(|| (initial_ping(profile), 0));
     let rtl = is_rtl_name(&profile.name);
-    let mut parts = name_parts(&profile.name);
+    let mut parts = name_parts(&display_name(&profile.name));
     if rtl {
         parts.reverse();
     }
@@ -521,16 +516,18 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
                 .map(|profile| node_row(profile, &pings, store.selected_id.as_deref()))
                 .collect();
             let (ping, ping_state) = group_ping(&nodes, &pings);
+            let rtl = is_rtl_name(&title);
+            let display_title = display_name(&title);
             GroupRow {
                 id: key.as_str().into(),
-                name: title.as_str().into(),
+                name: display_title.as_str().into(),
                 kind: if key == "default" { "DEFAULT" } else { "SUB" }.into(),
                 expanded,
                 deletable: key != "default",
                 ping: ping.into(),
                 ping_state,
                 nodes: ModelRc::new(VecModel::from(node_rows)),
-                rtl: is_rtl_name(&title),
+                rtl,
             }
         })
         .collect();
@@ -1898,8 +1895,8 @@ mod tests {
     use super::display_name;
 
     #[test]
-    fn folds_decorative_unicode_to_ascii() {
-        assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND2");
+    fn folds_decorative_unicode_but_keeps_superscripts() {
+        assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND²");
         assert_eq!(display_name("🇹🇷 | TR > 𝗧𝘂𝗻 [1]"), "🇹🇷 | TR > Tun [1]");
     }
 }
