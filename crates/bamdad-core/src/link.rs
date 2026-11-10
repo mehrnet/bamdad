@@ -85,6 +85,10 @@ pub struct ProxySpec {
     pub host_header: String,
     pub service_name: String,
     pub header_type: String,
+    /// XHTTP mode (`auto`, `packet-up`, `stream-up`).
+    pub xhttp_mode: String,
+    /// XHTTP `extra` object from the share link.
+    pub xhttp_extra: Option<Value>,
 }
 
 impl ProxySpec {
@@ -189,6 +193,10 @@ fn fill_common(spec: &mut ProxySpec, params: &HashMap<String, String>, host: &st
         .cloned()
         .unwrap_or_default();
     spec.header_type = params.get("headerType").cloned().unwrap_or_default();
+    spec.xhttp_mode = params.get("mode").cloned().unwrap_or_default();
+    spec.xhttp_extra = params
+        .get("extra")
+        .and_then(|value| serde_json::from_str(&decode_percent(value)).ok());
     spec.alpn = params
         .get("alpn")
         .map(|value| {
@@ -520,6 +528,27 @@ fn xray_stream_settings(spec: &ProxySpec) -> Value {
                 "host": [spec.host_header]
             });
         }
+        "xhttp" | "splithttp" => {
+            // XHTTP replaced the old SpliHTTP name; both use xhttpSettings.
+            stream["network"] = json!("xhttp");
+            let mut settings = json!({
+                "path": spec.path,
+                "host": spec.host_header
+            });
+            if !spec.xhttp_mode.is_empty() {
+                settings["mode"] = json!(spec.xhttp_mode);
+            }
+            if let Some(extra) = &spec.xhttp_extra {
+                settings["extra"] = extra.clone();
+            }
+            stream["xhttpSettings"] = settings;
+        }
+        "httpupgrade" => {
+            stream["httpupgradeSettings"] = json!({
+                "path": spec.path,
+                "host": spec.host_header
+            });
+        }
         "tcp" => {
             if spec.header_type == "http" {
                 stream["tcpSettings"] = json!({
@@ -648,6 +677,11 @@ fn singbox_transport(spec: &ProxySpec) -> Option<Value> {
             "path": spec.path,
             "host": [spec.host_header]
         }))),
+        "httpupgrade" => Some(prune_nulls(json!({
+            "type": "httpupgrade",
+            "path": spec.path,
+            "host": spec.host_header
+        }))),
         _ => None,
     }
 }
@@ -690,6 +724,23 @@ mod tests {
         assert_eq!(singbox["type"], "vless");
         assert_eq!(singbox["tls"]["reality"]["public_key"], "abc");
         assert_eq!(singbox["transport"]["type"], "grpc");
+    }
+
+    #[test]
+    fn renders_xhttp_transport() {
+        let spec = parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@example.com:443?type=xhttp&security=tls&sni=example.com&path=%2Fxhttp&host=example.com&mode=auto#XHTTP",
+        )
+        .unwrap();
+        assert_eq!(spec.network, "xhttp");
+        assert_eq!(spec.xhttp_mode, "auto");
+        let xray = crate::config::config_from_spec(crate::CoreKind::Xray, &spec);
+        let stream = &xray["outbounds"][0]["streamSettings"];
+        assert_eq!(stream["network"], json!("xhttp"));
+        assert_eq!(stream["xhttpSettings"]["path"], json!("/xhttp"));
+        assert_eq!(stream["xhttpSettings"]["mode"], json!("auto"));
+        assert_eq!(stream["xhttpSettings"]["host"], json!("example.com"));
     }
 
     #[test]

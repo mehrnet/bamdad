@@ -206,6 +206,19 @@ fn setup_callbacks(
 
             match link::parse(None, raw.as_str()) {
                 Ok(spec) => {
+                    let mut core = core;
+                    // sing-box has no XHTTP transport; emitting its config would
+                    // produce a silent upload-only connection.
+                    if matches!(spec.network.as_str(), "xhttp" | "splithttp")
+                        && core == CoreKind::SingBox
+                    {
+                        core = CoreKind::Xray;
+                        push_log(
+                            &ui,
+                            &logs,
+                            "XHTTP is only supported by Xray; imported with Xray".to_string(),
+                        );
+                    }
                     let name = spec.name.clone();
                     let profile = config::Profile::from_spec(&spec, core);
                     {
