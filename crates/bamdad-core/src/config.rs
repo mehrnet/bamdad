@@ -656,6 +656,15 @@ pub fn prepare_config(
 
     ensure_dns_route(core, object);
 
+    // Android bans the netlink socket that sing-box's CLI network monitor
+    // uses for automatic interface detection. The VPN already binds traffic
+    // through the app's physical network, so disable it on Android.
+    if core == CoreKind::SingBox && cfg!(target_os = "android") {
+        if let Some(route) = object.get_mut("route").and_then(Value::as_object_mut) {
+            route.insert("auto_detect_interface".into(), json!(false));
+        }
+    }
+
     Ok(config)
 }
 
