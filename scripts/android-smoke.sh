@@ -11,9 +11,8 @@ APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
 test -f "$APK"
 adb install -r "$APK"
 # Seed two local test nodes so the smoke can verify mid-connection core switching.
-adb push scripts/android-test-profiles.json /data/local/tmp/bamdad-test-profiles.json >/dev/null
 adb shell run-as com.mehrnet.bamdad mkdir -p files
-adb shell run-as com.mehrnet.bamdad cp /data/local/tmp/bamdad-test-profiles.json files/profiles.json
+adb shell run-as com.mehrnet.bamdad sh -c 'cat > files/profiles.json' < scripts/android-test-profiles.json
 adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
 adb shell settings put global hide_error_dialogs 1 || true
 adb shell settings put global anr_show_background 0 || true
