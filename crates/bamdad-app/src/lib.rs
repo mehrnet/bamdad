@@ -16,17 +16,37 @@ slint::include_modules!();
 
 pub(crate) fn register_emoji_font() {
     use slint::fontique_011::fontique;
+    use std::sync::OnceLock;
+
+    static REGISTERED: OnceLock<()> = OnceLock::new();
+    if REGISTERED.set(()).is_err() {
+        return;
+    }
 
     let bytes = include_bytes!("../assets/NotoEmoji.ttf").to_vec();
     let blob = fontique::Blob::new(std::sync::Arc::new(bytes));
     let mut collection = slint::fontique_011::shared_collection();
-    let families = collection.register_fonts(blob, None);
-    for script in [*b"Zyyy", *b"Zsye"] {
-        collection.append_fallbacks(
-            fontique::FallbackKey::new(fontique::Script::from_bytes(script), None),
-            families.iter().map(|family| family.0),
-        );
+    let families: Vec<fontique::FamilyId> = collection
+        .register_fonts(blob, None)
+        .into_iter()
+        .map(|family| family.0)
+        .collect();
+    if families.is_empty() {
+        return;
     }
+
+    // Make the emoji font the first choice for emoji so multi-codepoint
+    // sequences (notably country flags) are shaped by the same font instead
+    // of being split across system fallbacks.
+    collection.set_generic_families(fontique::GenericFamily::Emoji, families.iter().copied());
+    collection.set_fallbacks(
+        fontique::FallbackKey::new(fontique::Script::from_bytes(*b"Zsye"), None),
+        families.iter().copied(),
+    );
+    collection.append_fallbacks(
+        fontique::FallbackKey::new(fontique::Script::from_bytes(*b"Zyyy"), None),
+        families.iter().copied(),
+    );
 }
 
 pub(crate) fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
