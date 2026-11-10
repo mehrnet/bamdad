@@ -972,6 +972,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
     match event {
         EngineEvent::State(state) => match state {
             EngineState::Stopped => {
+                if SWITCHING.load(Ordering::SeqCst) {
+                    return;
+                }
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Disconnected".into());
@@ -988,6 +991,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_total_up_text("0 B".into());
             }
             EngineState::Running => {
+                SWITCHING.store(false, Ordering::SeqCst);
                 ui.set_connected(true);
                 ui.set_busy(false);
                 ui.set_status_text("Connected".into());
