@@ -236,7 +236,34 @@ fn emoji_image(grapheme: &str) -> Option<slint::Image> {
     })
 }
 
+/// Fold decorative Unicode (mathematical alphanumerics, fullwidth, super- and
+/// subscripts) to ASCII for display. System fonts often lack these glyphs and
+/// show boxes. Other scripts are left untouched.
+fn display_name(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut out = String::new();
+    for ch in name.chars() {
+        let code = ch as u32;
+        if (0x1D400..=0x1D7FF).contains(&code)
+            || (0x2070..=0x209F).contains(&code)
+            || (0x2100..=0x214F).contains(&code)
+            || (0x00B2..=0x00B3).contains(&code)
+            || code == 0x00B9
+            || (0xFF00..=0xFFEF).contains(&code)
+        {
+            // NFKD maps math/fullwidth letters and super/subscripts to ASCII.
+            out.extend(ch.to_string().nfkd());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 fn name_parts(name: &str) -> Vec<NamePart> {
+    let name = display_name(name);
+    let name = name.as_str();
     use unicode_segmentation::UnicodeSegmentation;
 
     let mut parts = Vec::new();
@@ -1081,5 +1108,16 @@ fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display_name;
+
+    #[test]
+    fn folds_decorative_unicode_to_ascii() {
+        assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND2");
+        assert_eq!(display_name("🇹🇷 | TR > 𝗧𝘂𝗻 [1]"), "🇹🇷 | TR > Tun [1]");
     }
 }

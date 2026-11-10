@@ -24,6 +24,7 @@ tokio.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
 unicode-segmentation = "1"
 emojis = "0.7"
+unicode-normalization = "0.1"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 slint = { version = "1.18", default-features = false, features = [
