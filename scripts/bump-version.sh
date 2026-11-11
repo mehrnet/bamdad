@@ -22,4 +22,6 @@ next="$major.$minor.$patch"
 sed -i "s/^version = \"$current\"/version = \"$next\"/" Cargo.toml
 sed -i "s/?: \"$current\"/?: \"$next\"/" crates/bamdad-app/android/app/build.gradle.kts
 sed -i "s/v$current/v$next/g" README.md
+# Keep Cargo.lock's workspace versions in sync so --locked release builds work.
+cargo update -w >/dev/null
 echo "$current -> $next"

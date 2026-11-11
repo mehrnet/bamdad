@@ -15,6 +15,7 @@ jobs:
   desktop:
     name: Desktop (${{ matrix.artifact }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -35,9 +36,21 @@ jobs:
           key: release-desktop-${{ matrix.artifact }}
       - name: Install Slint build dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 12
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -e
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update; then
+              ok=1
+              break
+            fi
+            echo "apt update attempt $attempt failed; retrying"
+            sleep 15
+          done
+          [ "$ok" = 1 ]
+          sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
             libxkbcommon-dev libfontconfig1-dev libwayland-dev \
             libx11-xcb-dev libxcb1-dev libgl1-mesa-dev
       - name: Build app
@@ -75,6 +88,7 @@ jobs:
   android:
     name: Android signed APKs
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
