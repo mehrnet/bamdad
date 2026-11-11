@@ -128,6 +128,29 @@ fn spawn_relay(
                 crate::logcat(line);
             }
 
+            #[cfg(target_os = "android")]
+            match &event {
+                EngineEvent::State(engine::EngineState::Running) => {
+                    crate::android::update_vpn_notification(
+                        &controller::active_profile_name(),
+                        "0 B",
+                        "0 B",
+                    );
+                }
+                EngineEvent::Traffic {
+                    total_up,
+                    total_down,
+                    ..
+                } => {
+                    crate::android::update_vpn_notification(
+                        &controller::active_profile_name(),
+                        &controller::format_bytes(*total_down),
+                        &controller::format_bytes(*total_up),
+                    );
+                }
+                _ => {}
+            }
+
             let tx = ui_tx.lock().unwrap().clone();
             if let Some(tx) = tx {
                 let _ = tx.send(event);

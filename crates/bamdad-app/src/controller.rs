@@ -25,6 +25,15 @@ static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static PING_LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
+
+pub(crate) fn set_active_profile_name(name: &str) {
+    *ACTIVE_PROFILE.lock().unwrap() = name.to_string();
+}
+
+pub(crate) fn active_profile_name() -> String {
+    ACTIVE_PROFILE.lock().unwrap().clone()
+}
 
 fn ping_limit() -> &'static Arc<tokio::sync::Semaphore> {
     // Each probe starts a full core process. Running dozens at once starves
@@ -405,13 +414,12 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_theme_mode(store.settings.theme.clone().into());
     apply_theme(ui, &store.settings.theme, &store.settings.accent);
-    ui.set_active_profile(
-        store
-            .selected_profile()
-            .map(|profile| profile.name.clone())
-            .unwrap_or_default()
-            .into(),
-    );
+    let active_profile = store
+        .selected_profile()
+        .map(|profile| profile.name.clone())
+        .unwrap_or_default();
+    ui.set_active_profile(active_profile.clone().into());
+    set_active_profile_name(&active_profile);
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_xray_version(core_version(CoreKind::Xray).into());
     ui.set_singbox_version(core_version(CoreKind::SingBox).into());
@@ -1939,6 +1947,7 @@ fn start_connection(
         return;
     };
     ui.set_active_profile(profile.name.clone().into());
+    set_active_profile_name(&profile.name);
 
     // Log the transport shape (never credentials) so reports can identify
     // slow XHTTP modes, missing ALPN or a fallback transport.
@@ -2394,15 +2403,11 @@ fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
 }
 
 fn set_traffic_totals(ui: &AppWindow, up: u64, down: u64) {
-    let up_text = format_bytes(up);
-    let down_text = format_bytes(down);
-    ui.set_total_down_text(down_text.clone().into());
-    ui.set_total_up_text(up_text.clone().into());
-    #[cfg(target_os = "android")]
-    crate::android::update_vpn_notification(&ui.get_active_profile(), &down_text, &up_text);
+    ui.set_total_down_text(format_bytes(down).into());
+    ui.set_total_up_text(format_bytes(up).into());
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = bytes as f64;
     let mut unit = 0;
