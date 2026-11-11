@@ -1766,7 +1766,7 @@ fn begin_ping(
                 profile.core,
                 &profile.config,
                 &settings,
-                Duration::from_secs(9),
+                Duration::from_secs(12),
             )
         })
         .await;

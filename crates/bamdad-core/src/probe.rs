@@ -136,9 +136,10 @@ fn wait_for_port(port: u16, deadline: Instant) -> bool {
 ///
 /// A raw TCP handshake only proves that the proxy server's port is reachable; it
 /// does not prove that the protocol, credentials, or transport actually work.
-/// This launches the profile's own core on disposable local ports and measures
-/// an HTTPS request through its HTTP inbound, mirroring the radar-node xray
-/// probe. The temporary core is killed before returning.
+/// This launches the profile's own core on disposable local ports, warms up a
+/// pooled HTTPS connection through its HTTP inbound, then takes the best of
+/// three requests, mirroring the radar-node xray probe. The temporary core is
+/// killed before returning.
 pub fn tunnel_latency(
     core: CoreKind,
     config: &Value,
@@ -178,30 +179,63 @@ pub fn tunnel_latency(
         )));
     }
 
-    let request_started = Instant::now();
-    for (index, target) in PROBE_TARGETS.iter().enumerate() {
-        let remaining = timeout.saturating_sub(request_started.elapsed());
-        if remaining < Duration::from_millis(250) {
+    let proxy = ureq::Proxy::new(format!("http://127.0.0.1:{http_port}"))
+        .map_err(|error| CoreError::Spawn(format!("probe proxy: {error}")))?;
+    let agent = ureq::AgentBuilder::new()
+        .proxy(proxy)
+        .timeout(Duration::from_millis(2_000))
+        .build();
+
+    // Pre-warm: find a target that answers and prime the pooled TLS
+    // connection. The warm-up request itself is not part of the result.
+    let mut target: Option<&'static str> = None;
+    for candidate in PROBE_TARGETS {
+        if fetch_204(&agent, candidate) {
+            target = Some(candidate);
             break;
         }
-        // Do not let a blocked first target consume the whole fallback budget.
-        let attempts_left = PROBE_TARGETS.len().saturating_sub(index) as u32;
-        let attempt_timeout = (remaining / attempts_left.max(1)).max(Duration::from_millis(1_200));
-        let proxy = ureq::Proxy::new(format!("http://127.0.0.1:{http_port}"))
-            .map_err(|error| CoreError::Spawn(format!("probe proxy: {error}")))?;
-        let agent = ureq::AgentBuilder::new()
-            .proxy(proxy)
-            .timeout(attempt_timeout)
-            .build();
-        if let Ok(response) = agent.get(target).call() {
-            let status = response.status();
-            if (200..400).contains(&status) {
-                return Ok(request_started.elapsed().as_millis() as u64);
+    }
+    let Some(mut target) = target else {
+        return Err(CoreError::Spawn("probe request failed".to_string()));
+    };
+
+    // Best of 3 on the warmed connection. Taking the minimum removes the
+    // occasional slow packet without hiding a consistently slow tunnel.
+    let mut best: Option<u64> = None;
+    for _ in 0..3 {
+        let started = Instant::now();
+        let mut ok = fetch_204(&agent, target);
+        let mut elapsed = started.elapsed();
+        if !ok {
+            for candidate in PROBE_TARGETS {
+                if *candidate == target {
+                    continue;
+                }
+                let retry = Instant::now();
+                if fetch_204(&agent, candidate) {
+                    target = candidate;
+                    ok = true;
+                    elapsed = retry.elapsed();
+                    break;
+                }
             }
         }
+        if !ok {
+            break;
+        }
+        let ms = elapsed.as_millis() as u64;
+        best = Some(best.map_or(ms, |current| current.min(ms)));
     }
 
-    Err(CoreError::Spawn("probe request failed".to_string()))
+    best.map(Ok)
+        .unwrap_or_else(|| Err(CoreError::Spawn("probe request failed".to_string())))
+}
+
+fn fetch_204(agent: &ureq::Agent, url: &str) -> bool {
+    match agent.get(url).call() {
+        Ok(response) => (200..400).contains(&response.status()),
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]
