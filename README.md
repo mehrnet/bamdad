@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.30
-git push origin v0.1.30
+git tag v0.1.31
+git push origin v0.1.31
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -216,6 +216,11 @@ workflow fills them from the tag and run number). The app also supports
 `bamdad --version` before starting the GUI.
 
 ## Caged Wayland previews
+
+> **Never test the GUI in your live session.** Do not run the app, `grim`,
+> `wtype`, or `ydotool` against your working Wayland/niri desktop. Use the
+> caged stack below for every run, screenshot, and interaction test. See
+> `AGENTS.md` for the full rule.
 
 `scripts/caged-preview.sh` starts an **isolated** compositor stack:
 

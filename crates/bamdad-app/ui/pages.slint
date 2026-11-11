@@ -10,6 +10,7 @@ import {
     GroupCard,
     PrimaryButton,
     SecondaryButton,
+    SectionIcon,
     Switch,
     TextField,
 } from "components.slint";
@@ -43,8 +44,11 @@ export component ProfilesPage inherits Rectangle {
             vertical-scrollbar-policy: always-off;
             horizontal-scrollbar-policy: always-off;
             content-width: self.visible-width;
+            mouse-drag-pan-enabled: false;
 
             VerticalLayout {
+                padding-top: 10px;
+                padding-bottom: 10px;
                 spacing: 8px;
 
                 for group in root.groups : GroupCard {
@@ -97,11 +101,17 @@ export component SettingsPage inherits Rectangle {
                 VerticalLayout {
                     padding: 18px;
                     spacing: 12px;
-                    Text {
-                        text: "Appearance";
-                        color: Theme.text;
-                        font-size: 14px;
-                        font-weight: 600;
+                    HorizontalLayout {
+                        spacing: 7px;
+                        cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/appearance.svg"); tint: Theme.accent; }
+                        Text {
+                            text: "Appearance";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
                     Text {
                         text: "The interface updates immediately.";
@@ -144,6 +154,7 @@ export component SettingsPage inherits Rectangle {
                     }
                     HorizontalLayout {
                         spacing: 7px;
+                        alignment: center;
                         AccentSwatch { swatch: #38bdf8; active: root.accent == "cyan"; clicked => { root.set-accent("cyan"); } }
                         AccentSwatch { swatch: #3b82f6; active: root.accent == "blue"; clicked => { root.set-accent("blue"); } }
                         AccentSwatch { swatch: #ef4444; active: root.accent == "red"; clicked => { root.set-accent("red"); } }
@@ -160,11 +171,17 @@ export component SettingsPage inherits Rectangle {
                 VerticalLayout {
                     padding: 18px;
                     spacing: 12px;
-                    Text {
-                        text: "Local listeners";
-                        color: Theme.text;
-                        font-size: 14px;
-                        font-weight: 600;
+                    HorizontalLayout {
+                        spacing: 7px;
+                        cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/sliders.svg"); tint: Theme.accent; }
+                        Text {
+                            text: "Local listeners";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
 
                     if root.phone : VerticalLayout {
@@ -259,11 +276,17 @@ export component SettingsPage inherits Rectangle {
                 VerticalLayout {
                     padding: 18px;
                     spacing: 10px;
-                    Text {
-                        text: "Cores";
-                        color: Theme.text;
-                        font-size: 14px;
-                        font-weight: 600;
+                    HorizontalLayout {
+                        spacing: 7px;
+                        cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/chip.svg"); tint: Theme.accent; }
+                        Text {
+                            text: "Cores";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
                     HorizontalLayout {
                         spacing: 9px;
@@ -304,6 +327,7 @@ export component SettingsPage inherits Rectangle {
                     spacing: 8px;
                     HorizontalLayout {
                         cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/terminal.svg"); tint: Theme.accent; }
                         Text {
                             text: "Logs";
                             color: Theme.text;
@@ -366,11 +390,17 @@ export component SettingsPage inherits Rectangle {
                 VerticalLayout {
                     padding: 18px;
                     spacing: 6px;
-                    Text {
-                        text: "Data";
-                        color: Theme.text;
-                        font-size: 14px;
-                        font-weight: 600;
+                    HorizontalLayout {
+                        spacing: 7px;
+                        cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/database.svg"); tint: Theme.accent; }
+                        Text {
+                            text: "Data";
+                            color: Theme.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
                     Text {
                         text: root.data-dir;

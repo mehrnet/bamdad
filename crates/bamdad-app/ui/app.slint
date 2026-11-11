@@ -726,9 +726,26 @@ export component AppWindow inherits Window {
     private property <length> inset-right: root.safe-area-insets.right;
     private property <length> inset-bottom: root.safe-area-insets.bottom;
 
-    FocusScope {
+    root-focus := FocusScope {
         width: 100%;
         height: 100%;
+
+        init => { root-focus.focus(); }
+
+        key-pressed(event) => {
+            if (event.text == Key.Back || event.text == Key.Escape) {
+                if (root.logs-full) { root.logs-full = false; return accept; }
+                if (root.rename-open) { root.close-rename(); return accept; }
+                if (root.config-menu-open) { root.config-menu-open = false; return accept; }
+                if (root.group-menu-open) { root.close-group-menu(); return accept; }
+                if (root.edit-open) { root.close-edit(); return accept; }
+                if (root.subscription-open) { root.close-subscription(); return accept; }
+                if (root.import-open) { root.close-import(); return accept; }
+                if (root.menu-open) { root.close-menu(); return accept; }
+                if (root.page == 1) { root.page = 0; return accept; }
+            }
+            return reject;
+        }
 
         VerticalLayout {
             width: parent.width;

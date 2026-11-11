@@ -93,6 +93,9 @@ EOF
         "WLR_BACKENDS=headless"
         "WLR_HEADLESS_OUTPUTS=1"
         "WLR_RENDERER=pixman"
+        # Do not start Xwayland inside the cage: it races with sockets from
+        # the live session and is not needed by the Slint app.
+        "WLR_XWAYLAND=/bin/true"
     )
     for key in BAMDAD_XRAY_BIN BAMDAD_SINGBOX_BIN BAMDAD_PREVIEW_PAGE \
         BAMDAD_PREVIEW_PING BAMDAD_PREVIEW_CONNECT; do

@@ -10,6 +10,15 @@ component Icon inherits Image {
     colorize: tint;
 }
 
+export component SectionIcon inherits Image {
+    in property <length> icon-size: 15px;
+    in property <brush> tint: Theme.accent;
+
+    width: icon-size;
+    height: icon-size;
+    colorize: tint;
+}
+
 export component LogoMark inherits Rectangle {
     in property <length> mark-size: 32px;
 
@@ -557,6 +566,7 @@ export component ProfileRowView inherits Rectangle {
 
     property <bool> dragging: false;
     property <length> drag-start-y: 0;
+    property <length> drag-last-y: 0;
 
     height: 56px;
     border-radius: Theme.radius-sm;
@@ -575,8 +585,8 @@ export component ProfileRowView inherits Rectangle {
         cross-axis-alignment: center;
 
         Rectangle {
-            width: 20px;
-            height: 42px;
+            width: 24px;
+            height: 56px;
             background: transparent;
 
             DragHandle {
@@ -588,14 +598,20 @@ export component ProfileRowView inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 mouse-cursor: pointer;
+                moved => {
+                    if (root.dragging) {
+                        root.drag-last-y = drag-touch.mouse-y;
+                    }
+                }
                 pointer-event(event) => {
                     if (event.kind == PointerEventKind.down) {
                         root.dragging = true;
                         root.drag-start-y = drag-touch.mouse-y;
+                        root.drag-last-y = drag-touch.mouse-y;
                     } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                         if (root.dragging) {
                             root.dragging = false;
-                            let steps = Math.round((drag-touch.mouse-y - root.drag-start-y) / 56px);
+                            let steps = Math.round((root.drag-last-y - root.drag-start-y) / 32px);
                             if (steps != 0) {
                                 root.reorder(root.row-data.id, root.index + steps);
                             }

@@ -201,34 +201,50 @@ pub fn tunnel_latency(
 
     // Best of 3 on the warmed connection. Taking the minimum removes the
     // occasional slow packet without hiding a consistently slow tunnel.
-    let mut best: Option<u64> = None;
-    for _ in 0..3 {
-        let started = Instant::now();
-        let mut ok = fetch_204(&agent, target);
-        let mut elapsed = started.elapsed();
-        if !ok {
-            for candidate in PROBE_TARGETS {
-                if *candidate == target {
-                    continue;
-                }
-                let retry = Instant::now();
-                if fetch_204(&agent, candidate) {
-                    target = candidate;
-                    ok = true;
-                    elapsed = retry.elapsed();
+    // Fire the three samples concurrently over the warmed connection pool and
+    // keep the best one. This gives the same best-of-three result without
+    // paying three sequential round trips.
+    let mut best = measure_best_of_three(&agent, target);
+    if best.is_none() {
+        for candidate in PROBE_TARGETS {
+            if *candidate == target {
+                continue;
+            }
+            let started = Instant::now();
+            if fetch_204(&agent, candidate) {
+                target = candidate;
+                let _ = started;
+                best = measure_best_of_three(&agent, target);
+                if best.is_some() {
                     break;
                 }
             }
         }
-        if !ok {
-            break;
-        }
-        let ms = elapsed.as_millis() as u64;
-        best = Some(best.map_or(ms, |current| current.min(ms)));
     }
 
     best.map(Ok)
         .unwrap_or_else(|| Err(CoreError::Spawn("probe request failed".to_string())))
+}
+
+fn measure_best_of_three(agent: &ureq::Agent, target: &'static str) -> Option<u64> {
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(3);
+        for _ in 0..3 {
+            let agent = agent.clone();
+            handles.push(scope.spawn(move || {
+                let started = Instant::now();
+                if fetch_204(&agent, target) {
+                    Some(started.elapsed().as_millis() as u64)
+                } else {
+                    None
+                }
+            }));
+        }
+        handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok().flatten())
+            .min()
+    })
 }
 
 fn fetch_204(agent: &ureq::Agent, url: &str) -> bool {
