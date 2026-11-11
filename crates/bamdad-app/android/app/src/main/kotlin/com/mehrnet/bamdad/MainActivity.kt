@@ -97,15 +97,16 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         fun applyLauncherAccent(accent: String) {
             val activity = instance ?: return
+            val pkg = activity.packageName
             val aliases = mapOf(
-                "cyan" to "$packageName.LauncherCyan",
-                "blue" to "$packageName.LauncherBlue",
-                "red" to "$packageName.LauncherRed",
-                "green" to "$packageName.LauncherGreen",
-                "purple" to "$packageName.LauncherPurple",
-                "orange" to "$packageName.LauncherOrange",
-                "pink" to "$packageName.LauncherPink",
-                "gray" to "$packageName.LauncherGray",
+                "cyan" to "$pkg.LauncherCyan",
+                "blue" to "$pkg.LauncherBlue",
+                "red" to "$pkg.LauncherRed",
+                "green" to "$pkg.LauncherGreen",
+                "purple" to "$pkg.LauncherPurple",
+                "orange" to "$pkg.LauncherOrange",
+                "pink" to "$pkg.LauncherPink",
+                "gray" to "$pkg.LauncherGray",
             )
             val chosen = aliases[accent] ?: aliases["cyan"]!!
             for ((_, component) in aliases) {

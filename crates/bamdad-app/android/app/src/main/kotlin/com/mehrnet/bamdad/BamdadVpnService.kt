@@ -166,7 +166,7 @@ class BamdadVpnService : VpnService() {
         val traffic = "↓ $downText   ↑ $upText"
         val accent = accentColor(activeAccent)
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setLargeIcon(accentIcon(accent))
             .setColor(accent)
             .setContentTitle(title)
