@@ -41,6 +41,8 @@ export component ProfilesPage inherits Rectangle {
         ScrollView {
             vertical-stretch: 1;
             vertical-scrollbar-policy: always-off;
+            horizontal-scrollbar-policy: always-off;
+            content-width: self.visible-width;
 
             VerticalLayout {
                 spacing: 8px;

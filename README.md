@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.29
-git push origin v0.1.29
+git tag v0.1.30
+git push origin v0.1.30
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and

@@ -526,6 +526,26 @@ component DragHandle inherits Rectangle {
     Rectangle { x: 11px; y: 19px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
 }
 
+component MenuDots inherits Rectangle {
+    callback clicked();
+
+    width: 28px;
+    height: 28px;
+    background: transparent;
+
+    Icon {
+        source: @image-url("icons/dots.svg");
+        tint: Theme.muted;
+        icon-size: 16px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component ProfileRowView inherits Rectangle {
     in property <ProfileRow> row-data;
     in property <bool> compact: false;
@@ -592,7 +612,25 @@ export component ProfileRowView inherits Rectangle {
                 height: 16px;
                 horizontal-stretch: 1;
                 clip: true;
-                HorizontalLayout {
+
+                // One text run: let it elide at the available width. This is
+                // the common case and prevents long names from widening the
+                // whole profile list.
+                if root.row-data.name-parts.length == 1 && !root.row-data.name-parts[0].is-emoji : Text {
+                    text: root.row-data.name-parts[0].text;
+                    width: 100%;
+                    color: root.row-data.selected ? Theme.text : Theme.text-2;
+                    font-size: 13px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-alignment: root.row-data.rtl ? right : left;
+                    overflow: elide;
+                }
+
+                // Emoji runs need separate image parts; keep them on one line
+                // and let the surrounding rectangle clip any excess.
+                if root.row-data.name-parts.length > 1 : HorizontalLayout {
+                    width: 100%;
                     spacing: 1px;
                     alignment: root.row-data.rtl ? end : start;
                     cross-axis-alignment: center;
@@ -638,9 +676,7 @@ export component ProfileRowView inherits Rectangle {
             clicked => { root.ping(root.row-data.id); }
         }
 
-        HeaderButton {
-            icon: @image-url("icons/dots.svg");
-            button-size: 26px;
+        MenuDots {
             clicked => { root.open-menu(root.row-data.id); }
         }
     }
@@ -829,9 +865,7 @@ export component GroupCard inherits Rectangle {
                 state: root.group-data.ping-state;
                 clicked => { root.ping-group(root.group-data.id); }
             }
-            HeaderButton {
-                icon: @image-url("icons/dots.svg");
-                button-size: 28px;
+            MenuDots {
                 clicked => { root.open-menu(root.group-data.id); }
             }
         }
