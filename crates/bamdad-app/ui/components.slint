@@ -511,16 +511,36 @@ export component HeaderButton inherits Rectangle {
     }
 }
 
+component DragHandle inherits Rectangle {
+    in property <bool> active: false;
+
+    width: 18px;
+    height: 30px;
+    background: transparent;
+
+    Rectangle { x: 4px; y: 7px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+    Rectangle { x: 11px; y: 7px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+    Rectangle { x: 4px; y: 13px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+    Rectangle { x: 11px; y: 13px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+    Rectangle { x: 4px; y: 19px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+    Rectangle { x: 11px; y: 19px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
+}
+
 export component ProfileRowView inherits Rectangle {
     in property <ProfileRow> row-data;
     in property <bool> compact: false;
+    in property <int> index: 0;
     callback select(string);
     callback ping(string);
     callback open-menu(string);
+    callback reorder(string, int);
+
+    property <bool> dragging: false;
+    property <length> drag-start-y: 0;
 
     height: 56px;
     border-radius: Theme.radius-sm;
-    background: row-data.selected ? Theme.surface-2 : transparent;
+    background: root.dragging ? Theme.surface-3 : (row-data.selected ? Theme.surface-2 : transparent);
     border-width: 0px;
 
     touch := TouchArea {
@@ -535,10 +555,34 @@ export component ProfileRowView inherits Rectangle {
         cross-axis-alignment: center;
 
         Rectangle {
-            width: 7px;
-            height: 7px;
-            border-radius: 4px;
-            background: root.row-data.selected ? Theme.accent : Theme.muted;
+            width: 20px;
+            height: 42px;
+            background: transparent;
+
+            DragHandle {
+                active: root.dragging;
+                x: 1px;
+                y: (parent.height - self.height) / 2;
+            }
+            drag-touch := TouchArea {
+                width: parent.width;
+                height: parent.height;
+                mouse-cursor: pointer;
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        root.dragging = true;
+                        root.drag-start-y = drag-touch.mouse-y;
+                    } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                        if (root.dragging) {
+                            root.dragging = false;
+                            let steps = Math.round((drag-touch.mouse-y - root.drag-start-y) / 56px);
+                            if (steps != 0) {
+                                root.reorder(root.row-data.id, root.index + steps);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         VerticalLayout {
@@ -739,6 +783,7 @@ export component GroupCard inherits Rectangle {
     callback open-config-menu(string);
     callback select(string);
     callback ping(string);
+    callback reorder(string, int);
 
     height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 62px : 0px);
     border-radius: Theme.radius-sm;
@@ -796,12 +841,14 @@ export component GroupCard inherits Rectangle {
             padding-right: 8px;
             padding-bottom: 4px;
             spacing: 6px;
-            for node in root.group-data.nodes : ProfileRowView {
+            for node[index] in root.group-data.nodes : ProfileRowView {
                 row-data: node;
+                index: index;
                 compact: root.compact;
                 select(id) => { root.select(id); }
                 ping(id) => { root.ping(id); }
                 open-menu(id) => { root.open-config-menu(id); }
+                reorder(id, target) => { root.reorder(id, target); }
             }
         }
     }

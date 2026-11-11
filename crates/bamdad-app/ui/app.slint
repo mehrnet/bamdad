@@ -710,6 +710,7 @@ export component AppWindow inherits Window {
     callback clear-group(string);
     callback open-config-menu(string);
     callback close-config-menu();
+    callback reorder-config(string, int);
     callback request-rename(string, string, string);
     callback close-rename();
     callback save-rename(string, string);
@@ -759,6 +760,7 @@ export component AppWindow inherits Window {
                     ping(id) => { root.ping-profile(id); }
                     open-group-menu(id) => { root.open-group-menu(id); }
                     open-config-menu(id) => { root.open-config-menu(id); }
+                    reorder-config(id, target) => { root.reorder-config(id, target); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
                 }

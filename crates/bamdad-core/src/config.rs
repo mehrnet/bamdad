@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -160,6 +161,9 @@ pub struct Store {
     pub selected_id: Option<String>,
     #[serde(default = "default_group_name")]
     pub default_group_name: String,
+    /// Custom display order per group: group key -> profile ids.
+    #[serde(default)]
+    pub group_order: HashMap<String, Vec<String>>,
 }
 
 impl Default for Store {
@@ -170,6 +174,7 @@ impl Default for Store {
             selected: None,
             selected_id: None,
             default_group_name: default_group_name(),
+            group_order: HashMap::new(),
         }
     }
 }

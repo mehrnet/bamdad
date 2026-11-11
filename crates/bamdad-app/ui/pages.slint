@@ -25,6 +25,7 @@ export component ProfilesPage inherits Rectangle {
     callback ping-group(string);
     callback open-group-menu(string);
     callback open-config-menu(string);
+    callback reorder-config(string, int);
 
     width: 100%;
     height: 100%;
@@ -51,6 +52,7 @@ export component ProfilesPage inherits Rectangle {
                     ping-group(id) => { root.ping-group(id); }
                     open-menu(id) => { root.open-group-menu(id); }
                     open-config-menu(id) => { root.open-config-menu(id); }
+                    reorder(id, target) => { root.reorder-config(id, target); }
                     select(id) => { root.select(id); }
                     ping(id) => { root.ping(id); }
                 }

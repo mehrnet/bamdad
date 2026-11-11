@@ -660,6 +660,20 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
                     .entry(key.clone())
                     .or_insert(key == "default")
             });
+            let mut nodes = nodes;
+            if let Some(order) = store.group_order.get(&key) {
+                let positions: HashMap<&str, usize> = order
+                    .iter()
+                    .enumerate()
+                    .map(|(position, id)| (id.as_str(), position))
+                    .collect();
+                nodes.sort_by_key(|profile| {
+                    positions
+                        .get(profile.id.as_str())
+                        .copied()
+                        .unwrap_or(usize::MAX)
+                });
+            }
             let node_rows: Vec<ProfileRow> = nodes
                 .iter()
                 .map(|profile| node_row(profile, &pings, store.selected_id.as_deref()))
@@ -1462,6 +1476,19 @@ fn setup_callbacks(
     {
         let weak = ui.as_weak();
         let store = store.clone();
+        let pings = pings.clone();
+        ui.on_reorder_config(move |id, target| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut guard = store.lock().unwrap();
+            reorder_group(&mut guard, id.as_str(), target);
+            let _ = save_store(&guard);
+            ui.set_groups(group_model(&guard, &pings));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
         ui.on_edit_group(move |id| {
             let Some(ui) = weak.upgrade() else { return };
             if id.as_str() == "default" {
@@ -1579,6 +1606,18 @@ fn setup_callbacks(
                                 .and_then(|profile| profile.source.clone());
 
                             let mut guard = store.lock().unwrap();
+                            let old_sources: HashMap<String, String> = guard
+                                .profiles
+                                .iter()
+                                .filter(|profile| profile.group_key() == id)
+                                .filter_map(|profile| {
+                                    profile
+                                        .source
+                                        .clone()
+                                        .map(|source| (profile.id.clone(), source))
+                                })
+                                .collect();
+                            let old_order = guard.group_order.get(&id).cloned().unwrap_or_default();
                             guard.profiles.retain(|profile| profile.group_key() != id);
                             let mut first_id = None;
                             let mut keep_id = None;
@@ -1594,6 +1633,37 @@ fn setup_callbacks(
                                 }
                                 guard.profiles.push(node);
                             }
+                            // Keep the user's custom order across subscription
+                            // refreshes by matching stable link sources.
+                            let new_by_source: HashMap<String, String> = guard
+                                .profiles
+                                .iter()
+                                .filter(|profile| profile.group_key() == id)
+                                .filter_map(|profile| {
+                                    profile
+                                        .source
+                                        .clone()
+                                        .map(|source| (source, profile.id.clone()))
+                                })
+                                .collect();
+                            let mut order: Vec<String> = old_order
+                                .iter()
+                                .filter_map(|old_id| {
+                                    old_sources
+                                        .get(old_id)
+                                        .and_then(|source| new_by_source.get(source).cloned())
+                                })
+                                .collect();
+                            for profile in guard
+                                .profiles
+                                .iter()
+                                .filter(|profile| profile.group_key() == id)
+                            {
+                                if !order.contains(&profile.id) {
+                                    order.push(profile.id.clone());
+                                }
+                            }
+                            guard.group_order.insert(id.clone(), order);
                             if selected_in_group {
                                 if let Some(selected) = keep_id.or(first_id) {
                                     guard.selected_id = Some(selected.clone());
@@ -1721,6 +1791,40 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
             .and_then(|url| url.host_str().map(|host| format!("Subscription · {host}")))
     });
     Ok((title, nodes))
+}
+
+fn reorder_group(store: &mut Store, id: &str, target: i32) {
+    let Some(profile) = store.profile_by_id(id) else {
+        return;
+    };
+    let group_key = profile.group_key();
+    let mut ids: Vec<String> = store
+        .profiles
+        .iter()
+        .filter(|profile| profile.group_key() == group_key)
+        .map(|profile| profile.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    if let Some(order) = store.group_order.get(&group_key) {
+        let positions: HashMap<&str, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id.as_str(), position))
+            .collect();
+        ids.sort_by_key(|id| positions.get(id.as_str()).copied().unwrap_or(usize::MAX));
+    }
+    let Some(from) = ids.iter().position(|current| current == id) else {
+        return;
+    };
+    let target = (target.max(0) as usize).min(ids.len() - 1);
+    if from == target {
+        return;
+    }
+    let moved = ids.remove(from);
+    ids.insert(target, moved);
+    store.group_order.insert(group_key, ids);
 }
 
 fn begin_ping(
@@ -2287,12 +2391,71 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{display_name, mask_ipv4, mask_ipv6};
+    use super::{display_name, group_model, mask_ipv4, mask_ipv6};
+    use bamdad_core::config::{self, Store};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use slint::Model;
 
     #[test]
     fn folds_decorative_unicode_but_keeps_superscripts() {
         assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND²");
         assert_eq!(display_name("🇹🇷 | TR > 𝗧𝘂𝗻 [1]"), "🇹🇷 | TR > Tun [1]");
+    }
+
+    #[test]
+    fn reorders_and_persists_group_order() {
+        let mut first = config::default_profile();
+        first.id = "first".to_string();
+        let mut second = config::default_profile();
+        second.id = "second".to_string();
+        let mut third = config::default_profile();
+        third.id = "third".to_string();
+        let mut store = Store {
+            profiles: vec![first, second, third],
+            ..Default::default()
+        };
+        super::reorder_group(&mut store, "third", 0);
+        assert_eq!(
+            store.group_order.get("default").unwrap(),
+            &vec![
+                "third".to_string(),
+                "first".to_string(),
+                "second".to_string()
+            ]
+        );
+        super::reorder_group(&mut store, "third", 2);
+        assert_eq!(
+            store.group_order.get("default").unwrap(),
+            &vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn applies_custom_group_order() {
+        let mut first = config::default_profile();
+        first.id = "first".to_string();
+        first.name = "First".to_string();
+        let mut second = config::default_profile();
+        second.id = "second".to_string();
+        second.name = "Second".to_string();
+        let mut store = Store {
+            profiles: vec![first, second],
+            ..Default::default()
+        };
+        store
+            .group_order
+            .insert("default".to_string(), vec!["second".into(), "first".into()]);
+        let pings = Arc::new(Mutex::new(HashMap::new()));
+        let groups = group_model(&store, &pings);
+        let nodes = groups.row_data(0).unwrap().nodes;
+        assert_eq!(nodes.row_data(0).unwrap().id.as_str(), "second");
+        assert_eq!(nodes.row_data(1).unwrap().id.as_str(), "first");
     }
 
     #[test]

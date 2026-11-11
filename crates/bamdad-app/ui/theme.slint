@@ -1,86 +1,59 @@
-// Shared design tokens. The palette and accent are selected at runtime so the
-// UI can switch between system, dark, light, black, and eight accents without
-// rebuilding the window.
-
+// Shared design tokens. Palettes are selected at runtime so the app can
+// switch theme and accent without rebuilding the window. Each dark/light
+// accent carries its own curated background, card, border, and button tint;
+// the black theme stays black and only accents controls and details.
 export global Theme {
-    // Selected theme preference: system, dark, light, or black.
+    // system, dark, light, or black.
     in-out property <string> mode: "system";
-    // Resolved theme flags; the controller resolves "system" before setting these.
     in-out property <bool> palette-dark: true;
     in-out property <bool> palette-black: false;
-    // cyan, blue, red, green, purple, orange, pink, or gray.
     in-out property <string> accent-name: "cyan";
 
     property <bool> deep: palette-dark || palette-black;
     property <bool> light: !palette-dark && !palette-black;
+    property <bool> a-blue: accent-name == "blue";
+    property <bool> a-red: accent-name == "red";
+    property <bool> a-green: accent-name == "green";
+    property <bool> a-purple: accent-name == "purple";
+    property <bool> a-orange: accent-name == "orange";
+    property <bool> a-pink: accent-name == "pink";
+    property <bool> a-gray: accent-name == "gray";
 
     out property <color> bg: palette-black ? #000000
-        : light ? #eef1f5
-        : #11161d;
+        : light ? (a-blue ? #e2e9f6 : a-red ? #ede6ea : a-green ? #e1eded : a-purple ? #e7e7f6 : a-orange ? #eee9e9 : a-pink ? #ede6ef : a-gray ? #e4e9ee : #e0ebf4)
+        : (a-blue ? #131b26 : a-red ? #1b191f : a-green ? #121e20 : a-purple ? #171a26 : a-orange ? #1b1a1d : a-pink ? #1a1923 : a-gray ? #161b23 : #111c26);
     out property <color> bg-raised: palette-black ? #050607
-        : light ? #f7f9fc
-        : #161c25;
+        : light ? (a-blue ? #f0f4fb : a-red ? #f6f2f5 : a-green ? #eff6f6 : a-purple ? #f3f2fb : a-orange ? #f7f3f4 : a-pink ? #f6f2f7 : a-gray ? #f1f3f7 : #eef5fa)
+        : (a-blue ? #182230 : a-red ? #211f28 : a-green ? #162629 : a-purple ? #1c2130 : a-orange ? #212124 : a-pink ? #201f2c : a-gray ? #1b222c : #152430);
     out property <color> surface: palette-black ? #0a0c10
-        : light ? #ffffff
-        : #1b2432;
+        : light ? (a-blue ? #f8fafe : a-red ? #fef8f8 : a-green ? #f8fcfa : a-purple ? #fbf9fe : a-orange ? #fefaf8 : a-pink ? #fef9fb : a-gray ? #f9fafa : #f7fbfd)
+        : (a-blue ? #1d2a3d : a-red ? #272634 : a-green ? #1b2d35 : a-purple ? #21283d : a-orange ? #272831 : a-pink ? #262639 : a-gray ? #202939 : #1a2b3d);
     out property <color> surface-2: palette-black ? #12151b
-        : light ? #e9eef5
-        : #243043;
+        : light ? (a-blue ? #dae4f4 : a-red ? #e8dfe5 : a-green ? #d9e8e8 : a-purple ? #e1e0f4 : a-orange ? #e9e3e4 : a-pink ? #e8dfec : a-gray ? #dde3ea : #d8e6f2)
+        : (a-blue ? #25354d : a-red ? #323141 : a-green ? #243a43 : a-purple ? #2b334d : a-orange ? #33343d : a-pink ? #323147 : a-gray ? #2a3547 : #22374d);
     out property <color> surface-3: palette-black ? #191d25
-        : light ? #dde5ef
-        : #2d3b50;
+        : light ? (a-blue ? #cddaef : a-red ? #ddd5de : a-green ? #ccdfe1 : a-purple ? #d5d6ef : a-orange ? #ded9dc : a-pink ? #ddd5e5 : a-gray ? #d0d9e4 : #caddec)
+        : (a-blue ? #2e415d : a-red ? #3d3d50 : a-green ? #2c4751 : a-purple ? #353f5d : a-orange ? #3d404a : a-pink ? #3c3d56 : a-gray ? #334156 : #2a445c);
     out property <color> border: palette-black ? #1b2028
-        : light ? #d7dfea
-        : #2b3a4f;
+        : light ? (a-blue ? #c6d4eb : a-red ? #d8cdd7 : a-green ? #c5dadb : a-purple ? #cfcfeb : a-orange ? #dad2d5 : a-pink ? #d8cedf : a-gray ? #cad2de : #c3d7e7)
+        : (a-blue ? #2f435d : a-red ? #403d4e : a-green ? #2d4950 : a-purple ? #37405d : a-orange ? #404148 : a-pink ? #3f3d56 : a-gray ? #354356 : #2b465d);
     out property <color> border-strong: palette-black ? #2b3340
-        : light ? #b9c6d8
-        : #3d5069;
+        : light ? (a-blue ? #aabcda : a-red ? #c0b5c3 : a-green ? #a8c4c7 : a-purple ? #b4b7db : a-orange ? #c2bbc0 : a-pink ? #c0b5cc : a-gray ? #aebacb : #a6c0d6)
+        : (a-blue ? #3f5879 : a-red ? #535267 : a-green ? #3c6069 : a-purple ? #485579 : a-orange ? #535661 : a-pink ? #525270 : a-gray ? #465871 : #3a5c79);
 
-    out property <color> accent: accent-name == "blue" ? (deep ? #60a5fa : #2563eb)
-        : accent-name == "red" ? (deep ? #f87171 : #dc2626)
-        : accent-name == "green" ? (deep ? #4ade80 : #16a34a)
-        : accent-name == "purple" ? (deep ? #a78bfa : #7c3aed)
-        : accent-name == "orange" ? (deep ? #fb923c : #ea580c)
-        : accent-name == "pink" ? (deep ? #f472b6 : #db2777)
-        : accent-name == "gray" ? (deep ? #94a3b8 : #475569)
-        : (deep ? #38bdf8 : #0284c7);
-
-    out property <color> accent-strong: accent-name == "blue" ? (deep ? #3b82f6 : #1d4ed8)
-        : accent-name == "red" ? (deep ? #ef4444 : #b91c1c)
-        : accent-name == "green" ? (deep ? #22c55e : #15803d)
-        : accent-name == "purple" ? (deep ? #8b5cf6 : #6d28d9)
-        : accent-name == "orange" ? (deep ? #f97316 : #c2410c)
-        : accent-name == "pink" ? (deep ? #ec4899 : #be185d)
-        : accent-name == "gray" ? (deep ? #64748b : #334155)
-        : (deep ? #0ea5e9 : #0369a1);
-
-    out property <color> accent-ink: accent-name == "cyan" ? (light ? #ffffff : #04121e)
-        : accent-name == "green" ? (light ? #ffffff : #04121e)
-        : accent-name == "orange" ? (light ? #ffffff : #1a0d02)
-        : accent-name == "gray" ? (light ? #ffffff : #0b1220)
-        : #ffffff;
-
-    out property <color> text: palette-black ? #f5f8fc
-        : light ? #0f172a
-        : #eef4fb;
-    out property <color> text-2: palette-black ? #9ba7b8
-        : light ? #475569
-        : #a3b1c4;
-    out property <color> muted: palette-black ? #6c7888
-        : light ? #6b7a8f
-        : #7b8a9f;
+    out property <color> text: palette-black ? #f5f8fc : light ? #0f172a : #eef4fb;
+    out property <color> text-2: palette-black ? #9ba7b8 : light ? #475569 : #a3b1c4;
+    out property <color> muted: palette-black ? #6c7888 : light ? #6b7a8f : #7b8a9f;
     out property <color> success: deep ? #34d399 : #15803d;
     out property <color> warn: deep ? #fbbf24 : #b45309;
     out property <color> danger: deep ? #f87171 : #dc2626;
-    out property <color> scrim: palette-black ? #000000cc
-        : light ? #0b152855
-        : #00000088;
-    out property <color> log-bg: palette-black ? #000000
-        : light ? #f3f6fa
-        : #0b0f15;
-    out property <color> log-text: palette-black ? #a9b7c9
-        : light ? #334155
-        : #a9b7c9;
+    out property <color> scrim: palette-black ? #000000cc : light ? #0b152855 : #00000088;
+    out property <color> log-bg: palette-black ? #000000 : light ? #f3f6fa : #0b0f15;
+    out property <color> log-text: palette-black ? #a9b7c9 : light ? #334155 : #a9b7c9;
+
+    out property <color> accent: a-blue ? (deep ? #60a5fa : #2563eb) : a-red ? (deep ? #f87171 : #dc2626) : a-green ? (deep ? #4ade80 : #16a34a) : a-purple ? (deep ? #a78bfa : #7c3aed) : a-orange ? (deep ? #fb923c : #ea580c) : a-pink ? (deep ? #f472b6 : #db2777) : a-gray ? (deep ? #94a3b8 : #475569) : (deep ? #38bdf8 : #0284c7);
+    out property <color> accent-strong: a-blue ? (deep ? #3b82f6 : #1d4ed8) : a-red ? (deep ? #ef4444 : #b91c1c) : a-green ? (deep ? #22c55e : #15803d) : a-purple ? (deep ? #8b5cf6 : #6d28d9) : a-orange ? (deep ? #f97316 : #c2410c) : a-pink ? (deep ? #ec4899 : #be185d) : a-gray ? (deep ? #64748b : #334155) : (deep ? #0ea5e9 : #0369a1);
+    out property <color> accent-ink: light ? #ffffff : #08111b;
 
     out property <length> radius: 16px;
     out property <length> radius-sm: 10px;
