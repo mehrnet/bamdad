@@ -151,7 +151,7 @@ class BamdadVpnService : VpnService() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun startForegroundNotification() {
+    private fun buildNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pending = PendingIntent.getActivity(
             this,
@@ -159,15 +159,22 @@ class BamdadVpnService : VpnService() {
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notification: Notification = Notification.Builder(this, CHANNEL_ID)
+        val title = activeProfile.ifBlank { "Bamdad VPN" }
+        val traffic = "↓ $downText   ↑ $upText"
+        return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Bamdad VPN")
-            .setContentText("Traffic is routed through Bamdad")
+            .setContentTitle(title)
+            .setContentText(traffic)
+            .setStyle(Notification.BigTextStyle().bigText(traffic))
             .setContentIntent(pending)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .build()
+    }
 
+    private fun startForegroundNotification() {
+        val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
@@ -176,6 +183,15 @@ class BamdadVpnService : VpnService() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun refreshNotification() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            manager.notify(NOTIFICATION_ID, buildNotification())
+        } catch (error: Throwable) {
+            Log.w(TAG, "notification update failed: ${error.message}")
         }
     }
 
@@ -190,6 +206,22 @@ class BamdadVpnService : VpnService() {
 
         @Volatile
         private var instance: BamdadVpnService? = null
+        @Volatile
+        private var activeProfile: String = ""
+        @Volatile
+        private var downText: String = "0 B"
+        @Volatile
+        private var upText: String = "0 B"
+
+        /** Called from Rust with the selected profile and live traffic totals. */
+        fun updateStats(profile: String, down: String, up: String) {
+            if (profile.isNotBlank()) {
+                activeProfile = profile
+            }
+            downText = down
+            upText = up
+            instance?.refreshNotification()
+        }
 
         fun start(context: Context, socksPort: Int) {
             Log.i(TAG, "start requested (socks $socksPort)")

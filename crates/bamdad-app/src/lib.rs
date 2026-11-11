@@ -269,6 +269,36 @@ mod android {
         });
     }
 
+    pub(super) fn update_vpn_notification(profile: &str, down: &str, up: &str) {
+        with_activity(|env, class| {
+            let method_id = env
+                .get_static_method_id(
+                    class,
+                    "updateVpnNotification",
+                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                )
+                .ok()?;
+            let profile = env.new_string(profile).ok()?;
+            let down = env.new_string(down).ok()?;
+            let up = env.new_string(up).ok()?;
+            let args = [
+                JValue::Object(&profile).as_jni(),
+                JValue::Object(&down).as_jni(),
+                JValue::Object(&up).as_jni(),
+            ];
+            // SAFETY: method_id was resolved from this exact jclass.
+            let _ = unsafe {
+                env.call_static_method_unchecked(
+                    class,
+                    method_id,
+                    ReturnType::Primitive(Primitive::Void),
+                    &args,
+                )
+            };
+            Some(())
+        });
+    }
+
     pub(super) fn read_clipboard() -> String {
         android_string_call("readClipboard").unwrap_or_default()
     }

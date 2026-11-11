@@ -108,7 +108,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "Appearance";
                             color: Theme.text;
-                            font-size: 14px;
+                            font-size: 16px;
                             font-weight: 600;
                             vertical-alignment: center;
                         }
@@ -116,7 +116,7 @@ export component SettingsPage inherits Rectangle {
                     Text {
                         text: "The interface updates immediately.";
                         color: Theme.muted;
-                        font-size: 10px;
+                        font-size: 11px;
                     }
                     HorizontalLayout {
                         spacing: 6px;
@@ -149,7 +149,7 @@ export component SettingsPage inherits Rectangle {
                     Text {
                         text: "ACCENT";
                         color: Theme.muted;
-                        font-size: 9px;
+                        font-size: 10px;
                         font-weight: 700;
                     }
                     HorizontalLayout {
@@ -178,7 +178,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "Local listeners";
                             color: Theme.text;
-                            font-size: 14px;
+                            font-size: 16px;
                             font-weight: 600;
                             vertical-alignment: center;
                         }
@@ -222,18 +222,18 @@ export component SettingsPage inherits Rectangle {
                             Text {
                                 text: "Android VPN";
                                 color: Theme.text;
-                                font-size: 13px;
+                                font-size: 14px;
                             }
                             Text {
                                 text: "VpnService routes all app traffic through the selected core.";
                                 color: Theme.muted;
-                                font-size: 10px;
+                                font-size: 11px;
                                 wrap: word-wrap;
                             }
                             Text {
                                 text: "For a hard kill switch, enable Android Always-on VPN and Block connections without VPN in system settings.";
                                 color: Theme.muted;
-                                font-size: 10px;
+                                font-size: 11px;
                                 wrap: word-wrap;
                             }
                         }
@@ -247,12 +247,12 @@ export component SettingsPage inherits Rectangle {
                             Text {
                                 text: "Set system proxy";
                                 color: Theme.text;
-                                font-size: 13px;
+                                font-size: 14px;
                             }
                             Text {
                                 text: "Point the OS proxy at 127.0.0.1";
                                 color: Theme.muted;
-                                font-size: 10px;
+                                font-size: 11px;
                             }
                         }
                         Switch { checked <=> root.system-proxy; }
@@ -283,7 +283,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "Cores";
                             color: Theme.text;
-                            font-size: 14px;
+                            font-size: 16px;
                             font-weight: 600;
                             vertical-alignment: center;
                         }
@@ -295,7 +295,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: root.xray-version;
                             color: Theme.text-2;
-                            font-size: 10px;
+                            font-size: 11px;
                             horizontal-stretch: 1;
                             overflow: elide;
                         }
@@ -307,7 +307,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: root.singbox-version;
                             color: Theme.text-2;
-                            font-size: 10px;
+                            font-size: 11px;
                             horizontal-stretch: 1;
                             overflow: elide;
                         }
@@ -315,7 +315,7 @@ export component SettingsPage inherits Rectangle {
                     Text {
                         text: "Install a core with scripts/fetch-xray.sh or scripts/fetch-singbox.sh. You can also set BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN.";
                         color: Theme.muted;
-                        font-size: 10px;
+                        font-size: 11px;
                         wrap: word-wrap;
                     }
                 }
@@ -331,7 +331,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "Logs";
                             color: Theme.text;
-                            font-size: 14px;
+                            font-size: 16px;
                             font-weight: 600;
                             horizontal-stretch: 1;
                         }
@@ -364,7 +364,7 @@ export component SettingsPage inherits Rectangle {
                                 x: 10px;
                                 width: log-list.visible-width - 20px;
                                 color: Theme.log-text;
-                                font-size: 10px;
+                                font-size: 11px;
                                 font-family: "monospace";
                                 wrap: word-wrap;
                             }
@@ -397,7 +397,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "Data";
                             color: Theme.text;
-                            font-size: 14px;
+                            font-size: 16px;
                             font-weight: 600;
                             vertical-alignment: center;
                         }
@@ -405,7 +405,7 @@ export component SettingsPage inherits Rectangle {
                     Text {
                         text: root.data-dir;
                         color: Theme.text-2;
-                        font-size: 10px;
+                        font-size: 11px;
                         wrap: word-wrap;
                     }
                 }

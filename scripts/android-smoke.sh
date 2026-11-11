@@ -90,6 +90,16 @@ else
     echo 'bamdad-netcheck not found; skipping end-to-end traffic assertion'
 fi
 
+echo '--- vpn notification ---'
+NOTIFICATION=$(adb shell dumpsys notification --noredact 2>/dev/null || true)
+if echo "$NOTIFICATION" | grep -q 'Test · Xray'; then
+    echo 'notification-profile-ok'
+else
+    echo 'notification-profile-missing'
+    echo "$NOTIFICATION" | tail -40
+    exit 1
+fi
+
 adb logcat -d -v threadtime > "$OUT/full-logcat.txt"
 echo '--- vpn log ---'
 grep -Ei 'BamdadVpn|tun2socks|VpnService|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" || true

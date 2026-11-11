@@ -160,7 +160,7 @@ component ImportMenu inherits Rectangle {
             Text {
                 text: "Add profile";
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
             }
             SecondaryButton {
@@ -215,13 +215,13 @@ component ImportDialog inherits Rectangle {
             Text {
                 text: "Import link or JSON";
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
             }
             Text {
                 text: "Paste a vless://, vmess://, trojan:// or ss:// link, or a native Xray/sing-box JSON config.";
                 color: Theme.muted;
-                font-size: 10px;
+                font-size: 11px;
                 wrap: word-wrap;
             }
             TextField {
@@ -292,13 +292,13 @@ component SubscriptionDialog inherits Rectangle {
             Text {
                 text: "Add subscription";
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
             }
             Text {
                 text: "Paste a subscription URL. Base64 and plain link lists are supported.";
                 color: Theme.muted;
-                font-size: 10px;
+                font-size: 11px;
                 wrap: word-wrap;
             }
             TextField {
@@ -352,13 +352,13 @@ component EditGroupDialog inherits Rectangle {
             Text {
                 text: "Edit profile";
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
             }
             Text {
                 text: "NAME";
                 color: Theme.muted;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 700;
             }
             TextField {
@@ -368,7 +368,7 @@ component EditGroupDialog inherits Rectangle {
             Text {
                 text: "SUBSCRIPTION URL";
                 color: Theme.muted;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 700;
             }
             TextField {
@@ -424,7 +424,7 @@ component GroupActionsMenu inherits Rectangle {
             Text {
                 text: root.name;
                 color: Theme.text;
-                font-size: 15px;
+                font-size: 17px;
                 font-weight: 700;
                 overflow: elide;
             }
@@ -477,7 +477,7 @@ component ConfigActionsMenu inherits Rectangle {
             Text {
                 text: root.name;
                 color: Theme.text;
-                font-size: 15px;
+                font-size: 17px;
                 font-weight: 700;
                 overflow: elide;
             }
@@ -522,13 +522,13 @@ component RenameDialog inherits Rectangle {
             Text {
                 text: root.title;
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
             }
             Text {
                 text: "NAME";
                 color: Theme.muted;
-                font-size: 9px;
+                font-size: 10px;
                 font-weight: 700;
             }
             TextField {
@@ -573,7 +573,7 @@ component LogFullscreen inherits Rectangle {
             Text {
                 text: "Logs";
                 color: Theme.text;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 700;
                 horizontal-stretch: 1;
                 vertical-alignment: center;
@@ -599,7 +599,7 @@ component LogFullscreen inherits Rectangle {
                     x: 10px;
                     width: log-list.visible-width - 20px;
                     color: Theme.log-text;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-family: "monospace";
                     wrap: word-wrap;
                 }
@@ -636,6 +636,7 @@ export component AppWindow inherits Window {
     in-out property <string> ipv6-text: "";
     in-out property <string> ipv4-mask: "";
     in-out property <string> ipv6-mask: "";
+    in-out property <string> active-profile: "";
     in-out property <image> country-flag;
     in-out property <bool> show-ip: false;
     in-out property <string> socks-port: "10808";
