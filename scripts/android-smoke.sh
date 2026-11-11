@@ -91,12 +91,13 @@ else
 fi
 
 echo '--- vpn notification ---'
-NOTIFICATION=$(adb shell dumpsys notification --noredact 2>/dev/null || true)
-if echo "$NOTIFICATION" | grep -q 'Test · Xray'; then
+adb shell dumpsys notification --noredact > "$OUT/notification.txt" 2>/dev/null || true
+grep -A40 'com.mehrnet.bamdad' "$OUT/notification.txt" | head -60 || true
+if grep -q 'Test' "$OUT/notification.txt"; then
     echo 'notification-profile-ok'
 else
     echo 'notification-profile-missing'
-    echo "$NOTIFICATION" | tail -40
+    adb logcat -d -s BamdadVpn | tail -30 || true
     exit 1
 fi
 

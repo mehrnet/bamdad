@@ -220,6 +220,7 @@ class BamdadVpnService : VpnService() {
             }
             downText = down
             upText = up
+            Log.i(TAG, "stats: profile=$profile down=$down up=$up")
             instance?.refreshNotification()
         }
 
