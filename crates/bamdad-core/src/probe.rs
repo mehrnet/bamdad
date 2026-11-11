@@ -166,16 +166,19 @@ pub fn tunnel_latency(
     }
 
     let request_started = Instant::now();
-    for target in PROBE_TARGETS {
+    for (index, target) in PROBE_TARGETS.iter().enumerate() {
         let remaining = timeout.saturating_sub(request_started.elapsed());
         if remaining < Duration::from_millis(250) {
             break;
         }
+        // Do not let a blocked first target consume the whole fallback budget.
+        let attempts_left = PROBE_TARGETS.len().saturating_sub(index) as u32;
+        let attempt_timeout = (remaining / attempts_left.max(1)).max(Duration::from_millis(1_200));
         let proxy = ureq::Proxy::new(format!("http://127.0.0.1:{http_port}"))
             .map_err(|error| CoreError::Spawn(format!("probe proxy: {error}")))?;
         let agent = ureq::AgentBuilder::new()
             .proxy(proxy)
-            .timeout(remaining)
+            .timeout(attempt_timeout)
             .build();
         if let Ok(response) = agent.get(target).call() {
             let status = response.status();
