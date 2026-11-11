@@ -1,31 +1,86 @@
-// Shared design tokens. The palettes are selected at runtime so the UI can
-// switch between system, dark, and light without rebuilding the window.
+// Shared design tokens. The palette and accent are selected at runtime so the
+// UI can switch between system, dark, light, black, and eight accents without
+// rebuilding the window.
 
 export global Theme {
-    // Selected preference: "system", "dark", or "light".
+    // Selected theme preference: system, dark, light, or black.
     in-out property <string> mode: "system";
-    // Resolved palette; the controller resolves "system" before setting this.
+    // Resolved theme flags; the controller resolves "system" before setting these.
     in-out property <bool> palette-dark: true;
+    in-out property <bool> palette-black: false;
+    // cyan, blue, red, green, purple, orange, pink, or gray.
+    in-out property <string> accent-name: "cyan";
 
-    out property <color> bg: palette-dark ? #11161d : #eef1f5;
-    out property <color> bg-raised: palette-dark ? #161c25 : #f7f9fc;
-    out property <color> surface: palette-dark ? #1b2432 : #ffffff;
-    out property <color> surface-2: palette-dark ? #243043 : #e9eef5;
-    out property <color> surface-3: palette-dark ? #2d3b50 : #dde5ef;
-    out property <color> border: palette-dark ? #2b3a4f : #d7dfea;
-    out property <color> border-strong: palette-dark ? #3d5069 : #b9c6d8;
-    out property <color> accent: palette-dark ? #38bdf8 : #0284c7;
-    out property <color> accent-strong: palette-dark ? #0ea5e9 : #0369a1;
-    out property <color> accent-ink: palette-dark ? #04121e : #ffffff;
-    out property <color> text: palette-dark ? #eef4fb : #0f172a;
-    out property <color> text-2: palette-dark ? #a3b1c4 : #475569;
-    out property <color> muted: palette-dark ? #7b8a9f : #6b7a8f;
-    out property <color> success: palette-dark ? #34d399 : #15803d;
-    out property <color> warn: palette-dark ? #fbbf24 : #b45309;
-    out property <color> danger: palette-dark ? #f87171 : #dc2626;
-    out property <color> scrim: palette-dark ? #00000088 : #0b152855;
-    out property <color> log-bg: palette-dark ? #0b0f15 : #f3f6fa;
-    out property <color> log-text: palette-dark ? #a9b7c9 : #334155;
+    property <bool> deep: palette-dark || palette-black;
+    property <bool> light: !palette-dark && !palette-black;
+
+    out property <color> bg: palette-black ? #000000
+        : light ? #eef1f5
+        : #11161d;
+    out property <color> bg-raised: palette-black ? #050607
+        : light ? #f7f9fc
+        : #161c25;
+    out property <color> surface: palette-black ? #0a0c10
+        : light ? #ffffff
+        : #1b2432;
+    out property <color> surface-2: palette-black ? #12151b
+        : light ? #e9eef5
+        : #243043;
+    out property <color> surface-3: palette-black ? #191d25
+        : light ? #dde5ef
+        : #2d3b50;
+    out property <color> border: palette-black ? #1b2028
+        : light ? #d7dfea
+        : #2b3a4f;
+    out property <color> border-strong: palette-black ? #2b3340
+        : light ? #b9c6d8
+        : #3d5069;
+
+    out property <color> accent: accent-name == "blue" ? (deep ? #60a5fa : #2563eb)
+        : accent-name == "red" ? (deep ? #f87171 : #dc2626)
+        : accent-name == "green" ? (deep ? #4ade80 : #16a34a)
+        : accent-name == "purple" ? (deep ? #a78bfa : #7c3aed)
+        : accent-name == "orange" ? (deep ? #fb923c : #ea580c)
+        : accent-name == "pink" ? (deep ? #f472b6 : #db2777)
+        : accent-name == "gray" ? (deep ? #94a3b8 : #475569)
+        : (deep ? #38bdf8 : #0284c7);
+
+    out property <color> accent-strong: accent-name == "blue" ? (deep ? #3b82f6 : #1d4ed8)
+        : accent-name == "red" ? (deep ? #ef4444 : #b91c1c)
+        : accent-name == "green" ? (deep ? #22c55e : #15803d)
+        : accent-name == "purple" ? (deep ? #8b5cf6 : #6d28d9)
+        : accent-name == "orange" ? (deep ? #f97316 : #c2410c)
+        : accent-name == "pink" ? (deep ? #ec4899 : #be185d)
+        : accent-name == "gray" ? (deep ? #64748b : #334155)
+        : (deep ? #0ea5e9 : #0369a1);
+
+    out property <color> accent-ink: accent-name == "cyan" ? (light ? #ffffff : #04121e)
+        : accent-name == "green" ? (light ? #ffffff : #04121e)
+        : accent-name == "orange" ? (light ? #ffffff : #1a0d02)
+        : accent-name == "gray" ? (light ? #ffffff : #0b1220)
+        : #ffffff;
+
+    out property <color> text: palette-black ? #f5f8fc
+        : light ? #0f172a
+        : #eef4fb;
+    out property <color> text-2: palette-black ? #9ba7b8
+        : light ? #475569
+        : #a3b1c4;
+    out property <color> muted: palette-black ? #6c7888
+        : light ? #6b7a8f
+        : #7b8a9f;
+    out property <color> success: deep ? #34d399 : #15803d;
+    out property <color> warn: deep ? #fbbf24 : #b45309;
+    out property <color> danger: deep ? #f87171 : #dc2626;
+    out property <color> scrim: palette-black ? #000000cc
+        : light ? #0b152855
+        : #00000088;
+    out property <color> log-bg: palette-black ? #000000
+        : light ? #f3f6fa
+        : #0b0f15;
+    out property <color> log-text: palette-black ? #a9b7c9
+        : light ? #334155
+        : #a9b7c9;
 
     out property <length> radius: 16px;
     out property <length> radius-sm: 10px;

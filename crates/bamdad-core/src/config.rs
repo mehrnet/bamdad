@@ -23,6 +23,8 @@ pub struct AppSettings {
     pub api_addr: String,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_accent")]
+    pub accent: String,
 }
 
 impl Default for AppSettings {
@@ -33,6 +35,7 @@ impl Default for AppSettings {
             system_proxy: false,
             api_addr: default_api_addr(),
             theme: default_theme(),
+            accent: default_accent(),
         }
     }
 }
@@ -49,6 +52,14 @@ fn default_api_addr() -> String {
 
 fn default_theme() -> String {
     "system".to_string()
+}
+
+fn default_accent() -> String {
+    "cyan".to_string()
+}
+
+fn default_group_name() -> String {
+    "Default".to_string()
 }
 fn custom_protocol() -> String {
     "custom".to_string()
@@ -147,6 +158,8 @@ pub struct Store {
     pub selected: Option<String>,
     #[serde(default)]
     pub selected_id: Option<String>,
+    #[serde(default = "default_group_name")]
+    pub default_group_name: String,
 }
 
 impl Default for Store {
@@ -156,6 +169,7 @@ impl Default for Store {
             profiles: Vec::new(),
             selected: None,
             selected_id: None,
+            default_group_name: default_group_name(),
         }
     }
 }

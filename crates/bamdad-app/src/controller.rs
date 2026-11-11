@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
@@ -22,6 +22,13 @@ static SWITCHING: AtomicBool = AtomicBool::new(false);
 static LAST_IPV4: Mutex<String> = Mutex::new(String::new());
 static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
 static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
+static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
+static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
+static PING_LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+
+fn ping_limit() -> &'static Arc<tokio::sync::Semaphore> {
+    PING_LIMIT.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(3)))
+}
 
 pub fn init(
     ui: &AppWindow,
@@ -223,19 +230,39 @@ fn set_network_text(ui: &AppWindow, ipv4: &str, ipv6: &str) {
     ui.set_ipv6_mask(mask_ipv6(ipv6).into());
 }
 
-fn apply_theme(ui: &AppWindow, mode: &str) {
-    let mode = match mode {
+fn normalize_theme(mode: &str) -> &'static str {
+    match mode {
         "dark" => "dark",
         "light" => "light",
+        "black" => "black",
         _ => "system",
-    };
+    }
+}
+
+fn normalize_accent(accent: &str) -> &'static str {
+    match accent {
+        "blue" => "blue",
+        "red" => "red",
+        "green" => "green",
+        "purple" => "purple",
+        "orange" => "orange",
+        "pink" => "pink",
+        "gray" => "gray",
+        _ => "cyan",
+    }
+}
+
+fn apply_theme(ui: &AppWindow, mode: &str, accent: &str) {
+    let mode = normalize_theme(mode);
     let dark = match mode {
-        "dark" => true,
+        "dark" | "black" => true,
         "light" => false,
         _ => system_prefers_dark(),
     };
     ui.set_theme_mode(mode.into());
     ui.set_palette_dark(dark);
+    ui.set_palette_black(mode == "black");
+    ui.set_accent_mode(normalize_accent(accent).into());
 }
 
 #[cfg(target_os = "android")]
@@ -374,7 +401,7 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_theme_mode(store.settings.theme.clone().into());
-    apply_theme(ui, &store.settings.theme);
+    apply_theme(ui, &store.settings.theme, &store.settings.accent);
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_xray_version(core_version(CoreKind::Xray).into());
     ui.set_singbox_version(core_version(CoreKind::SingBox).into());
@@ -611,8 +638,11 @@ fn group_ping(nodes: &[&config::Profile], pings: &HashMap<String, (String, i32)>
 
 fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
     let pings = pings.lock().unwrap();
-    let mut groups: Vec<(String, String, Vec<&config::Profile>)> =
-        vec![("default".to_string(), "Default".to_string(), Vec::new())];
+    let mut groups: Vec<(String, String, Vec<&config::Profile>)> = vec![(
+        "default".to_string(),
+        store.default_group_name.clone(),
+        Vec::new(),
+    )];
     let mut index: HashMap<String, usize> = HashMap::new();
     index.insert("default".to_string(), 0);
 
@@ -659,7 +689,7 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
 }
 
 fn initial_ping(profile: &config::Profile) -> String {
-    if profile.address.is_empty() || profile.address == "local" || profile.port == 0 {
+    if profile.protocol.eq_ignore_ascii_case("direct") || profile.address == "local" {
         "—".to_string()
     } else {
         "Ping".to_string()
@@ -916,18 +946,32 @@ fn setup_callbacks(
         let store = store.clone();
         ui.on_set_theme_mode(move |mode| {
             let Some(ui) = weak.upgrade() else { return };
-            let mode = match mode.as_str() {
-                "dark" => "dark",
-                "light" => "light",
-                _ => "system",
-            };
-            {
+            let mode = normalize_theme(mode.as_str());
+            let accent = {
                 let mut guard = store.lock().unwrap();
                 guard.settings.theme = mode.to_string();
                 let _ = save_store(&guard);
-            }
+                guard.settings.accent.clone()
+            };
             ui.set_theme_mode(mode.into());
-            apply_theme(&ui, mode);
+            apply_theme(&ui, mode, &accent);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_set_accent_mode(move |accent| {
+            let Some(ui) = weak.upgrade() else { return };
+            let accent = normalize_accent(accent.as_str());
+            let theme = {
+                let mut guard = store.lock().unwrap();
+                guard.settings.accent = accent.to_string();
+                let _ = save_store(&guard);
+                guard.settings.theme.clone()
+            };
+            ui.set_accent_mode(accent.into());
+            apply_theme(&ui, &theme, accent);
         });
     }
 
@@ -1247,17 +1291,24 @@ fn setup_callbacks(
         let store = store.clone();
         ui.on_open_group_menu(move |id| {
             let Some(ui) = weak.upgrade() else { return };
-            let name = {
+            let (name, is_default) = {
                 let guard = store.lock().unwrap();
-                guard
-                    .profiles
-                    .iter()
-                    .find(|profile| profile.group_key() == id.as_str())
-                    .map(|profile| profile.group_title())
+                if id.as_str() == "default" {
+                    (guard.default_group_name.clone(), true)
+                } else {
+                    let Some(node) = guard
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.group_key() == id.as_str())
+                    else {
+                        return;
+                    };
+                    (node.group_title(), false)
+                }
             };
-            let Some(name) = name else { return };
             ui.set_group_menu_id(id.clone());
             ui.set_group_menu_name(name.into());
+            ui.set_group_menu_default(is_default);
             ui.set_group_menu_open(true);
         });
     }
@@ -1268,6 +1319,148 @@ fn setup_callbacks(
             if let Some(ui) = weak.upgrade() {
                 ui.set_group_menu_open(false);
             }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_clear_group(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut guard = store.lock().unwrap();
+            let before = guard.profiles.len();
+            if id.as_str() == "default" {
+                guard.profiles.retain(|profile| profile.group_id.is_some());
+            } else {
+                guard
+                    .profiles
+                    .retain(|profile| profile.group_key() != id.as_str());
+            }
+            let removed = before - guard.profiles.len();
+            if removed > 0 {
+                if guard
+                    .selected_id
+                    .as_ref()
+                    .is_some_and(|selected| guard.profile_by_id(selected).is_none())
+                {
+                    guard.selected_id = guard.profiles.first().map(|profile| profile.id.clone());
+                }
+                guard.selected = guard
+                    .selected_id
+                    .as_ref()
+                    .and_then(|selected| guard.profile_by_id(selected))
+                    .map(|profile| profile.name.clone());
+                let _ = save_store(&guard);
+                ui.set_groups(group_model(&guard, &pings));
+                ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
+                drop(guard);
+                push_log(&ui, &logs, format!("{removed} configs deleted"));
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_open_config_menu(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let name = store
+                .lock()
+                .unwrap()
+                .profile_by_id(id.as_str())
+                .map(|profile| profile.name.clone());
+            let Some(name) = name else { return };
+            ui.set_config_menu_id(id.clone());
+            ui.set_config_menu_name(name.into());
+            ui.set_config_menu_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_config_menu(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_config_menu_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_request_rename(move |target, title, name| {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_rename_target(target.clone());
+                ui.set_rename_title(title.clone());
+                ui.set_rename_name(name.clone());
+                ui.set_rename_open(true);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_rename(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_rename_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        ui.on_save_rename(move |target, name| {
+            let Some(ui) = weak.upgrade() else { return };
+            let name = name.trim();
+            if name.is_empty() {
+                return;
+            }
+            let mut guard = store.lock().unwrap();
+            if let Some(id) = target.as_str().strip_prefix("config:") {
+                if let Some(profile) = guard.profiles.iter_mut().find(|profile| profile.id == id) {
+                    profile.name = name.to_string();
+                }
+            } else if target.as_str() == "group:default" {
+                guard.default_group_name = name.to_string();
+            }
+            guard.selected = guard
+                .selected_id
+                .as_ref()
+                .and_then(|selected| guard.profile_by_id(selected))
+                .map(|profile| profile.name.clone());
+            let _ = save_store(&guard);
+            ui.set_groups(group_model(&guard, &pings));
+            ui.set_rename_open(false);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_delete_config(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut guard = store.lock().unwrap();
+            if !guard.remove_profile(id.as_str()) {
+                return;
+            }
+            if guard.selected_id.is_none() {
+                guard.selected_id = guard.profiles.first().map(|profile| profile.id.clone());
+            }
+            guard.selected = guard
+                .selected_id
+                .as_ref()
+                .and_then(|selected| guard.profile_by_id(selected))
+                .map(|profile| profile.name.clone());
+            let _ = save_store(&guard);
+            ui.set_groups(group_model(&guard, &pings));
+            ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
+            drop(guard);
+            push_log(&ui, &logs, "config deleted".to_string());
         });
     }
 
@@ -1543,10 +1736,13 @@ fn begin_ping(
     id: String,
 ) {
     let Some(ui) = weak.upgrade() else { return };
-    let profile = store.lock().unwrap().profile_by_id(&id).cloned();
+    let (profile, settings) = {
+        let guard = store.lock().unwrap();
+        (guard.profile_by_id(&id).cloned(), guard.settings.clone())
+    };
     let Some(profile) = profile else { return };
 
-    if profile.address.is_empty() || profile.address == "local" || profile.port == 0 {
+    if profile.protocol.eq_ignore_ascii_case("direct") || profile.address == "local" {
         set_ping(&ui, store, pings, &id, "—".to_string(), 0);
         return;
     }
@@ -1557,13 +1753,27 @@ fn begin_ping(
     let pings = pings.clone();
     let store = store.clone();
     let runtime = runtime.clone();
+    let limit = ping_limit().clone();
     runtime.spawn(async move {
-        let result =
-            probe::tcp_latency(&profile.address, profile.port, Duration::from_secs(4)).await;
+        let Ok(_permit) = limit.acquire().await else {
+            return;
+        };
+        // Probe the actual protocol through a disposable core instance, the
+        // same way radar-node tests xray configs. A raw TCP handshake can be
+        // green while the credentials or transport are broken.
+        let result = tokio::task::spawn_blocking(move || {
+            probe::tunnel_latency(
+                profile.core,
+                &profile.config,
+                &settings,
+                Duration::from_secs(9),
+            )
+        })
+        .await;
 
         let (text, state) = match result {
-            Ok(ms) => (format!("{ms} ms"), latency_state(ms)),
-            Err(_) => ("timeout".to_string(), 4),
+            Ok(Ok(ms)) => (format!("{ms} ms"), latency_state(ms)),
+            _ => ("timeout".to_string(), 4),
         };
 
         let _ = slint::invoke_from_event_loop(move || {
@@ -1847,8 +2057,20 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
             EngineState::Running => {
                 SWITCHING.store(false, Ordering::SeqCst);
                 ui.set_connected(true);
-                ui.set_busy(false);
                 ui.set_status_text("Connected".into());
+                // Keep the yellow "connecting" state visible for a moment even
+                // when the core starts very quickly.
+                let weak_busy = ui.as_weak();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(450));
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = weak_busy.upgrade() {
+                            if ui.get_connected() {
+                                ui.set_busy(false);
+                            }
+                        }
+                    });
+                });
                 let weak = ui.as_weak();
                 let logs = logs.clone();
                 std::thread::spawn(move || {
@@ -2005,18 +2227,55 @@ fn start_size_watch(ui: &AppWindow) {
     std::mem::forget(timer);
 }
 
-fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
-    let mut buffer = logs.lock().unwrap();
-    buffer.push(line.into());
-    if buffer.len() > 600 {
-        let excess = buffer.len() - 600;
-        buffer.drain(0..excess);
-    }
+fn publish_logs(ui: &AppWindow, logs: &LogBuffer) {
+    let buffer = logs.lock().unwrap();
     let items: Vec<SharedString> = buffer
         .iter()
         .map(|line| SharedString::from(line.as_str()))
         .collect();
     ui.set_logs(ModelRc::new(VecModel::from(items)));
+}
+
+/// Publish the log model at a bounded rate. Rebuilding a large model on every
+/// single line makes the settings ScrollView jump while the user scrolls it.
+fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
+    {
+        let mut buffer = logs.lock().unwrap();
+        buffer.push(line.into());
+        if buffer.len() > 600 {
+            let excess = buffer.len() - 600;
+            buffer.drain(0..excess);
+        }
+    }
+
+    let now = Instant::now();
+    let due = {
+        let mut last = LOG_LAST_PUBLISH.lock().unwrap();
+        let due = last.is_none_or(|at| now.duration_since(at) >= Duration::from_millis(200));
+        if due {
+            *last = Some(now);
+        }
+        due
+    };
+    if due {
+        publish_logs(ui, logs);
+        return;
+    }
+
+    if LOG_FLUSH_PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let weak = ui.as_weak();
+    let logs = logs.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(220));
+        LOG_FLUSH_PENDING.store(false, Ordering::SeqCst);
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = weak.upgrade() {
+                publish_logs(&ui, &logs);
+            }
+        });
+    });
 }
 
 fn format_bytes(bytes: u64) -> String {

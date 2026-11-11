@@ -45,6 +45,7 @@ async fn starts_core_and_queries_stats() {
         system_proxy: false,
         api_addr: "127.0.0.1".to_string(),
         theme: "system".to_string(),
+        accent: "cyan".to_string(),
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profile();

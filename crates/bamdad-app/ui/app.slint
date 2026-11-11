@@ -1,3 +1,4 @@
+import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { GroupRow } from "models.slint";
 import {
@@ -6,7 +7,6 @@ import {
     ConnectSquare,
     HeaderButton,
     IpRow,
-    LogoMark,
     PrimaryButton,
     SecondaryButton,
     TextField,
@@ -22,6 +22,9 @@ component TopBar inherits Rectangle {
 
     height: 56px;
     background: Theme.bg-raised;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-color: #00000055;
 
     HorizontalLayout {
         padding-left: 16px;
@@ -29,7 +32,6 @@ component TopBar inherits Rectangle {
         spacing: 10px;
         cross-axis-alignment: center;
 
-        LogoMark { mark-size: 28px; }
         Text {
             text: root.settings ? "Settings" : "Profiles";
             color: Theme.text;
@@ -78,11 +80,15 @@ component ConnectionBar inherits Rectangle {
 
     height: root.phone ? 76px : 70px;
     background: Theme.bg-raised;
+    drop-shadow-blur: 16px;
+    drop-shadow-offset-y: -5px;
+    drop-shadow-color: #00000066;
 
     Rectangle {
         width: 100%;
         height: 1px;
         background: Theme.border;
+        visible: root.connected;
     }
 
     HorizontalLayout {
@@ -393,9 +399,11 @@ component EditGroupDialog inherits Rectangle {
 component GroupActionsMenu inherits Rectangle {
     in property <bool> phone;
     in property <string> name;
-    callback edit();
+    in property <bool> subscription: true;
+    callback rename();
     callback refresh();
     callback delete();
+    callback clear();
     callback close();
 
     width: 100%;
@@ -406,7 +414,7 @@ component GroupActionsMenu inherits Rectangle {
 
     Card {
         width: root.phone ? parent.width - 32px : 380px;
-        height: 270px;
+        height: root.subscription ? 286px : 202px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
@@ -421,20 +429,180 @@ component GroupActionsMenu inherits Rectangle {
                 overflow: elide;
             }
             SecondaryButton {
-                text: "Edit profile";
-                clicked => { root.edit(); }
+                text: "Rename profile";
+                clicked => { root.rename(); }
             }
-            SecondaryButton {
+            if root.subscription : SecondaryButton {
                 text: "Update profile";
                 clicked => { root.refresh(); }
             }
-            SecondaryButton {
+            if root.subscription : SecondaryButton {
                 text: "Delete profile";
+                clicked => { root.delete(); }
+            }
+            if !root.subscription : SecondaryButton {
+                text: "Delete all configs";
+                clicked => { root.clear(); }
+            }
+            PrimaryButton {
+                text: "Cancel";
+                clicked => { root.close(); }
+            }
+        }
+    }
+}
+
+component ConfigActionsMenu inherits Rectangle {
+    in property <bool> phone;
+    in property <string> name;
+    callback rename();
+    callback delete();
+    callback close();
+
+    width: 100%;
+    height: 100%;
+    background: Theme.scrim;
+
+    TouchArea { clicked => { root.close(); } }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 380px;
+        height: 218px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 8px;
+            Text {
+                text: root.name;
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            SecondaryButton {
+                text: "Rename config";
+                clicked => { root.rename(); }
+            }
+            SecondaryButton {
+                text: "Delete config";
                 clicked => { root.delete(); }
             }
             PrimaryButton {
                 text: "Cancel";
                 clicked => { root.close(); }
+            }
+        }
+    }
+}
+
+component RenameDialog inherits Rectangle {
+    in property <bool> phone;
+    in property <string> title: "Rename";
+    in-out property <string> name;
+    callback close();
+    callback save(string);
+
+    width: 100%;
+    height: 100%;
+    background: Theme.scrim;
+
+    TouchArea { clicked => { root.close(); } }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 420px;
+        height: 218px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 9px;
+            Text {
+                text: root.title;
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            Text {
+                text: "NAME";
+                color: Theme.muted;
+                font-size: 9px;
+                font-weight: 700;
+            }
+            TextField {
+                text <=> root.name;
+                placeholder: "Name";
+            }
+            HorizontalLayout {
+                spacing: 7px;
+                Rectangle { horizontal-stretch: 1; }
+                SecondaryButton {
+                    width: 84px;
+                    text: "Cancel";
+                    clicked => { root.close(); }
+                }
+                PrimaryButton {
+                    width: 96px;
+                    text: "Save";
+                    enabled: root.name != "";
+                    clicked => { root.save(root.name); }
+                }
+            }
+        }
+    }
+}
+
+component LogFullscreen inherits Rectangle {
+    in property <bool> phone;
+    in property <[string]> logs;
+    callback close();
+
+    width: 100%;
+    height: 100%;
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: root.phone ? 12px : 20px;
+        spacing: 10px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            cross-axis-alignment: center;
+            Text {
+                text: "Logs";
+                color: Theme.text;
+                font-size: 16px;
+                font-weight: 700;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            HeaderButton {
+                icon: @image-url("icons/close.svg");
+                clicked => { root.close(); }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.log-bg;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+
+            log-list := ListView {
+                vertical-scrollbar-policy: always-off;
+                for line in root.logs : Text {
+                    text: line;
+                    x: 10px;
+                    width: log-list.visible-width - 20px;
+                    color: Theme.log-text;
+                    font-size: 11px;
+                    font-family: "monospace";
+                    wrap: word-wrap;
+                }
             }
         }
     }
@@ -451,9 +619,13 @@ export component AppWindow inherits Window {
     init => {
         Theme.mode = root.theme-mode;
         Theme.palette-dark = root.palette-dark;
+        Theme.palette-black = root.palette-black;
+        Theme.accent-name = root.accent-mode;
     }
     changed theme-mode => { Theme.mode = root.theme-mode; }
     changed palette-dark => { Theme.palette-dark = root.palette-dark; }
+    changed palette-black => { Theme.palette-black = root.palette-black; }
+    changed accent-mode => { Theme.accent-name = root.accent-mode; }
 
     in-out property <bool> connected: false;
     in-out property <bool> busy: false;
@@ -471,6 +643,8 @@ export component AppWindow inherits Window {
     in-out property <bool> system-proxy: false;
     in-out property <string> theme-mode: "system";
     in-out property <bool> palette-dark: true;
+    in-out property <bool> palette-black: false;
+    in-out property <string> accent-mode: "cyan";
     in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
@@ -492,12 +666,22 @@ export component AppWindow inherits Window {
     in-out property <bool> group-menu-open: false;
     in-out property <string> group-menu-id: "";
     in-out property <string> group-menu-name: "";
+    in-out property <bool> group-menu-default: false;
+    in-out property <bool> config-menu-open: false;
+    in-out property <string> config-menu-id: "";
+    in-out property <string> config-menu-name: "";
+    in-out property <bool> rename-open: false;
+    in-out property <string> rename-target: "";
+    in-out property <string> rename-title: "";
+    in-out property <string> rename-name: "";
+    in-out property <bool> logs-full: false;
 
     callback toggle-connect();
     callback select-profile(string);
     callback import-link(string, int);
     callback save-settings(string, string, bool);
     callback set-theme-mode(string);
+    callback set-accent-mode(string);
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
@@ -523,6 +707,13 @@ export component AppWindow inherits Window {
     callback save-group(string, string, string);
     callback open-group-menu(string);
     callback close-group-menu();
+    callback clear-group(string);
+    callback open-config-menu(string);
+    callback close-config-menu();
+    callback request-rename(string, string, string);
+    callback close-rename();
+    callback save-rename(string, string);
+    callback delete-config(string);
     callback toggle-ip();
 
     // Breakpoints are set from Rust by watching the actual window size. Deriving
@@ -567,6 +758,7 @@ export component AppWindow inherits Window {
                     select(id) => { root.select-profile(id); }
                     ping(id) => { root.ping-profile(id); }
                     open-group-menu(id) => { root.open-group-menu(id); }
+                    open-config-menu(id) => { root.open-config-menu(id); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
                 }
@@ -582,10 +774,13 @@ export component AppWindow inherits Window {
                     http-port <=> root.http-port;
                     system-proxy <=> root.system-proxy;
                     theme <=> root.theme-mode;
+                    accent <=> root.accent-mode;
                     save-settings(socks, http, proxy) => {
                         root.save-settings(socks, http, proxy);
                     }
                     set-theme(mode) => { root.set-theme-mode(mode); }
+                    set-accent(name) => { root.set-accent-mode(name); }
+                    full-logs => { root.logs-full = true; }
                     clear-logs => { root.clear-logs(); }
                     test-proxy => { root.test-proxy(); }
                     copy-logs => { root.copy-logs(); }
@@ -649,8 +844,13 @@ export component AppWindow inherits Window {
         if root.group-menu-open : GroupActionsMenu {
             phone: root.phone;
             name: root.group-menu-name;
-            edit => {
-                root.edit-group(root.group-menu-id);
+            subscription: !root.group-menu-default;
+            rename => {
+                if root.group-menu-default {
+                    root.request-rename("group:default", "Rename profile", root.group-menu-name);
+                } else {
+                    root.edit-group(root.group-menu-id);
+                }
                 root.close-group-menu();
             }
             refresh => {
@@ -661,7 +861,43 @@ export component AppWindow inherits Window {
                 root.delete-group(root.group-menu-id);
                 root.close-group-menu();
             }
+            clear => {
+                root.clear-group(root.group-menu-id);
+                root.close-group-menu();
+            }
             close => { root.close-group-menu(); }
+        }
+
+        if root.config-menu-open : ConfigActionsMenu {
+            phone: root.phone;
+            name: root.config-menu-name;
+            rename => {
+                root.request-rename(
+                    "config:" + root.config-menu-id,
+                    "Rename config",
+                    root.config-menu-name,
+                );
+                root.config-menu-open = false;
+            }
+            delete => {
+                root.delete-config(root.config-menu-id);
+                root.config-menu-open = false;
+            }
+            close => { root.config-menu-open = false; }
+        }
+
+        if root.rename-open : RenameDialog {
+            phone: root.phone;
+            title: root.rename-title;
+            name <=> root.rename-name;
+            close => { root.close-rename(); }
+            save(name) => { root.save-rename(root.rename-target, name); }
+        }
+
+        if root.logs-full : LogFullscreen {
+            phone: root.phone;
+            logs: root.logs;
+            close => { root.logs-full = false; }
         }
     }
 }
