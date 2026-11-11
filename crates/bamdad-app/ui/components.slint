@@ -563,6 +563,7 @@ export component ProfileRowView inherits Rectangle {
     callback ping(string);
     callback open-menu(string);
     callback reorder(string, int);
+    callback drag-preview(string, int);
 
     property <bool> dragging: false;
     property <length> drag-start-y: 0;
@@ -601,6 +602,8 @@ export component ProfileRowView inherits Rectangle {
                 moved => {
                     if (root.dragging) {
                         root.drag-last-y = drag-touch.mouse-y;
+                        let steps = Math.round((root.drag-last-y - root.drag-start-y) / 32px);
+                        root.drag-preview(root.row-data.id, root.index + steps);
                     }
                 }
                 pointer-event(event) => {
@@ -608,9 +611,11 @@ export component ProfileRowView inherits Rectangle {
                         root.dragging = true;
                         root.drag-start-y = drag-touch.mouse-y;
                         root.drag-last-y = drag-touch.mouse-y;
+                        root.drag-preview(root.row-data.id, root.index);
                     } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                         if (root.dragging) {
                             root.dragging = false;
+                            root.drag-preview(root.row-data.id, -1);
                             let steps = Math.round((root.drag-last-y - root.drag-start-y) / 32px);
                             if (steps != 0) {
                                 root.reorder(root.row-data.id, root.index + steps);
@@ -837,6 +842,8 @@ export component GroupCard inherits Rectangle {
     callback ping(string);
     callback reorder(string, int);
 
+    property <int> drop-index: -1;
+
     height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 62px : 0px);
     border-radius: Theme.radius-sm;
     background: Theme.bg-raised;
@@ -899,8 +906,21 @@ export component GroupCard inherits Rectangle {
                 ping(id) => { root.ping(id); }
                 open-menu(id) => { root.open-config-menu(id); }
                 reorder(id, target) => { root.reorder(id, target); }
+                drag-preview(id, target) => {
+                    root.drop-index = target < 0 ? -1 : Math.min(target, root.group-data.nodes.length);
+                }
             }
         }
+    }
+
+    Rectangle {
+        visible: root.drop-index >= 0;
+        x: 10px;
+        width: parent.width - 20px;
+        height: 3px;
+        border-radius: 2px;
+        background: Theme.accent;
+        y: 49px + root.drop-index * 62px;
     }
 }
 

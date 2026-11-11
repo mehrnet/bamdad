@@ -404,6 +404,7 @@ component GroupActionsMenu inherits Rectangle {
     callback refresh();
     callback delete();
     callback clear();
+    callback reset-order();
     callback close();
 
     width: 100%;
@@ -414,7 +415,7 @@ component GroupActionsMenu inherits Rectangle {
 
     Card {
         width: root.phone ? parent.width - 32px : 380px;
-        height: root.subscription ? 286px : 202px;
+        height: root.subscription ? 342px : 258px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
@@ -443,6 +444,10 @@ component GroupActionsMenu inherits Rectangle {
             if !root.subscription : SecondaryButton {
                 text: "Delete all configs";
                 clicked => { root.clear(); }
+            }
+            SecondaryButton {
+                text: "Reset custom ordering";
+                clicked => { root.reset-order(); }
             }
             PrimaryButton {
                 text: "Cancel";
@@ -709,6 +714,7 @@ export component AppWindow inherits Window {
     callback open-group-menu(string);
     callback close-group-menu();
     callback clear-group(string);
+    callback reset-config-order(string);
     callback open-config-menu(string);
     callback close-config-menu();
     callback reorder-config(string, int);
@@ -883,6 +889,10 @@ export component AppWindow inherits Window {
             }
             clear => {
                 root.clear-group(root.group-menu-id);
+                root.close-group-menu();
+            }
+            reset-order => {
+                root.reset-config-order(root.group-menu-id);
                 root.close-group-menu();
             }
             close => { root.close-group-menu(); }

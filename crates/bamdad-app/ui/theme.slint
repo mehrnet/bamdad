@@ -20,26 +20,26 @@ export global Theme {
     property <bool> a-gray: accent-name == "gray";
 
     out property <color> bg: palette-black ? #000000
-        : light ? (a-blue ? #e2e9f6 : a-red ? #ede6ea : a-green ? #e1eded : a-purple ? #e7e7f6 : a-orange ? #eee9e9 : a-pink ? #ede6ef : a-gray ? #e4e9ee : #e0ebf4)
-        : (a-blue ? #131b26 : a-red ? #1b191f : a-green ? #121e20 : a-purple ? #171a26 : a-orange ? #1b1a1d : a-pink ? #1a1923 : a-gray ? #161b23 : #111c26);
+        : light ? (a-blue ? #e0e8f6 : a-red ? #ede3e7 : a-green ? #dbebe7 : a-purple ? #e4e1f6 : a-orange ? #eee4e2 : a-pink ? #ece0eb : a-gray ? #e5eaef : #e0ebf4)
+        : (a-blue ? #141d28 : a-red ? #1e1a20 : a-green ? #132323 : a-purple ? #1a1d2c : a-orange ? #211d1d : a-pink ? #201b27 : a-gray ? #151a22 : #111c26);
     out property <color> bg-raised: palette-black ? #050607
-        : light ? (a-blue ? #f0f4fb : a-red ? #f6f2f5 : a-green ? #eff6f6 : a-purple ? #f3f2fb : a-orange ? #f7f3f4 : a-pink ? #f6f2f7 : a-gray ? #f1f3f7 : #eef5fa)
-        : (a-blue ? #182230 : a-red ? #211f28 : a-green ? #162629 : a-purple ? #1c2130 : a-orange ? #212124 : a-pink ? #201f2c : a-gray ? #1b222c : #152430);
+        : light ? (a-blue ? #eef3fb : a-red ? #f6f0f3 : a-green ? #ebf4f3 : a-purple ? #f1effb : a-orange ? #f6f1ef : a-pink ? #f6eef5 : a-gray ? #f1f4f7 : #eef5fa)
+        : (a-blue ? #192432 : a-red ? #242129 : a-green ? #182c2b : a-purple ? #202436 : a-orange ? #282525 : a-pink ? #272230 : a-gray ? #1a212b : #152430);
     out property <color> surface: palette-black ? #0a0c10
-        : light ? (a-blue ? #f8fafe : a-red ? #fef8f8 : a-green ? #f5fbf7 : a-purple ? #f9f7fe : a-orange ? #fef7f4 : a-pink ? #fdf6f9 : a-gray ? #fafafb : #f7fbfd)
-        : (a-blue ? #1d2a3e : a-red ? #272634 : a-green ? #1d3338 : a-purple ? #252b42 : a-orange ? #2e2c31 : a-pink ? #2c283c : a-gray ? #1f2938 : #1a2b3d);
+        : light ? (a-blue ? #f7f9fe : a-red ? #fef7f7 : a-green ? #f2faf5 : a-purple ? #f7f3fe : a-orange ? #fef4f0 : a-pink ? #fceef4 : a-gray ? #fafafb : #f7fbfd)
+        : (a-blue ? #1e2b40 : a-red ? #2a2835 : a-green ? #1e3739 : a-purple ? #2b2f4a : a-orange ? #373032 : a-pink ? #3d2f47 : a-gray ? #1f2938 : #1a2b3d);
     out property <color> surface-2: palette-black ? #12151b
-        : light ? (a-blue ? #dae3f4 : a-red ? #e8dfe5 : a-green ? #d2e6e2 : a-purple ? #dedbf4 : a-orange ? #e9dddb : a-pink ? #e8d9e8 : a-gray ? #dee4ec : #d8e6f2)
-        : (a-blue ? #26364e : a-red ? #323141 : a-green ? #254145 : a-purple ? #303653 : a-orange ? #3c383d : a-pink ? #39334b : a-gray ? #293446 : #22374d);
+        : light ? (a-blue ? #d7e1f4 : a-red ? #e8dbe2 : a-green ? #cde4de : a-purple ? #d9d3f4 : a-orange ? #e9d6d0 : a-pink ? #e6c7dc : a-gray ? #dee4ec : #d8e6f2)
+        : (a-blue ? #273750 : a-red ? #373243 : a-green ? #264647 : a-purple ? #373b5d : a-orange ? #473d3d : a-pink ? #4f3b58 : a-gray ? #293446 : #22374d);
     out property <color> surface-3: palette-black ? #191d25
-        : light ? (a-blue ? #cdd9ef : a-red ? #ddd5de : a-green ? #c4dddb : a-purple ? #d1d1ef : a-orange ? #dfd3d2 : a-pink ? #ddcee1 : a-gray ? #d2dae5 : #caddec)
-        : (a-blue ? #2e425d : a-red ? #3d3d50 : a-green ? #2e4e53 : a-purple ? #3a4263 : a-orange ? #47444a : a-pink ? #443f5a : a-gray ? #324055 : #2a445c);
+        : light ? (a-blue ? #cad8ef : a-red ? #ddd1da : a-green ? #bfdbd6 : a-purple ? #cdc8ef : a-orange ? #dfccc6 : a-pink ? #ddbbd4 : a-gray ? #d2dae5 : #caddec)
+        : (a-blue ? #2f4460 : a-red ? #423e50 : a-green ? #2f5455 : a-purple ? #41476d : a-orange ? #534949 : a-pink ? #5b4666 : a-gray ? #324055 : #2a445c);
     out property <color> border: palette-black ? #1b2028
-        : light ? (a-blue ? #c5d3eb : a-red ? #d8cdd7 : a-green ? #bcd7d4 : a-purple ? #cbc9eb : a-orange ? #dbccca : a-pink ? #d8c6db : a-gray ? #cbd3df : #c3d7e7)
-        : (a-blue ? #2f445e : a-red ? #403d4e : a-green ? #2e5253 : a-purple ? #3c4465 : a-orange ? #4c4648 : a-pink ? #48405b : a-gray ? #344255 : #2b465d);
+        : light ? (a-blue ? #c3d1eb : a-red ? #d8c9d2 : a-green ? #b5d5ce : a-purple ? #c6bfeb : a-orange ? #dcc3bc : a-pink ? #d9b0cd : a-gray ? #cbd3df : #c3d7e7)
+        : (a-blue ? #304661 : a-red ? #453f4f : a-green ? #305855 : a-purple ? #454971 : a-orange ? #5a4c47 : a-pink ? #5e4666 : a-gray ? #344255 : #2b465d);
     out property <color> border-strong: palette-black ? #2b3340
-        : light ? (a-blue ? #a9bbda : a-red ? #c0b5c3 : a-green ? #9fc2bf : a-purple ? #b1b0dc : a-orange ? #c4b4b3 : a-pink ? #c1adc8 : a-gray ? #afbccc : #a6c0d6)
-        : (a-blue ? #3f597a : a-red ? #535267 : a-green ? #3d686b : a-purple ? #4e5881 : a-orange ? #605a5e : a-pink ? #5c5475 : a-gray ? #455770 : #3a5c79);
+        : light ? (a-blue ? #a6b9db : a-red ? #c1b0bd : a-green ? #98c0b9 : a-purple ? #ada6dd : a-orange ? #c8aca5 : a-pink ? #c49ebf : a-gray ? #afbccc : #a6c0d6)
+        : (a-blue ? #405b7d : a-red ? #595368 : a-green ? #3e6f6c : a-purple ? #565d8c : a-orange ? #6c5f5b : a-pink ? #6a577b : a-gray ? #455770 : #3a5c79);
 
     out property <color> text: palette-black ? #f5f8fc : light ? #0f172a : #eef4fb;
     out property <color> text-2: palette-black ? #9ba7b8 : light ? #475569 : #a3b1c4;

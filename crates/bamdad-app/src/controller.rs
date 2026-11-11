@@ -466,6 +466,11 @@ fn emoji_candidates(grapheme: &str) -> Vec<String> {
 }
 
 fn emoji_image(grapheme: &str) -> Option<slint::Image> {
+    // Keep the Iran flag recognizable without the emblem: a plain
+    // green/white/red tricolour instead of Twemoji's detailed version.
+    if grapheme == "🇮🇷" {
+        return slint::Image::load_from_svg_data(include_bytes!("../ui/icons/flag-ir.svg")).ok();
+    }
     EMOJI_CACHE.with(|cache| {
         if let Some(cached) = cache.borrow().get(grapheme) {
             return cached.clone();
@@ -1387,6 +1392,23 @@ fn setup_callbacks(
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
                 push_log(&ui, &logs, format!("{removed} configs deleted"));
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        let logs = logs.clone();
+        ui.on_reset_config_order(move |group_id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut guard = store.lock().unwrap();
+            if guard.group_order.remove(group_id.as_str()).is_some() {
+                let _ = save_store(&guard);
+                ui.set_groups(group_model(&guard, &pings));
+                drop(guard);
+                push_log(&ui, &logs, "custom ordering reset".to_string());
             }
         });
     }
