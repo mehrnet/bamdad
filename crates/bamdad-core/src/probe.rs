@@ -77,6 +77,19 @@ fn launch_core(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
+    // Make sure a probe core cannot outlive the app if the process is killed
+    // while a ping is still running.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            command.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
+        }
+    }
+
     let (child, config_file) = match core {
         CoreKind::Xray => {
             command.stdin(Stdio::piped());
