@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -37,6 +39,93 @@ pub async fn tcp_latency(host: &str, port: u16, timeout: Duration) -> Result<u64
             timeout.as_millis()
         ))),
     }
+}
+
+/// Best-of-three warm TCP handshakes, all attempted concurrently.
+///
+/// This is the latency users compare against other clients: it does not start
+/// or wait for a core, so numbers stay in the same range as a raw ping while
+/// the minimum of three attempts removes one-off scheduling jitter.
+pub async fn best_tcp_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
+    if host.trim().is_empty() || port == 0 {
+        return Err(CoreError::InvalidLink(
+            "profile has no reachable endpoint".to_string(),
+        ));
+    }
+
+    // Resolve once, outside the measured section. Resolving on every attempt
+    // made a 100 ms endpoint look like 400 ms, and concurrent DNS queries made
+    // it worse.
+    // DNS is resolved outside the measured span and gets a more generous
+    // budget than the handshake; some mobile resolvers take over two seconds.
+    let addrs = Arc::new(resolve_cached(host, port, Duration::from_secs(4)).await?);
+    if addrs.is_empty() {
+        return Err(CoreError::Spawn(format!("{host} did not resolve")));
+    }
+
+    let (first, second, third) = tokio::join!(
+        connect_addrs(addrs.clone(), timeout),
+        connect_addrs(addrs.clone(), timeout),
+        connect_addrs(addrs.clone(), timeout),
+    );
+    [first, second, third]
+        .into_iter()
+        .filter_map(Result::ok)
+        .min()
+        .ok_or_else(|| {
+            CoreError::Spawn(format!(
+                "all TCP probes failed within {} ms",
+                timeout.as_millis()
+            ))
+        })
+}
+
+async fn connect_addrs(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
+    let start = Instant::now();
+    match tokio::time::timeout(timeout, TokioTcpStream::connect(addrs.as_slice())).await {
+        Ok(Ok(stream)) => {
+            drop(stream);
+            Ok(start.elapsed().as_millis() as u64)
+        }
+        Ok(Err(error)) => Err(CoreError::Io(error)),
+        Err(_) => Err(CoreError::Spawn(format!(
+            "timed out after {} ms",
+            timeout.as_millis()
+        ))),
+    }
+}
+
+fn dns_cache() -> &'static Mutex<HashMap<(String, u16), (Instant, Vec<SocketAddr>)>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, u16), (Instant, Vec<SocketAddr>)>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub async fn prefetch_dns(host: &str, port: u16) {
+    let _ = resolve_cached(host, port, Duration::from_secs(4)).await;
+}
+
+async fn resolve_cached(host: &str, port: u16, timeout: Duration) -> Result<Vec<SocketAddr>> {
+    let key = (host.to_string(), port);
+    if let Ok(cache) = dns_cache().lock() {
+        if let Some((at, addrs)) = cache.get(&key) {
+            if at.elapsed() < Duration::from_secs(300) {
+                return Ok(addrs.clone());
+            }
+        }
+    }
+
+    let resolved = tokio::time::timeout(timeout, tokio::net::lookup_host((host, port)))
+        .await
+        .map_err(|_| CoreError::Spawn(format!("DNS lookup for {host} timed out")))?
+        .map_err(CoreError::Io)?;
+    let addrs: Vec<SocketAddr> = resolved.collect();
+    if !addrs.is_empty() {
+        if let Ok(mut cache) = dns_cache().lock() {
+            cache.insert(key, (Instant::now(), addrs.clone()));
+        }
+    }
+    Ok(addrs)
 }
 
 const PROBE_TARGETS: &[&str] = &[

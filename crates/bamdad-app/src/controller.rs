@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
@@ -24,7 +24,6 @@ static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
 static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
-static PING_LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 
 pub(crate) fn set_active_profile_name(name: &str) {
@@ -33,13 +32,6 @@ pub(crate) fn set_active_profile_name(name: &str) {
 
 pub(crate) fn active_profile_name() -> String {
     ACTIVE_PROFILE.lock().unwrap().clone()
-}
-
-fn ping_limit() -> &'static Arc<tokio::sync::Semaphore> {
-    // Each probe starts a full core process. Running dozens at once starves
-    // the machine and inflates every measured latency, so keep the batch wide
-    // but bounded.
-    PING_LIMIT.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(8)))
 }
 
 pub fn init(
@@ -53,6 +45,7 @@ pub fn init(
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
     seed(ui, &store, &pings);
+    prefetch_dns(&store, &runtime);
     setup_callbacks(
         ui,
         engine,
@@ -120,6 +113,7 @@ pub(crate) fn init_attached(
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
     seed(ui, &store, &pings);
+    prefetch_dns(&store, &runtime);
     seed_last_network(ui);
     {
         let items: Vec<SharedString> = logs
@@ -721,7 +715,11 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
 }
 
 fn initial_ping(profile: &config::Profile) -> String {
-    if profile.protocol.eq_ignore_ascii_case("direct") || profile.address == "local" {
+    if profile.protocol.eq_ignore_ascii_case("direct")
+        || profile.address == "local"
+        || profile.address.is_empty()
+        || profile.port == 0
+    {
         "—".to_string()
     } else {
         "Ping".to_string()
@@ -1858,13 +1856,14 @@ fn begin_ping(
     id: String,
 ) {
     let Some(ui) = weak.upgrade() else { return };
-    let (profile, settings) = {
-        let guard = store.lock().unwrap();
-        (guard.profile_by_id(&id).cloned(), guard.settings.clone())
-    };
+    let profile = store.lock().unwrap().profile_by_id(&id).cloned();
     let Some(profile) = profile else { return };
 
-    if profile.protocol.eq_ignore_ascii_case("direct") || profile.address == "local" {
+    if profile.protocol.eq_ignore_ascii_case("direct")
+        || profile.address == "local"
+        || profile.address.is_empty()
+        || profile.port == 0
+    {
         set_ping(&ui, store, pings, &id, "—".to_string(), 0);
         return;
     }
@@ -1875,27 +1874,16 @@ fn begin_ping(
     let pings = pings.clone();
     let store = store.clone();
     let runtime = runtime.clone();
-    let limit = ping_limit().clone();
     runtime.spawn(async move {
-        let Ok(_permit) = limit.acquire().await else {
-            return;
-        };
-        // Probe the actual protocol through a disposable core instance, the
-        // way v2rayNG/v2rayN test configs. A raw TCP handshake can be green
-        // while the credentials or transport are broken.
-        let result = tokio::task::spawn_blocking(move || {
-            probe::tunnel_latency(
-                profile.core,
-                &profile.config,
-                &settings,
-                Duration::from_secs(12),
-            )
-        })
-        .await;
+        // Warm TCP handshakes keep the displayed number in the same range as
+        // other clients and avoid starting a core for every ping.
+        let result =
+            probe::best_tcp_latency(&profile.address, profile.port, Duration::from_millis(2_000))
+                .await;
 
         let (text, state) = match result {
-            Ok(Ok(ms)) => (format!("{ms} ms"), latency_state(ms)),
-            _ => ("timeout".to_string(), 4),
+            Ok(ms) => (format!("{ms} ms"), latency_state(ms)),
+            Err(_) => ("timeout".to_string(), 4),
         };
 
         let _ = slint::invoke_from_event_loop(move || {
@@ -2400,6 +2388,28 @@ fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
             }
         });
     });
+}
+
+fn prefetch_dns(store: &Arc<Mutex<Store>>, runtime: &tokio::runtime::Handle) {
+    let endpoints: Vec<(String, u16)> = {
+        let guard = store.lock().unwrap();
+        guard
+            .profiles
+            .iter()
+            .filter(|profile| {
+                !profile.address.is_empty()
+                    && profile.address != "local"
+                    && profile.port != 0
+                    && !profile.protocol.eq_ignore_ascii_case("direct")
+            })
+            .map(|profile| (profile.address.clone(), profile.port))
+            .collect()
+    };
+    for (host, port) in endpoints {
+        runtime.spawn(async move {
+            probe::prefetch_dns(&host, port).await;
+        });
+    }
 }
 
 fn set_traffic_totals(ui: &AppWindow, up: u64, down: u64) {
