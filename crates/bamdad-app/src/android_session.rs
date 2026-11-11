@@ -135,6 +135,7 @@ fn spawn_relay(
                         &controller::active_profile_name(),
                         "0 B",
                         "0 B",
+                        &controller::active_accent_name(),
                     );
                 }
                 EngineEvent::Traffic {
@@ -146,6 +147,7 @@ fn spawn_relay(
                         &controller::active_profile_name(),
                         &controller::format_bytes(*total_down),
                         &controller::format_bytes(*total_up),
+                        &controller::active_accent_name(),
                     );
                 }
                 _ => {}

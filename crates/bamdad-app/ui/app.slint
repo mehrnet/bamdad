@@ -7,6 +7,7 @@ import {
     ConnectSquare,
     HeaderButton,
     IpRow,
+    MenuItem,
     PrimaryButton,
     SecondaryButton,
     TextField,
@@ -16,7 +17,7 @@ import { ProfilesPage, SettingsPage } from "pages.slint";
 
 component TopBar inherits Rectangle {
     in property <bool> settings;
-    callback add();
+    callback add(length, length);
     callback open-settings();
     callback close-settings();
 
@@ -43,7 +44,7 @@ component TopBar inherits Rectangle {
         }
         if !root.settings : HeaderButton {
             icon: @image-url("icons/plus.svg");
-            clicked => { root.add(); }
+            clicked => { root.add(self.absolute-position.x, self.absolute-position.y); }
         }
         if root.settings : HeaderButton {
             icon: @image-url("icons/close.svg");
@@ -132,56 +133,45 @@ component ConnectionBar inherits Rectangle {
 }
 
 component ImportMenu inherits Rectangle {
-    in property <bool> phone;
-    callback close();
     callback import-text();
     callback paste();
     callback subscription();
     callback manual();
 
-    width: 100%;
-    height: 100%;
-    background: Theme.scrim;
-
-    TouchArea {
-        clicked => { root.close(); }
-    }
+    width: 260px;
+    height: 190px;
+    background: transparent;
 
     Card {
-        width: root.phone ? parent.width - 32px : 420px;
-        height: 322px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        width: 100%;
+        height: 100%;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000066;
 
         VerticalLayout {
-            padding: 18px;
-            spacing: 9px;
+            padding: 6px;
+            spacing: 2px;
 
-            Text {
-                text: "Add profile";
-                color: Theme.text;
-                font-size: 18px;
-                font-weight: 700;
-            }
-            SecondaryButton {
+            MenuItem {
+                icon: @image-url("icons/link.svg");
                 text: "Import link or JSON";
                 clicked => { root.import-text(); }
             }
-            SecondaryButton {
+            MenuItem {
+                icon: @image-url("icons/clipboard.svg");
                 text: "Paste from clipboard";
                 clicked => { root.paste(); }
             }
-            SecondaryButton {
-                text: "Add subscription URL";
+            MenuItem {
+                icon: @image-url("icons/rss.svg");
+                text: "Add subscription";
                 clicked => { root.subscription(); }
             }
-            SecondaryButton {
-                text: "Add configuration manually (soon)";
+            MenuItem {
+                icon: @image-url("icons/wrench.svg");
+                text: "Add manually (soon)";
                 enabled: false;
-            }
-            PrimaryButton {
-                text: "Cancel";
-                clicked => { root.close(); }
             }
         }
     }
@@ -397,7 +387,6 @@ component EditGroupDialog inherits Rectangle {
 }
 
 component GroupActionsMenu inherits Rectangle {
-    in property <bool> phone;
     in property <string> name;
     in property <bool> subscription: true;
     callback rename();
@@ -405,98 +394,80 @@ component GroupActionsMenu inherits Rectangle {
     callback delete();
     callback clear();
     callback reset-order();
-    callback close();
 
-    width: 100%;
-    height: 100%;
-    background: Theme.scrim;
-
-    TouchArea { clicked => { root.close(); } }
+    width: 270px;
+    height: root.subscription ? 232px : 146px;
+    background: transparent;
 
     Card {
-        width: root.phone ? parent.width - 32px : 380px;
-        height: root.subscription ? 342px : 258px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        width: 100%;
+        height: 100%;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000066;
 
         VerticalLayout {
-            padding: 18px;
-            spacing: 8px;
-            Text {
-                text: root.name;
-                color: Theme.text;
-                font-size: 17px;
-                font-weight: 700;
-                overflow: elide;
-            }
-            SecondaryButton {
+            padding: 6px;
+            spacing: 2px;
+
+            MenuItem {
+                icon: @image-url("icons/pencil.svg");
                 text: "Rename profile";
                 clicked => { root.rename(); }
             }
-            if root.subscription : SecondaryButton {
+            if root.subscription : MenuItem {
+                icon: @image-url("icons/reload.svg");
                 text: "Update profile";
                 clicked => { root.refresh(); }
             }
-            if root.subscription : SecondaryButton {
+            if root.subscription : MenuItem {
+                icon: @image-url("icons/trash.svg");
                 text: "Delete profile";
                 clicked => { root.delete(); }
             }
-            if !root.subscription : SecondaryButton {
+            if !root.subscription : MenuItem {
+                icon: @image-url("icons/trash.svg");
                 text: "Delete all configs";
                 clicked => { root.clear(); }
             }
-            SecondaryButton {
+            MenuItem {
+                icon: @image-url("icons/reset.svg");
                 text: "Reset custom ordering";
                 clicked => { root.reset-order(); }
-            }
-            PrimaryButton {
-                text: "Cancel";
-                clicked => { root.close(); }
             }
         }
     }
 }
 
 component ConfigActionsMenu inherits Rectangle {
-    in property <bool> phone;
     in property <string> name;
     callback rename();
     callback delete();
-    callback close();
 
-    width: 100%;
-    height: 100%;
-    background: Theme.scrim;
-
-    TouchArea { clicked => { root.close(); } }
+    width: 240px;
+    height: 100px;
+    background: transparent;
 
     Card {
-        width: root.phone ? parent.width - 32px : 380px;
-        height: 218px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        width: 100%;
+        height: 100%;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000066;
 
         VerticalLayout {
-            padding: 18px;
-            spacing: 8px;
-            Text {
-                text: root.name;
-                color: Theme.text;
-                font-size: 17px;
-                font-weight: 700;
-                overflow: elide;
-            }
-            SecondaryButton {
+            padding: 6px;
+            spacing: 2px;
+
+            MenuItem {
+                icon: @image-url("icons/pencil.svg");
                 text: "Rename config";
                 clicked => { root.rename(); }
             }
-            SecondaryButton {
+            MenuItem {
+                icon: @image-url("icons/trash.svg");
                 text: "Delete config";
                 clicked => { root.delete(); }
-            }
-            PrimaryButton {
-                text: "Cancel";
-                clicked => { root.close(); }
             }
         }
     }
@@ -662,6 +633,8 @@ export component AppWindow inherits Window {
     in-out property <[string]> logs;
     in-out property <string> link-input: "";
     in-out property <bool> menu-open: false;
+    in-out property <length> menu-x: 0px;
+    in-out property <length> menu-y: 0px;
     in-out property <bool> import-open: false;
     in-out property <bool> subscription-open: false;
     in-out property <string> subscription-url: "";
@@ -670,10 +643,14 @@ export component AppWindow inherits Window {
     in-out property <string> edit-name: "";
     in-out property <string> edit-url: "";
     in-out property <bool> group-menu-open: false;
+    in-out property <length> group-menu-x: 0px;
+    in-out property <length> group-menu-y: 0px;
     in-out property <string> group-menu-id: "";
     in-out property <string> group-menu-name: "";
     in-out property <bool> group-menu-default: false;
     in-out property <bool> config-menu-open: false;
+    in-out property <length> config-menu-x: 0px;
+    in-out property <length> config-menu-y: 0px;
     in-out property <string> config-menu-id: "";
     in-out property <string> config-menu-name: "";
     in-out property <bool> rename-open: false;
@@ -765,7 +742,11 @@ export component AppWindow inherits Window {
 
             TopBar {
                 settings: root.page == 1;
-                add => { root.open-menu(); }
+                add(x, y) => {
+                    root.menu-x = x;
+                    root.menu-y = y;
+                    root.open-menu();
+                }
                 open-settings => { root.page = 1; }
                 close-settings => { root.page = 0; }
             }
@@ -775,21 +756,31 @@ export component AppWindow inherits Window {
                 width: 100%;
                 clip: true;
 
-                if root.page == 0 : ProfilesPage {
+                ProfilesPage {
+                    visible: root.page == 0;
                     phone: root.phone;
                     groups: root.groups;
                     selected-id: root.selected-id;
                     status-text: root.status-text;
                     select(id) => { root.select-profile(id); }
                     ping(id) => { root.ping-profile(id); }
-                    open-group-menu(id) => { root.open-group-menu(id); }
-                    open-config-menu(id) => { root.open-config-menu(id); }
+                    open-group-menu(id, x, y) => {
+                        root.group-menu-x = x;
+                        root.group-menu-y = y;
+                        root.open-group-menu(id);
+                    }
+                    open-config-menu(id, x, y) => {
+                        root.config-menu-x = x;
+                        root.config-menu-y = y;
+                        root.open-config-menu(id);
+                    }
                     reorder-config(id, target) => { root.reorder-config(id, target); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
                 }
 
-                if root.page == 1 : SettingsPage {
+                SettingsPage {
+                    visible: root.page == 1;
                     phone: root.phone;
                     mobile: root.mobile;
                     xray-version: root.xray-version;
@@ -831,9 +822,14 @@ export component AppWindow inherits Window {
             }
         }
 
+        if root.menu-open : TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.close-menu(); }
+        }
         if root.menu-open : ImportMenu {
-            phone: root.phone;
-            close => { root.close-menu(); }
+            x: Math.max(8px, Math.min(root.menu-x + 38px - 260px, root.width - 268px));
+            y: Math.min(root.menu-y + 44px, root.height - 198px);
             import-text => { root.open-import(); }
             paste => { root.paste-import(); }
             subscription => { root.add-subscription(); }
@@ -867,8 +863,14 @@ export component AppWindow inherits Window {
             save(id, name, url) => { root.save-group(id, name, url); }
         }
 
+        if root.group-menu-open : TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.close-group-menu(); }
+        }
         if root.group-menu-open : GroupActionsMenu {
-            phone: root.phone;
+            x: Math.max(8px, Math.min(root.group-menu-x + 28px - 270px, root.width - 278px));
+            y: Math.min(root.group-menu-y + 32px, root.height - 240px);
             name: root.group-menu-name;
             subscription: !root.group-menu-default;
             rename => {
@@ -895,11 +897,16 @@ export component AppWindow inherits Window {
                 root.reset-config-order(root.group-menu-id);
                 root.close-group-menu();
             }
-            close => { root.close-group-menu(); }
         }
 
+        if root.config-menu-open : TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.config-menu-open = false; }
+        }
         if root.config-menu-open : ConfigActionsMenu {
-            phone: root.phone;
+            x: Math.max(8px, Math.min(root.config-menu-x + 28px - 240px, root.width - 248px));
+            y: Math.min(root.config-menu-y + 32px, root.height - 108px);
             name: root.config-menu-name;
             rename => {
                 root.request-rename(
@@ -913,7 +920,6 @@ export component AppWindow inherits Window {
                 root.delete-config(root.config-menu-id);
                 root.config-menu-open = false;
             }
-            close => { root.config-menu-open = false; }
         }
 
         if root.rename-open : RenameDialog {

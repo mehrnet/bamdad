@@ -95,8 +95,8 @@ class MainActivity : NativeActivity() {
 
         /** Updates the foreground VPN notification with the active config and totals. */
         @JvmStatic
-        fun updateVpnNotification(profile: String, down: String, up: String) {
-            BamdadVpnService.updateStats(profile, down, up)
+        fun updateVpnNotification(profile: String, down: String, up: String, accent: String) {
+            BamdadVpnService.updateStats(profile, down, up, accent)
         }
 
         /** Resolves the current Android system theme for the appearance setting. */

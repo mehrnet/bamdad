@@ -269,22 +269,24 @@ mod android {
         });
     }
 
-    pub(super) fn update_vpn_notification(profile: &str, down: &str, up: &str) {
+    pub(super) fn update_vpn_notification(profile: &str, down: &str, up: &str, accent: &str) {
         with_activity(|env, class| {
             let method_id = env
                 .get_static_method_id(
                     class,
                     "updateVpnNotification",
-                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
                 )
                 .ok()?;
             let profile = env.new_string(profile).ok()?;
             let down = env.new_string(down).ok()?;
             let up = env.new_string(up).ok()?;
+            let accent = env.new_string(accent).ok()?;
             let args = [
                 JValue::Object(&profile).as_jni(),
                 JValue::Object(&down).as_jni(),
                 JValue::Object(&up).as_jni(),
+                JValue::Object(&accent).as_jni(),
             ];
             // SAFETY: method_id was resolved from this exact jclass.
             let _ = unsafe {

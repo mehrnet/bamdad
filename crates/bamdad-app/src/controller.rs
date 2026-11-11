@@ -25,6 +25,15 @@ static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
+static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
+
+pub(crate) fn set_active_accent(name: &str) {
+    *ACTIVE_ACCENT.lock().unwrap() = name.to_string();
+}
+
+pub(crate) fn active_accent_name() -> String {
+    ACTIVE_ACCENT.lock().unwrap().clone()
+}
 
 pub(crate) fn set_active_profile_name(name: &str) {
     *ACTIVE_PROFILE.lock().unwrap() = name.to_string();
@@ -268,7 +277,9 @@ fn apply_theme(ui: &AppWindow, mode: &str, accent: &str) {
     ui.set_theme_mode(mode.into());
     ui.set_palette_dark(dark);
     ui.set_palette_black(mode == "black");
-    ui.set_accent_mode(normalize_accent(accent).into());
+    let accent = normalize_accent(accent);
+    set_active_accent(accent);
+    ui.set_accent_mode(accent.into());
 }
 
 #[cfg(target_os = "android")]

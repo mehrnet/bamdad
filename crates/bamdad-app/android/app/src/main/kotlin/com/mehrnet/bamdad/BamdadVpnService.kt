@@ -163,6 +163,7 @@ class BamdadVpnService : VpnService() {
         val traffic = "↓ $downText   ↑ $upText"
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
+            .setColor(accentColor(activeAccent))
             .setContentTitle(title)
             .setContentText(traffic)
             .setStyle(Notification.BigTextStyle().bigText(traffic))
@@ -212,15 +213,29 @@ class BamdadVpnService : VpnService() {
         private var downText: String = "0 B"
         @Volatile
         private var upText: String = "0 B"
+        @Volatile
+        private var activeAccent: String = "cyan"
 
         /** Called from Rust with the selected profile and live traffic totals. */
-        fun updateStats(profile: String, down: String, up: String) {
+        fun updateStats(profile: String, down: String, up: String, accent: String) {
             if (profile.isNotBlank()) {
                 activeProfile = profile
             }
             downText = down
             upText = up
+            activeAccent = accent
             instance?.refreshNotification()
+        }
+
+        private fun accentColor(name: String): Int = when (name) {
+            "blue" -> 0xFF60A5FA.toInt()
+            "red" -> 0xFFF87171.toInt()
+            "green" -> 0xFF4ADE80.toInt()
+            "purple" -> 0xFFA78BFA.toInt()
+            "orange" -> 0xFFFB923C.toInt()
+            "pink" -> 0xFFF472B6.toInt()
+            "gray" -> 0xFF94A3B8.toInt()
+            else -> 0xFF38BDF8.toInt()
         }
 
         fun start(context: Context, socksPort: Int) {

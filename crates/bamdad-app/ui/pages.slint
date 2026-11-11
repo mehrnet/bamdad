@@ -24,8 +24,8 @@ export component ProfilesPage inherits Rectangle {
     callback ping(string);
     callback toggle-group(string);
     callback ping-group(string);
-    callback open-group-menu(string);
-    callback open-config-menu(string);
+    callback open-group-menu(string, length, length);
+    callback open-config-menu(string, length, length);
     callback reorder-config(string, int);
 
     width: 100%;
@@ -56,8 +56,8 @@ export component ProfilesPage inherits Rectangle {
                     compact: root.phone;
                     toggle(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
-                    open-menu(id) => { root.open-group-menu(id); }
-                    open-config-menu(id) => { root.open-config-menu(id); }
+                    open-menu(id, x, y) => { root.open-group-menu(id, x, y); }
+                    open-config-menu(id, x, y) => { root.open-config-menu(id, x, y); }
                     reorder(id, target) => { root.reorder-config(id, target); }
                     select(id) => { root.select(id); }
                     ping(id) => { root.ping(id); }
