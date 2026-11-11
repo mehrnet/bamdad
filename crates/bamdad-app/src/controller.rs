@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
@@ -24,11 +24,6 @@ static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
 static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
-static PING_LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
-
-fn ping_limit() -> &'static Arc<tokio::sync::Semaphore> {
-    PING_LIMIT.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(3)))
-}
 
 pub fn init(
     ui: &AppWindow,
@@ -1753,14 +1748,11 @@ fn begin_ping(
     let pings = pings.clone();
     let store = store.clone();
     let runtime = runtime.clone();
-    let limit = ping_limit().clone();
     runtime.spawn(async move {
-        let Ok(_permit) = limit.acquire().await else {
-            return;
-        };
         // Probe the actual protocol through a disposable core instance, the
-        // same way radar-node tests xray configs. A raw TCP handshake can be
-        // green while the credentials or transport are broken.
+        // way v2rayNG/v2rayN test configs. Every config is started at once;
+        // a raw TCP handshake can be green while the credentials or transport
+        // are broken.
         let result = tokio::task::spawn_blocking(move || {
             probe::tunnel_latency(
                 profile.core,

@@ -40,9 +40,9 @@ pub async fn tcp_latency(host: &str, port: u16, timeout: Duration) -> Result<u64
 }
 
 const PROBE_TARGETS: &[&str] = &[
+    "https://www.google.com/generate_204",
     "https://www.gstatic.com/generate_204",
     "https://cp.cloudflare.com/generate_204",
-    "https://www.youtube.com/generate_204",
 ];
 
 struct CoreProcess {
