@@ -139,7 +139,7 @@ component ImportMenu inherits Rectangle {
     callback manual();
 
     width: 260px;
-    height: 190px;
+    height: 186px;
     background: transparent;
 
     Card {
@@ -393,10 +393,11 @@ component GroupActionsMenu inherits Rectangle {
     callback refresh();
     callback delete();
     callback clear();
-    callback reset-order();
+    callback sort-latency();
+    callback original-order();
 
     width: 270px;
-    height: root.subscription ? 232px : 146px;
+    height: root.subscription ? 230px : 186px;
     background: transparent;
 
     Card {
@@ -431,9 +432,14 @@ component GroupActionsMenu inherits Rectangle {
                 clicked => { root.clear(); }
             }
             MenuItem {
+                icon: @image-url("icons/sliders.svg");
+                text: "Sort by latency";
+                clicked => { root.sort-latency(); }
+            }
+            MenuItem {
                 icon: @image-url("icons/reset.svg");
-                text: "Reset custom ordering";
-                clicked => { root.reset-order(); }
+                text: "Sort by original order";
+                clicked => { root.original-order(); }
             }
         }
     }
@@ -445,7 +451,7 @@ component ConfigActionsMenu inherits Rectangle {
     callback delete();
 
     width: 240px;
-    height: 100px;
+    height: 98px;
     background: transparent;
 
     Card {
@@ -622,6 +628,7 @@ export component AppWindow inherits Window {
     in-out property <bool> palette-dark: true;
     in-out property <bool> palette-black: false;
     in-out property <string> accent-mode: "cyan";
+    in-out property <string> launcher-accent: "";
     in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
@@ -665,6 +672,7 @@ export component AppWindow inherits Window {
     callback save-settings(string, string, bool);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
+    callback restart-app();
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
@@ -692,9 +700,9 @@ export component AppWindow inherits Window {
     callback close-group-menu();
     callback clear-group(string);
     callback reset-config-order(string);
+    callback sort-group-latency(string);
     callback open-config-menu(string);
     callback close-config-menu();
-    callback reorder-config(string, int);
     callback request-rename(string, string, string);
     callback close-rename();
     callback save-rename(string, string);
@@ -774,7 +782,6 @@ export component AppWindow inherits Window {
                         root.config-menu-y = y;
                         root.open-config-menu(id);
                     }
-                    reorder-config(id, target) => { root.reorder-config(id, target); }
                     toggle-group(id) => { root.toggle-group(id); }
                     ping-group(id) => { root.ping-group(id); }
                 }
@@ -792,6 +799,8 @@ export component AppWindow inherits Window {
                     system-proxy <=> root.system-proxy;
                     theme <=> root.theme-mode;
                     accent <=> root.accent-mode;
+                    launcher-accent: root.launcher-accent;
+                    restart-app => { root.restart-app(); }
                     save-settings(socks, http, proxy) => {
                         root.save-settings(socks, http, proxy);
                     }
@@ -893,7 +902,11 @@ export component AppWindow inherits Window {
                 root.clear-group(root.group-menu-id);
                 root.close-group-menu();
             }
-            reset-order => {
+            sort-latency => {
+                root.sort-group-latency(root.group-menu-id);
+                root.close-group-menu();
+            }
+            original-order => {
                 root.reset-config-order(root.group-menu-id);
                 root.close-group-menu();
             }

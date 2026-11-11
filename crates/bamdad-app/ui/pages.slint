@@ -26,7 +26,6 @@ export component ProfilesPage inherits Rectangle {
     callback ping-group(string);
     callback open-group-menu(string, length, length);
     callback open-config-menu(string, length, length);
-    callback reorder-config(string, int);
 
     width: 100%;
     height: 100%;
@@ -58,7 +57,6 @@ export component ProfilesPage inherits Rectangle {
                     ping-group(id) => { root.ping-group(id); }
                     open-menu(id, x, y) => { root.open-group-menu(id, x, y); }
                     open-config-menu(id, x, y) => { root.open-config-menu(id, x, y); }
-                    reorder(id, target) => { root.reorder-config(id, target); }
                     select(id) => { root.select(id); }
                     ping(id) => { root.ping(id); }
                 }
@@ -79,9 +77,11 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> system-proxy;
     in-out property <string> theme: "system";
     in-out property <string> accent: "cyan";
+    in property <string> launcher-accent: "";
     callback save-settings(string, string, bool);
     callback set-theme(string);
     callback set-accent(string);
+    callback restart-app();
     callback full-logs();
     callback clear-logs();
     callback test-proxy();
@@ -163,6 +163,32 @@ export component SettingsPage inherits Rectangle {
                         AccentSwatch { swatch: #f97316; active: root.accent == "orange"; clicked => { root.set-accent("orange"); } }
                         AccentSwatch { swatch: #ec4899; active: root.accent == "pink"; clicked => { root.set-accent("pink"); } }
                         AccentSwatch { swatch: #64748b; active: root.accent == "gray"; clicked => { root.set-accent("gray"); } }
+                    }
+                    if root.mobile && root.accent != root.launcher-accent : Rectangle {
+                        height: 56px;
+                        border-radius: Theme.radius-sm;
+                        background: Theme.surface-2;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 8px;
+                            spacing: 8px;
+                            cross-axis-alignment: center;
+                            Text {
+                                text: "Restart Bamdad to update the app icon";
+                                color: Theme.text;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                wrap: word-wrap;
+                            }
+                            SecondaryButton {
+                                width: 86px;
+                                text: "Restart";
+                                clicked => { root.restart-app(); }
+                            }
+                        }
                     }
                 }
             }

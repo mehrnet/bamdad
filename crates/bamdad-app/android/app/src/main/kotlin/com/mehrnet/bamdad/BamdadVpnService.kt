@@ -6,6 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.PorterDuff
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -161,9 +164,11 @@ class BamdadVpnService : VpnService() {
         )
         val title = activeProfile.ifBlank { "Bamdad VPN" }
         val traffic = "↓ $downText   ↑ $upText"
+        val accent = accentColor(activeAccent)
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setColor(accentColor(activeAccent))
+            .setLargeIcon(accentIcon(accent))
+            .setColor(accent)
             .setContentTitle(title)
             .setContentText(traffic)
             .setStyle(Notification.BigTextStyle().bigText(traffic))
@@ -185,6 +190,21 @@ class BamdadVpnService : VpnService() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun accentIcon(color: Int): Bitmap {
+        val density = resources.displayMetrics.density
+        val size = (48 * density).toInt().coerceAtLeast(48)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val drawable = getDrawable(R.drawable.ic_launcher)
+        if (drawable != null) {
+            drawable.setBounds(0, 0, size, size)
+            drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+            drawable.draw(canvas)
+            drawable.setColorFilter(null)
+        }
+        return bitmap
     }
 
     private fun refreshNotification() {

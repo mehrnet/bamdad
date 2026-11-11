@@ -559,19 +559,6 @@ export component HeaderButton inherits Rectangle {
     }
 }
 
-component DragHandle inherits Rectangle {
-    in property <bool> active: false;
-
-    width: 18px;
-    height: 24px;
-    background: transparent;
-
-    Rectangle { x: 4px; y: 8px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
-    Rectangle { x: 11px; y: 8px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
-    Rectangle { x: 4px; y: 14px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
-    Rectangle { x: 11px; y: 14px; width: 3px; height: 3px; border-radius: 2px; background: root.active ? Theme.accent : Theme.muted; }
-}
-
 component MenuDots inherits Rectangle {
     callback clicked();
 
@@ -600,18 +587,10 @@ export component ProfileRowView inherits Rectangle {
     callback ping(string);
     callback open-menu(string, length, length);
     callback reorder(string, int);
-    callback drag-preview(string, string, int, length, int);
-    in property <bool> source-ghost: false;
-
-    property <bool> dragging: false;
-    property <length> drag-start-y: 0;
-    property <length> drag-last-y: 0;
-
     height: Theme.row-height;
     border-radius: Theme.radius-sm;
-    background: root.dragging ? Theme.surface-3 : (row-data.selected ? Theme.surface-2 : transparent);
+    background: row-data.selected ? Theme.surface-2 : transparent;
     border-width: 0px;
-    opacity: root.source-ghost ? 0.05 : 1;
 
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -624,54 +603,6 @@ export component ProfileRowView inherits Rectangle {
         spacing: 10px;
         cross-axis-alignment: center;
 
-        Rectangle {
-            width: 24px;
-            height: Theme.row-height;
-            background: transparent;
-
-            DragHandle {
-                active: root.dragging;
-                x: 1px;
-                y: (parent.height - self.height) / 2;
-            }
-            drag-touch := TouchArea {
-                width: parent.width;
-                height: parent.height;
-                mouse-cursor: pointer;
-                moved => {
-                    if (root.dragging) {
-                        root.drag-last-y = drag-touch.mouse-y;
-                        let offset = root.drag-last-y - root.drag-start-y;
-                        let steps = Math.round(offset / (Theme.row-height + Theme.row-gap));
-                        root.drag-preview(
-                            root.row-data.id,
-                            root.row-data.name,
-                            root.index,
-                            offset,
-                            root.index + steps,
-                        );
-                    }
-                }
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.down) {
-                        root.dragging = true;
-                        root.drag-start-y = drag-touch.mouse-y;
-                        root.drag-last-y = drag-touch.mouse-y;
-                        root.drag-preview(root.row-data.id, root.row-data.name, root.index, 0px, root.index);
-                    } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
-                        if (root.dragging) {
-                            root.dragging = false;
-                            root.drag-preview(root.row-data.id, root.row-data.name, root.index, 0px, -1);
-                            let steps = Math.round((root.drag-last-y - root.drag-start-y) / (Theme.row-height + Theme.row-gap));
-                            if (steps != 0) {
-                                root.reorder(root.row-data.id, root.index + steps);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         VerticalLayout {
             horizontal-stretch: 1;
             spacing: 2px;
@@ -681,8 +612,8 @@ export component ProfileRowView inherits Rectangle {
                 clip: true;
 
                 // One text run: allow up to two wrapped lines, then elide.
-                if root.row-data.name-parts.length == 1 && !root.row-data.name-parts[0].is-emoji : Text {
-                    text: root.row-data.name-parts[0].text;
+                if (root.row-data.name-parts.length == 1 && !root.row-data.name-parts[0].is-emoji) || root.row-data.long-name : Text {
+                    text: root.row-data.plain-name;
                     x: 0px;
                     y: 0px;
                     width: parent.width;
@@ -699,7 +630,7 @@ export component ProfileRowView inherits Rectangle {
 
                 // Emoji runs need separate image parts; keep them on one line
                 // and let the surrounding rectangle clip any excess.
-                if root.row-data.name-parts.length > 1 : HorizontalLayout {
+                if root.row-data.name-parts.length > 1 && !root.row-data.long-name : HorizontalLayout {
                     width: 100%;
                     height: 100%;
                     spacing: 1px;
@@ -898,12 +829,6 @@ export component GroupCard inherits Rectangle {
     callback ping(string);
     callback reorder(string, int);
 
-    property <int> drop-index: -1;
-    property <string> drag-id: "";
-    property <string> drag-name: "";
-    property <int> drag-source: -1;
-    property <length> drag-offset: 0;
-
     height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * (Theme.row-height + Theme.row-gap) : 0px);
     border-radius: Theme.radius-sm;
     background: Theme.bg-raised;
@@ -968,73 +893,14 @@ export component GroupCard inherits Rectangle {
                 row-data: node;
                 index: index;
                 compact: root.compact;
-                source-ghost: root.drag-id == node.id && root.drag-source >= 0;
                 select(id) => { root.select(id); }
                 ping(id) => { root.ping(id); }
                 open-menu(id, x, y) => { root.open-config-menu(id, x, y); }
                 reorder(id, target) => { root.reorder(id, target); }
-                drag-preview(id, name, source, offset, target) => {
-                    if (target < 0) {
-                        root.drag-id = "";
-                        root.drag-name = "";
-                        root.drag-source = -1;
-                        root.drop-index = -1;
-                    } else {
-                        root.drag-id = id;
-                        root.drag-name = name;
-                        root.drag-source = source;
-                        root.drag-offset = offset;
-                        root.drop-index = Math.max(0, Math.min(target, root.group-data.nodes.length));
-                    }
-                }
             }
         }
     }
 
-    // Floating preview of the config's new position while dragging.
-    Rectangle {
-        visible: root.drag-source >= 0;
-        x: 8px;
-        width: parent.width - 16px;
-        height: Theme.row-height;
-        border-radius: Theme.radius-sm;
-        background: Theme.surface-2;
-        border-width: 1px;
-        border-color: Theme.accent;
-        y: 51px + root.drag-source * (Theme.row-height + Theme.row-gap) + root.drag-offset;
-
-        DragHandle {
-            active: true;
-            x: 9px;
-            y: (parent.height - self.height) / 2;
-        }
-        Text {
-            text: root.drag-name;
-            x: 34px;
-            y: 0px;
-            width: parent.width - 44px;
-            height: parent.height;
-            color: Theme.text;
-            font-size: 15px;
-            font-weight: 600;
-            vertical-alignment: center;
-            horizontal-alignment: root.group-data.rtl ? right : left;
-            wrap: word-wrap;
-            max-lines: 2;
-            overflow: elide;
-        }
-    }
-
-    // Final insertion slot.
-    Rectangle {
-        visible: root.drop-index >= 0;
-        x: 10px;
-        width: parent.width - 20px;
-        height: 3px;
-        border-radius: 2px;
-        background: Theme.accent;
-        y: 49px + root.drop-index * (Theme.row-height + Theme.row-gap);
-    }
 }
 
 

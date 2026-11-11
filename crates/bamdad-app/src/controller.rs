@@ -419,6 +419,9 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_theme_mode(store.settings.theme.clone().into());
     apply_theme(ui, &store.settings.theme, &store.settings.accent);
+    ui.set_launcher_accent(store.settings.accent.clone().into());
+    #[cfg(target_os = "android")]
+    crate::android::apply_launcher_accent(&store.settings.accent);
     let active_profile = store
         .selected_profile()
         .map(|profile| profile.name.clone())
@@ -600,13 +603,16 @@ fn node_row(
         .cloned()
         .unwrap_or_else(|| (initial_ping(profile), 0));
     let rtl = is_rtl_name(&profile.name);
-    let mut parts = name_parts(&display_name(&profile.name));
+    let plain_name = display_name(&profile.name);
+    let mut parts = name_parts(&plain_name);
     if rtl {
         parts.reverse();
     }
     ProfileRow {
         id: profile.id.as_str().into(),
         name: profile.name.as_str().into(),
+        plain_name: plain_name.as_str().into(),
+        long_name: plain_name.chars().count() > 36,
         name_parts: ModelRc::new(VecModel::from(parts)),
         detail: format!(
             "{} · {}",
@@ -1018,6 +1024,27 @@ fn setup_callbacks(
             };
             ui.set_accent_mode(accent.into());
             apply_theme(&ui, &theme, accent);
+            #[cfg(target_os = "android")]
+            crate::android::update_vpn_notification(
+                &ui.get_active_profile(),
+                &ui.get_total_down_text(),
+                &ui.get_total_up_text(),
+                accent,
+            );
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_restart_app(move || {
+            let Some(_ui) = weak.upgrade() else { return };
+            #[cfg(target_os = "android")]
+            {
+                let accent = store.lock().unwrap().settings.accent.clone();
+                crate::android::apply_launcher_accent(&accent);
+                crate::android::restart_app();
+            }
         });
     }
 
@@ -1411,6 +1438,43 @@ fn setup_callbacks(
         let weak = ui.as_weak();
         let store = store.clone();
         let pings = pings.clone();
+        ui.on_sort_group_latency(move |group_id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut guard = store.lock().unwrap();
+            let ping_map = pings.lock().unwrap();
+            let mut nodes: Vec<(usize, String)> = guard
+                .profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, profile)| profile.group_key() == group_id.as_str())
+                .map(|(index, profile)| (index, profile.id.clone()))
+                .collect();
+            nodes.sort_by_key(|(index, id)| {
+                let (rank, ms) = match ping_map.get(id) {
+                    Some((text, state)) if *state == 2 || *state == 3 => (
+                        0u8,
+                        text.strip_suffix(" ms")
+                            .and_then(|v| v.parse::<u64>().ok())
+                            .unwrap_or(u64::MAX),
+                    ),
+                    Some((_, 1)) => (1u8, u64::MAX),
+                    Some((_, 4)) => (2u8, u64::MAX),
+                    _ => (3u8, u64::MAX),
+                };
+                (rank, ms, *index)
+            });
+            let ids: Vec<String> = nodes.into_iter().map(|(_, id)| id).collect();
+            guard.group_order.insert(group_id.to_string(), ids);
+            let _ = save_store(&guard);
+            drop(ping_map);
+            ui.set_groups(group_model(&guard, &pings));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
         let logs = logs.clone();
         ui.on_reset_config_order(move |group_id| {
             let Some(ui) = weak.upgrade() else { return };
@@ -1524,19 +1588,6 @@ fn setup_callbacks(
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "config deleted".to_string());
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        let pings = pings.clone();
-        ui.on_reorder_config(move |id, target| {
-            let Some(ui) = weak.upgrade() else { return };
-            let mut guard = store.lock().unwrap();
-            reorder_group(&mut guard, id.as_str(), target);
-            let _ = save_store(&guard);
-            ui.set_groups(group_model(&guard, &pings));
         });
     }
 
@@ -1845,40 +1896,6 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
             .and_then(|url| url.host_str().map(|host| format!("Subscription · {host}")))
     });
     Ok((title, nodes))
-}
-
-fn reorder_group(store: &mut Store, id: &str, target: i32) {
-    let Some(profile) = store.profile_by_id(id) else {
-        return;
-    };
-    let group_key = profile.group_key();
-    let mut ids: Vec<String> = store
-        .profiles
-        .iter()
-        .filter(|profile| profile.group_key() == group_key)
-        .map(|profile| profile.id.clone())
-        .collect();
-    if ids.is_empty() {
-        return;
-    }
-    if let Some(order) = store.group_order.get(&group_key) {
-        let positions: HashMap<&str, usize> = order
-            .iter()
-            .enumerate()
-            .map(|(position, id)| (id.as_str(), position))
-            .collect();
-        ids.sort_by_key(|id| positions.get(id.as_str()).copied().unwrap_or(usize::MAX));
-    }
-    let Some(from) = ids.iter().position(|current| current == id) else {
-        return;
-    };
-    let target = (target.max(0) as usize).min(ids.len() - 1);
-    if from == target {
-        return;
-    }
-    let moved = ids.remove(from);
-    ids.insert(target, moved);
-    store.group_order.insert(group_key, ids);
 }
 
 fn begin_ping(
@@ -2478,38 +2495,6 @@ mod tests {
     fn folds_decorative_unicode_but_keeps_superscripts() {
         assert_eq!(display_name("🇫🇮 | 𝔽𝕀ℕ𝕃𝔸ℕ𝔻²"), "🇫🇮 | FINLAND²");
         assert_eq!(display_name("🇹🇷 | TR > 𝗧𝘂𝗻 [1]"), "🇹🇷 | TR > Tun [1]");
-    }
-
-    #[test]
-    fn reorders_and_persists_group_order() {
-        let mut first = config::default_profile();
-        first.id = "first".to_string();
-        let mut second = config::default_profile();
-        second.id = "second".to_string();
-        let mut third = config::default_profile();
-        third.id = "third".to_string();
-        let mut store = Store {
-            profiles: vec![first, second, third],
-            ..Default::default()
-        };
-        super::reorder_group(&mut store, "third", 0);
-        assert_eq!(
-            store.group_order.get("default").unwrap(),
-            &vec![
-                "third".to_string(),
-                "first".to_string(),
-                "second".to_string()
-            ]
-        );
-        super::reorder_group(&mut store, "third", 2);
-        assert_eq!(
-            store.group_order.get("default").unwrap(),
-            &vec![
-                "first".to_string(),
-                "second".to_string(),
-                "third".to_string()
-            ]
-        );
     }
 
     #[test]

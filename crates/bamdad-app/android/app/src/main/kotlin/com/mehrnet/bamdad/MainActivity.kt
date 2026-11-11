@@ -93,6 +93,48 @@ class MainActivity : NativeActivity() {
             Log.i("BamdadTunnel", line)
         }
 
+        /** Applies the launcher-icon alias for the stored accent. */
+        @JvmStatic
+        fun applyLauncherAccent(accent: String) {
+            val activity = instance ?: return
+            val aliases = mapOf(
+                "cyan" to "$packageName.LauncherCyan",
+                "blue" to "$packageName.LauncherBlue",
+                "red" to "$packageName.LauncherRed",
+                "green" to "$packageName.LauncherGreen",
+                "purple" to "$packageName.LauncherPurple",
+                "orange" to "$packageName.LauncherOrange",
+                "pink" to "$packageName.LauncherPink",
+                "gray" to "$packageName.LauncherGray",
+            )
+            val chosen = aliases[accent] ?: aliases["cyan"]!!
+            for ((_, component) in aliases) {
+                val state = if (component == chosen) {
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                } else {
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                }
+                try {
+                    activity.packageManager.setComponentEnabledSetting(
+                        android.content.ComponentName(activity.packageName, component),
+                        state,
+                        android.content.pm.PackageManager.DONT_KILL_APP,
+                    )
+                } catch (error: Throwable) {
+                    Log.w(TAG, "launcher icon update failed: ${error.message}")
+                }
+            }
+        }
+
+        /** Recreates the activity so the launcher can pick up the new icon. */
+        @JvmStatic
+        fun restartApp() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                activity.recreate()
+            }
+        }
+
         /** Updates the foreground VPN notification with the active config and totals. */
         @JvmStatic
         fun updateVpnNotification(profile: String, down: String, up: String, accent: String) {
