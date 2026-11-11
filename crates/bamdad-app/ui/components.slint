@@ -155,7 +155,7 @@ export component PrimaryButton inherits Rectangle {
     Text {
         text: root.text;
         color: root.enabled ? Theme.accent-ink : Theme.muted;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -183,7 +183,7 @@ export component SecondaryButton inherits Rectangle {
     Text {
         text: root.text;
         color: root.enabled ? Theme.text : Theme.muted;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -369,7 +369,7 @@ export component TotalsBadge inherits Rectangle {
         Text {
             text: root.down;
             color: Theme.text-2;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
             overflow: elide;
@@ -385,7 +385,7 @@ export component TotalsBadge inherits Rectangle {
         Text {
             text: root.up;
             color: Theme.text-2;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
             overflow: elide;
@@ -467,7 +467,7 @@ export component PingButton inherits Rectangle {
             : state == 3 ? Theme.warn
             : state == 4 ? Theme.danger
             : Theme.text-2;
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -636,7 +636,7 @@ export component ProfileRowView inherits Rectangle {
                     text: root.row-data.name-parts[0].text;
                     width: 100%;
                     color: root.row-data.selected ? Theme.text : Theme.text-2;
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: 600;
                     vertical-alignment: center;
                     horizontal-alignment: root.row-data.rtl ? right : left;
@@ -662,7 +662,7 @@ export component ProfileRowView inherits Rectangle {
                         if !part.is-emoji : Text {
                             text: part.text;
                             color: root.row-data.selected ? Theme.text : Theme.text-2;
-                            font-size: 14px;
+                            font-size: 15px;
                             font-weight: 600;
                         }
                     }
@@ -671,7 +671,7 @@ export component ProfileRowView inherits Rectangle {
             Text {
                 text: root.row-data.detail;
                 color: Theme.muted;
-                font-size: 11px;
+                font-size: 12px;
                 overflow: elide;
             }
         }
@@ -752,7 +752,7 @@ export component LocationChip inherits Rectangle {
         Text {
             text: root.location;
             color: Theme.text-2;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
             overflow: elide;
@@ -761,7 +761,7 @@ export component LocationChip inherits Rectangle {
         Text {
             text: root.revealed ? root.ip : "••••••";
             color: Theme.text;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             font-family: "monospace";
             vertical-alignment: center;
@@ -869,7 +869,7 @@ export component GroupCard inherits Rectangle {
             Text {
                 text: root.group-data.name;
                 color: Theme.text;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: 700;
                 vertical-alignment: center;
                 overflow: elide;
@@ -936,7 +936,7 @@ export component TransferRow inherits Rectangle {
                 Text {
                     text: root.down;
                     color: Theme.text;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
@@ -960,7 +960,7 @@ export component TransferRow inherits Rectangle {
                 Text {
                     text: root.up;
                     color: Theme.text;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
@@ -1026,7 +1026,7 @@ export component IpRow inherits Rectangle {
                 if root.ipv4 != "" : Text {
                     text: root.revealed ? root.ipv4 : root.ipv4-mask;
                     color: Theme.text;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
@@ -1034,13 +1034,13 @@ export component IpRow inherits Rectangle {
                 if root.ipv4 != "" && root.ipv6 != "" : Text {
                     text: ",";
                     color: Theme.muted;
-                    font-size: 11px;
+                    font-size: 12px;
                     vertical-alignment: center;
                 }
                 if root.ipv6 != "" : Text {
                     text: root.revealed ? root.ipv6 : root.ipv6-mask;
                     color: Theme.text;
-                    font-size: 11px;
+                    font-size: 12px;
                     font-family: "monospace";
                     font-weight: 600;
                     vertical-alignment: center;
