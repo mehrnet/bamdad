@@ -563,7 +563,8 @@ export component ProfileRowView inherits Rectangle {
     callback ping(string);
     callback open-menu(string);
     callback reorder(string, int);
-    callback drag-preview(string, int);
+    callback drag-preview(string, string, int, length, int);
+    in property <bool> source-ghost: false;
 
     property <bool> dragging: false;
     property <length> drag-start-y: 0;
@@ -573,6 +574,7 @@ export component ProfileRowView inherits Rectangle {
     border-radius: Theme.radius-sm;
     background: root.dragging ? Theme.surface-3 : (row-data.selected ? Theme.surface-2 : transparent);
     border-width: 0px;
+    opacity: root.source-ghost ? 0.05 : 1;
 
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -602,8 +604,15 @@ export component ProfileRowView inherits Rectangle {
                 moved => {
                     if (root.dragging) {
                         root.drag-last-y = drag-touch.mouse-y;
-                        let steps = Math.round((root.drag-last-y - root.drag-start-y) / 32px);
-                        root.drag-preview(root.row-data.id, root.index + steps);
+                        let offset = root.drag-last-y - root.drag-start-y;
+                        let steps = Math.round(offset / 62px);
+                        root.drag-preview(
+                            root.row-data.id,
+                            root.row-data.name,
+                            root.index,
+                            offset,
+                            root.index + steps,
+                        );
                     }
                 }
                 pointer-event(event) => {
@@ -611,12 +620,12 @@ export component ProfileRowView inherits Rectangle {
                         root.dragging = true;
                         root.drag-start-y = drag-touch.mouse-y;
                         root.drag-last-y = drag-touch.mouse-y;
-                        root.drag-preview(root.row-data.id, root.index);
+                        root.drag-preview(root.row-data.id, root.row-data.name, root.index, 0px, root.index);
                     } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                         if (root.dragging) {
                             root.dragging = false;
-                            root.drag-preview(root.row-data.id, -1);
-                            let steps = Math.round((root.drag-last-y - root.drag-start-y) / 32px);
+                            root.drag-preview(root.row-data.id, root.row-data.name, root.index, 0px, -1);
+                            let steps = Math.round((root.drag-last-y - root.drag-start-y) / 62px);
                             if (steps != 0) {
                                 root.reorder(root.row-data.id, root.index + steps);
                             }
@@ -843,6 +852,10 @@ export component GroupCard inherits Rectangle {
     callback reorder(string, int);
 
     property <int> drop-index: -1;
+    property <string> drag-id: "";
+    property <string> drag-name: "";
+    property <int> drag-source: -1;
+    property <length> drag-offset: 0;
 
     height: 58px + (root.group-data.expanded ? root.group-data.nodes.length * 62px : 0px);
     border-radius: Theme.radius-sm;
@@ -902,17 +915,62 @@ export component GroupCard inherits Rectangle {
                 row-data: node;
                 index: index;
                 compact: root.compact;
+                source-ghost: root.drag-id == node.id && root.drag-source >= 0;
                 select(id) => { root.select(id); }
                 ping(id) => { root.ping(id); }
                 open-menu(id) => { root.open-config-menu(id); }
                 reorder(id, target) => { root.reorder(id, target); }
-                drag-preview(id, target) => {
-                    root.drop-index = target < 0 ? -1 : Math.min(target, root.group-data.nodes.length);
+                drag-preview(id, name, source, offset, target) => {
+                    if (target < 0) {
+                        root.drag-id = "";
+                        root.drag-name = "";
+                        root.drag-source = -1;
+                        root.drop-index = -1;
+                    } else {
+                        root.drag-id = id;
+                        root.drag-name = name;
+                        root.drag-source = source;
+                        root.drag-offset = offset;
+                        root.drop-index = Math.max(0, Math.min(target, root.group-data.nodes.length));
+                    }
                 }
             }
         }
     }
 
+    // Floating preview of the config's new position while dragging.
+    Rectangle {
+        visible: root.drag-source >= 0;
+        x: 8px;
+        width: parent.width - 16px;
+        height: 56px;
+        border-radius: Theme.radius-sm;
+        background: Theme.surface-2;
+        border-width: 1px;
+        border-color: Theme.accent;
+        y: 51px + root.drag-source * 62px + root.drag-offset;
+
+        DragHandle {
+            active: true;
+            x: 9px;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: root.drag-name;
+            x: 34px;
+            y: 0px;
+            width: parent.width - 44px;
+            height: parent.height;
+            color: Theme.text;
+            font-size: 15px;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: root.group-data.rtl ? right : left;
+            overflow: elide;
+        }
+    }
+
+    // Final insertion slot.
     Rectangle {
         visible: root.drop-index >= 0;
         x: 10px;

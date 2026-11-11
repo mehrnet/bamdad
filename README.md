@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.1.34
-git push origin v0.1.34
+git tag v0.3.5
+git push origin v0.3.5
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -321,3 +321,16 @@ for VPN consent on first use. Desktop keeps the system-proxy path.
 Bamdad is MPL-2.0. Cores are shipped as separate executables: Xray-core is
 MPL-2.0 and sing-box is GPL-3.0. Include each core's license and the
 `geoip.dat`/`geosite.dat` notices in release artifacts.
+
+## Versioning
+
+Bamdad uses an odometer-style version: `major.minor.patch`, where `patch` is a
+single digit and rolls over into `minor`:
+
+```
+0.3.8 -> 0.3.9 -> 0.4.0
+```
+
+There is no standard SemVer name for this; it is a base-10 (odometer) carry
+scheme. Use `scripts/bump-version.sh` to advance it. The next release is
+`v0.3.5`.
