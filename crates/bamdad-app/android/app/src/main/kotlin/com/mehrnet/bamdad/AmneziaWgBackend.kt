@@ -49,7 +49,8 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
         withContext(Dispatchers.IO) {
             state = Tunnel.State.DOWN
             publish()
-            val parsed = Config.parse(BufferedReader(StringReader(profile.config)))
+            val clean = profile.config.trimStart { it.isWhitespace() || it == '\uFEFF' || it == '\u200B' }
+            val parsed = Config.parse(BufferedReader(StringReader(clean)))
             config = parsed
             backend.setState(tunnel, Tunnel.State.UP, parsed)
         }

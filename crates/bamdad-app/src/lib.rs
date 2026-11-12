@@ -219,6 +219,11 @@ mod android {
                 sig: "(Ljava/lang/String;)V".into(),
                 fn_ptr: native_event as *mut c_void,
             },
+            NativeMethod {
+                name: "nativeImportConfigs".into(),
+                sig: "(Ljava/lang/String;Ljava/lang/String;)V".into(),
+                fn_ptr: native_import as *mut c_void,
+            },
         ];
         if let Err(error) = env.register_native_methods(class, &methods) {
             eprintln!("bamdad: could not register tunnel natives: {error}");
@@ -353,6 +358,10 @@ mod android {
 
     pub(super) fn stop_native_tunnel() {
         android_ping_call("stopNativeTunnel");
+    }
+
+    pub(super) fn open_import_file() {
+        android_ping_call("openImportFile");
     }
 
     pub(super) fn read_clipboard() -> String {
@@ -491,6 +500,14 @@ pub fn stop_native_tunnel() {
 
 #[cfg(not(target_os = "android"))]
 pub fn stop_native_tunnel() {}
+
+#[cfg(target_os = "android")]
+pub fn open_import_file() {
+    android::open_import_file();
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn open_import_file() {}
 
 #[cfg(target_os = "android")]
 pub fn start_android_vpn(port: u16) {

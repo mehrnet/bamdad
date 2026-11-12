@@ -34,6 +34,10 @@ class MainActivity : NativeActivity() {
             } else {
                 Log.w(TAG, "VPN consent denied")
             }
+        } else if (requestCode == IMPORT_FILE_REQUEST) {
+            if (resultCode == RESULT_OK) {
+                data?.data?.let { FileImporter.handle(this, it) }
+            }
         } else if (requestCode == VPN_REQUEST_NATIVE) {
             val json = pendingNativeTunnel
             pendingNativeTunnel = null
@@ -54,6 +58,7 @@ class MainActivity : NativeActivity() {
         private const val VPN_REQUEST = 1001
         private const val NOTIFICATION_REQUEST = 1002
         private const val VPN_REQUEST_NATIVE = 1003
+        const val IMPORT_FILE_REQUEST = 1004
 
         @Volatile
         private var instance: MainActivity? = null
@@ -67,6 +72,10 @@ class MainActivity : NativeActivity() {
         /** Registered by Rust; forwards native backend state into the session. */
         @JvmStatic
         external fun nativeTunnelEvent(json: String)
+
+        /** Registered by Rust; imports one or more config bodies. */
+        @JvmStatic
+        external fun nativeImportConfigs(group: String, filesJson: String)
 
         @JvmStatic
         fun nativeLibraryDir(): String =
@@ -124,6 +133,14 @@ class MainActivity : NativeActivity() {
                     startNativeTunnelService(activity, json)
                 }
             }, 500)
+        }
+
+        @JvmStatic
+        fun openImportFile() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                FileImporter.pick(activity)
+            }
         }
 
         @JvmStatic

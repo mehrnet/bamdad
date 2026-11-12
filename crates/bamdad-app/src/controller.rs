@@ -28,6 +28,161 @@ static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
 
+struct ImportContext {
+    ui: Weak<AppWindow>,
+    store: Arc<Mutex<Store>>,
+    pings: PingState,
+    logs: LogBuffer,
+}
+
+static IMPORT_CONTEXT: Mutex<Option<ImportContext>> = Mutex::new(None);
+
+fn set_import_context(
+    ui: Weak<AppWindow>,
+    store: Arc<Mutex<Store>>,
+    pings: PingState,
+    logs: LogBuffer,
+) {
+    if let Ok(mut slot) = IMPORT_CONTEXT.lock() {
+        *slot = Some(ImportContext {
+            ui,
+            store,
+            pings,
+            logs,
+        });
+    }
+}
+
+/// Import one or more config bodies from the Android file/ZIP picker.
+/// Returns the number of profiles added.
+pub(crate) fn import_native_files(group: &str, files_json: &str) -> usize {
+    let Ok(files) = serde_json::from_str::<Vec<serde_json::Value>>(files_json) else {
+        return 0;
+    };
+    let Some(context) = IMPORT_CONTEXT.lock().ok().and_then(|slot| {
+        slot.as_ref().map(|context| ImportContext {
+            ui: context.ui.clone(),
+            store: context.store.clone(),
+            pings: context.pings.clone(),
+            logs: context.logs.clone(),
+        })
+    }) else {
+        return 0;
+    };
+
+    let mut added = Vec::new();
+    for file in files {
+        let name = file
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("imported");
+        let text = file
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        for mut profile in profiles_from_text(name, text) {
+            if !group.trim().is_empty() {
+                profile.group_id = Some(format!("import:{}", group.trim()));
+                profile.group_name = Some(group.trim().to_string());
+            }
+            added.push(profile);
+        }
+    }
+
+    let count = added.len();
+    if count == 0 {
+        if let Some(ui) = context.ui.upgrade() {
+            push_log(
+                &ui,
+                &context.logs,
+                "import found no supported configs".to_string(),
+            );
+            ui.set_status_text("Import failed".into());
+        }
+        return 0;
+    }
+
+    {
+        let mut store = context.store.lock().unwrap();
+        for profile in added {
+            store.add_profile(profile);
+        }
+        let _ = save_store(&store);
+    }
+
+    if let Some(ui) = context.ui.upgrade() {
+        let store = context.store.lock().unwrap();
+        ui.set_groups(group_model(&store, &context.pings));
+        ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
+        drop(store);
+        let suffix = if group.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" from {}", group.trim())
+        };
+        push_log(
+            &ui,
+            &context.logs,
+            format!(
+                "imported {count} config{}{suffix}",
+                if count == 1 { "" } else { "s" }
+            ),
+        );
+        ui.set_status_text("Imported".into());
+    }
+    count
+}
+
+fn profiles_from_text(name: &str, text: &str) -> Vec<config::Profile> {
+    if let Some(profile) = bamdad_core::native::profile_from_config(Some(name), text) {
+        return vec![profile];
+    }
+
+    let trimmed = text.trim();
+    if trimmed.starts_with('{') {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if value.is_object()
+                && (value.get("outbounds").is_some_and(|v| v.is_array())
+                    || value.get("endpoints").is_some_and(|v| v.is_array()))
+            {
+                let core = if value.get("endpoints").is_some() {
+                    CoreKind::SingBox
+                } else {
+                    detect_json_core(&value)
+                };
+                return vec![config::Profile {
+                    id: config::new_id(),
+                    name: name.to_string(),
+                    core,
+                    transport: bamdad_core::Transport::Proxy,
+                    protocol: "custom".to_string(),
+                    address: String::new(),
+                    port: 0,
+                    config: value,
+                    raw_config: None,
+                    source: None,
+                    group_id: None,
+                    group_name: None,
+                    group_url: None,
+                }];
+            }
+        }
+        return Vec::new();
+    }
+
+    let mut profiles = Vec::new();
+    for line in trimmed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if let Ok(spec) = link::parse(Some(name), line) {
+            profiles.push(config::Profile::from_spec(&spec, CoreKind::Xray));
+        }
+    }
+    profiles
+}
+
 pub(crate) fn set_active_accent(name: &str) {
     *ACTIVE_ACCENT.lock().unwrap() = name.to_string();
 }
@@ -54,6 +209,7 @@ pub fn init(
     let logs: LogBuffer = Arc::new(Mutex::new(Vec::new()));
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
+    set_import_context(ui.as_weak(), store.clone(), pings.clone(), logs.clone());
     seed(ui, &store, &pings);
     prefetch_dns(&store, &runtime);
     setup_callbacks(
@@ -122,6 +278,7 @@ pub(crate) fn init_attached(
     let store = Arc::new(Mutex::new(load_store()));
     let pings: PingState = Arc::new(Mutex::new(HashMap::new()));
 
+    set_import_context(ui.as_weak(), store.clone(), pings.clone(), logs.clone());
     seed(ui, &store, &pings);
     prefetch_dns(&store, &runtime);
     seed_last_network(ui);
@@ -766,6 +923,22 @@ fn protocol_label(protocol: &str) -> String {
     .to_string()
 }
 
+fn detect_json_core(config: &serde_json::Value) -> CoreKind {
+    let looks_singbox = config
+        .get("outbounds")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|outbounds| {
+            outbounds
+                .iter()
+                .any(|outbound| outbound.get("type").is_some())
+        });
+    if looks_singbox {
+        CoreKind::SingBox
+    } else {
+        CoreKind::Xray
+    }
+}
+
 fn setup_callbacks(
     ui: &AppWindow,
     engine: EngineHandle,
@@ -835,14 +1008,8 @@ fn setup_callbacks(
         let store = store.clone();
         let pings = pings.clone();
         let logs = logs.clone();
-        ui.on_import_link(move |raw, core_choice| {
+        ui.on_import_link(move |raw| {
             let Some(ui) = weak.upgrade() else { return };
-            let core = if core_choice == 1 {
-                CoreKind::SingBox
-            } else {
-                CoreKind::Xray
-            };
-
             let trimmed = raw.trim();
             if let Some(profile) = bamdad_core::native::profile_from_config(None, trimmed) {
                 let name = profile.name.clone();
@@ -869,6 +1036,7 @@ fn setup_callbacks(
                                 .get("outbounds")
                                 .is_some_and(|value| value.is_array()) =>
                     {
+                        let core = detect_json_core(&config);
                         let name = format!("Custom · {}", core.label());
                         let profile = config::Profile {
                             id: config::new_id(),
@@ -914,7 +1082,9 @@ fn setup_callbacks(
 
             match link::parse(None, raw.as_str()) {
                 Ok(spec) => {
-                    let mut core = core;
+                    // Links are core-agnostic; use Xray by default and keep
+                    // XHTTP on Xray. JSON imports are detected from their shape.
+                    let mut core = CoreKind::Xray;
                     // sing-box has no XHTTP transport; emitting its config would
                     // produce a silent upload-only connection.
                     if matches!(spec.network.as_str(), "xhttp" | "splithttp")
@@ -947,6 +1117,15 @@ fn setup_callbacks(
                     ui.set_status_text("Import failed".into());
                 }
             }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_file_import(move || {
+            let Some(_ui) = weak.upgrade() else { return };
+            #[cfg(target_os = "android")]
+            crate::open_import_file();
         });
     }
 

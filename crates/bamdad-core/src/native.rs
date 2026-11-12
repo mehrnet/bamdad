@@ -17,7 +17,9 @@ pub struct NativeConfig {
 
 /// Detect whether `text` is a WireGuard/AmneziaWG config.
 pub fn detect(text: &str) -> Option<NativeConfig> {
-    let trimmed = text.trim_start();
+    let trimmed = text
+        .trim_start_matches(['\u{feff}', '\u{200b}'])
+        .trim_start();
     if !trimmed.starts_with("[Interface]") {
         return None;
     }

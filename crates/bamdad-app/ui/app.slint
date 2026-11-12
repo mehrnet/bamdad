@@ -181,9 +181,9 @@ component ImportMenu inherits Rectangle {
 component ImportDialog inherits Rectangle {
     in property <bool> phone;
     in-out property <string> link-input;
-    in-out property <int> core-choice;
     callback close();
-    callback import(string, int);
+    callback import(string);
+    callback file-import();
 
     width: 100%;
     height: 100%;
@@ -222,17 +222,10 @@ component ImportDialog inherits Rectangle {
             HorizontalLayout {
                 spacing: 7px;
                 cross-axis-alignment: center;
-                ChoicePill {
-                    width: 60px;
-                    text: "Xray";
-                    active: root.core-choice == 0;
-                    clicked => { root.core-choice = 0; }
-                }
-                ChoicePill {
-                    width: 80px;
-                    text: "sing-box";
-                    active: root.core-choice == 1;
-                    clicked => { root.core-choice = 1; }
+                SecondaryButton {
+                    width: 110px;
+                    text: "From file";
+                    clicked => { root.file-import(); }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 SecondaryButton {
@@ -245,7 +238,7 @@ component ImportDialog inherits Rectangle {
                     text: "Import";
                     enabled: root.link-input != "";
                     clicked => {
-                        root.import(root.link-input, root.core-choice);
+                        root.import(root.link-input);
                         root.link-input = "";
                     }
                 }
@@ -630,7 +623,6 @@ export component AppWindow inherits Window {
     in-out property <string> singbox-version: "not installed";
     in-out property <string> data-dir: "";
     in-out property <int> page: 0;
-    in-out property <int> core-choice: 0;
     in-out property <[GroupRow]> groups;
     in-out property <string> selected-id: "";
     in-out property <[string]> logs;
@@ -664,7 +656,8 @@ export component AppWindow inherits Window {
 
     callback toggle-connect();
     callback select-profile(string);
-    callback import-link(string, int);
+    callback import-link(string);
+    callback file-import();
     callback save-settings(string, string, bool);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
@@ -841,10 +834,13 @@ export component AppWindow inherits Window {
         if root.import-open : ImportDialog {
             phone: root.phone;
             link-input <=> root.link-input;
-            core-choice <=> root.core-choice;
             close => { root.close-import(); }
-            import(link, core) => {
-                root.import-link(link, core);
+            import(link) => {
+                root.import-link(link);
+                root.import-open = false;
+            }
+            file-import => {
+                root.file-import();
                 root.import-open = false;
             }
         }
