@@ -29,7 +29,7 @@ android {
         all {
             externalNativeBuild {
                 cmake {
-                    targets("libwg-go.so", "libwg.so", "libwg-quick.so")
+                    targets("libbamdad_awg_go.so")
                     arguments(
                         "-DGRADLE_USER_HOME=${project.gradle.gradleUserHomeDir}",
                         "-DANDROID_PACKAGE_NAME=com.mehrnet.bamdad",
@@ -56,6 +56,22 @@ android {
             java.setSrcDirs(listOf(amneziaJava))
             manifest.srcFile("../vendor/amneziawg-android/tunnel/src/main/AndroidManifest.xml")
         }
+    }
+
+    val patchAwgLibraryName = tasks.register("patchAwgLibraryName") {
+        doLast {
+            val tunnelDir = file("../vendor/amneziawg-android/tunnel/tools")
+            val makefile = File(tunnelDir, "libwg-go/Makefile")
+            val cmake = File(tunnelDir, "CMakeLists.txt")
+            makefile.writeText(makefile.readText().replace("libwg-go.so", "libbamdad_awg_go.so"))
+            cmake.writeText(cmake.readText().replace("libwg-go.so", "libbamdad_awg_go.so"))
+        }
+    }
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(patchAwgLibraryName)
+    }
+    tasks.matching { it.name.startsWith("configureCMake") }.configureEach {
+        dependsOn(patchAwgLibraryName)
     }
 
     lint {
