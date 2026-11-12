@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.Sync
+
 plugins {
     id("com.android.library")
 }
@@ -37,9 +39,21 @@ android {
         }
     }
 
+    val amneziaJava = layout.buildDirectory.dir("generated/amneziaJava")
+    val syncAmneziaJava = tasks.register<Sync>("syncAmneziaJava") {
+        from("../vendor/amneziawg-android/tunnel/src/main/java") {
+            exclude("org/amnezia/awg/backend/GoBackend.java")
+        }
+        from("src/main/java")
+        into(amneziaJava)
+    }
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(syncAmneziaJava)
+    }
+
     sourceSets {
         getByName("main") {
-            java.srcDirs("../vendor/amneziawg-android/tunnel/src/main/java")
+            java.srcDirs(amneziaJava)
             manifest.srcFile("../vendor/amneziawg-android/tunnel/src/main/AndroidManifest.xml")
         }
     }
