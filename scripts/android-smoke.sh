@@ -9,10 +9,21 @@ mkdir -p "$OUT"
 
 APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
 test -f "$APK"
+launch_app() {
+    local component
+    component=$(adb shell cmd package resolve-activity --brief \
+        -a android.intent.action.MAIN \
+        -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null \
+        | tr -d '\r' | tail -1)
+    test -n "$component"
+    echo "launching $component"
+    adb shell am start -W -n "$component"
+}
+
 adb install -r "$APK"
 # Create the app data directory, then seed two local test nodes so the smoke
 # can verify mid-connection core switching.
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null 2>&1 || true
+launch_app >/dev/null 2>&1 || true
 sleep 3
 adb shell am force-stop com.mehrnet.bamdad || true
 DATA_DIR=/data/user/0/com.mehrnet.bamdad/files
@@ -23,9 +34,19 @@ adb shell settings put global hide_error_dialogs 1 || true
 adb shell settings put global anr_show_background 0 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
 adb logcat -c
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity
+launch_app
 sleep 8
 adb exec-out screencap -p > "$OUT/before.png"
+
+echo '--- launcher alias ---'
+LAUNCHER=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null | tr -d '\r' | tail -1)
+echo "resolved launcher: $LAUNCHER"
+case "$LAUNCHER" in
+    *LauncherPink*) echo 'launcher-alias-ok' ;;
+    *) echo 'launcher-alias-wrong'; adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true; exit 1 ;;
+esac
+test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
+echo 'main-activity-alive-after-alias-switch'
 
 SIZE=$(adb shell wm size | tr -d '\r' | awk -F' ' '{print $NF}')
 W=$(echo "$SIZE" | cut -dx -f1)
@@ -170,7 +191,7 @@ if ! adb shell dumpsys activity services com.mehrnet.bamdad | grep -q 'BamdadVpn
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     exit 1
 fi
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null
+launch_app >/dev/null
 sleep 6
 adb exec-out screencap -p > "$OUT/reopened.png"
 if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then

@@ -419,6 +419,8 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_theme_mode(store.settings.theme.clone().into());
     apply_theme(ui, &store.settings.theme, &store.settings.accent);
+    #[cfg(target_os = "android")]
+    crate::android::apply_launcher_accent(&store.settings.accent);
     let active_profile = store
         .selected_profile()
         .map(|profile| profile.name.clone())
@@ -1021,6 +1023,8 @@ fn setup_callbacks(
             };
             ui.set_accent_mode(accent.into());
             apply_theme(&ui, &theme, accent);
+            #[cfg(target_os = "android")]
+            crate::android::apply_launcher_accent(accent);
             #[cfg(target_os = "android")]
             crate::android::update_vpn_notification(
                 &ui.get_active_profile(),
