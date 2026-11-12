@@ -68,3 +68,9 @@ executables; include their licenses and data notices in release artifacts.
 - Project: https://github.com/schwabe/ics-openvpn
 - License: GPL-2.0-only with additional terms
 - OpenVPN integration is pending a GPL-3.0-compatible licensing decision.
+
+## zip4j
+
+- Project: https://github.com/srikanth-lingala/zip4j
+- License: Apache-2.0
+- Used by the Android file/ZIP importer for password-protected archives.
