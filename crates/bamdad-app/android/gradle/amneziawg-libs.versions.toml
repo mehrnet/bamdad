@@ -1,0 +1,11 @@
+[versions]
+agp = "8.10.1"
+
+[libraries]
+androidx-annotation = "androidx.annotation:annotation:1.7.1"
+androidx-collection = "androidx.collection:collection:1.4.0"
+jsr305 = "com.google.code.findbugs:jsr305:3.0.2"
+junit = "junit:junit:4.13.2"
+
+[plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }

@@ -166,6 +166,41 @@ mod android {
             tunnel::stop();
         }
 
+        extern "system" fn native_event(mut env: jni::JNIEnv, _class: JClass, json: JString) {
+            let Ok(text) = env.get_string(&json) else {
+                return;
+            };
+            let text: String = text.into();
+            let Ok(status) = serde_json::from_str::<bamdad_core::TunnelStatus>(&text) else {
+                eprintln!("bamdad: invalid native tunnel event: {text}");
+                return;
+            };
+            use bamdad_core::TunnelState;
+            let state = match status.state {
+                TunnelState::Down => EngineEvent::State(bamdad_core::EngineState::Stopped),
+                TunnelState::Connecting => EngineEvent::State(bamdad_core::EngineState::Starting),
+                TunnelState::Up => EngineEvent::State(bamdad_core::EngineState::Running),
+                TunnelState::Disconnecting => {
+                    EngineEvent::State(bamdad_core::EngineState::Stopping)
+                }
+                TunnelState::Error => EngineEvent::State(bamdad_core::EngineState::Error(
+                    status
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "native tunnel failed".into()),
+                )),
+            };
+            tunnel::emit_event(state);
+            if status.rx_bytes > 0 || status.tx_bytes > 0 {
+                tunnel::emit_event(EngineEvent::Traffic {
+                    up_bps: 0,
+                    down_bps: 0,
+                    total_up: status.tx_bytes,
+                    total_down: status.rx_bytes,
+                });
+            }
+        }
+
         let methods = [
             NativeMethod {
                 name: "startTunnelNative".into(),
@@ -176,6 +211,11 @@ mod android {
                 name: "stopTunnelNative".into(),
                 sig: "()V".into(),
                 fn_ptr: stop as *mut c_void,
+            },
+            NativeMethod {
+                name: "nativeTunnelEvent".into(),
+                sig: "(Ljava/lang/String;)V".into(),
+                fn_ptr: native_event as *mut c_void,
             },
         ];
         if let Err(error) = env.register_native_methods(class, &methods) {
@@ -305,6 +345,14 @@ mod android {
         string_activity_call("applyLauncherAccent", accent);
     }
 
+    pub(super) fn start_native_tunnel(json: &str) {
+        string_activity_call("startNativeTunnel", json);
+    }
+
+    pub(super) fn stop_native_tunnel() {
+        android_ping_call("stopNativeTunnel");
+    }
+
     pub(super) fn read_clipboard() -> String {
         android_string_call("readClipboard").unwrap_or_default()
     }
@@ -425,6 +473,22 @@ pub fn share_logs(text: &str) {
     let path = bamdad_core::paths::data_dir().join("bamdad-logs.txt");
     let _ = std::fs::write(path, text);
 }
+
+#[cfg(target_os = "android")]
+pub fn start_native_tunnel(json: &str) {
+    android::start_native_tunnel(json);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn start_native_tunnel(_json: &str) {}
+
+#[cfg(target_os = "android")]
+pub fn stop_native_tunnel() {
+    android::stop_native_tunnel();
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn stop_native_tunnel() {}
 
 #[cfg(target_os = "android")]
 pub fn start_android_vpn(port: u16) {

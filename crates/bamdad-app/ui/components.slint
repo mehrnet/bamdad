@@ -322,6 +322,44 @@ export component TextField inherits Rectangle {
     }
 }
 
+export component TextArea inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder: "";
+    in property <bool> read-only: false;
+    callback edited();
+
+    height: 168px;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.bg;
+
+    input := TextInput {
+        x: 11px;
+        y: 8px;
+        width: parent.width - 22px;
+        height: parent.height - 16px;
+        text <=> root.text;
+        read-only: root.read-only;
+        single-line: false;
+        wrap: word-wrap;
+        color: Theme.text;
+        font-size: Theme.font-ui;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.accent-ink;
+        edited => { root.edited(); }
+    }
+    if root.text == "" && !root.read-only : Text {
+        x: 11px;
+        y: 8px;
+        width: parent.width - 22px;
+        text: root.placeholder;
+        color: Theme.muted;
+        font-size: Theme.font-ui;
+        wrap: word-wrap;
+    }
+}
+
 export component Switch inherits Rectangle {
     in-out property <bool> checked: false;
     callback toggled();

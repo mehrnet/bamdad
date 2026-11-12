@@ -11,6 +11,7 @@ use crate::error::Result;
 use crate::kind::CoreKind;
 use crate::link::{self, ProxySpec};
 use crate::paths;
+use crate::transport::{Transport, TunnelProfile};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -73,14 +74,21 @@ pub struct Profile {
     pub name: String,
     #[serde(default)]
     pub core: CoreKind,
+    #[serde(default)]
+    pub transport: Transport,
     #[serde(default = "custom_protocol")]
     pub protocol: String,
     #[serde(default)]
     pub address: String,
     #[serde(default)]
     pub port: u16,
-    /// A complete native configuration for `core`.
+    /// A complete native configuration for `core`. Native transports use
+    /// `raw_config` instead.
+    #[serde(default)]
     pub config: Value,
+    /// Original `.conf` / `.ovpn` / `.sswan` body for native transports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_config: Option<String>,
     /// Original share link, if imported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -101,14 +109,52 @@ impl Profile {
             id: new_id(),
             name: spec.name.clone(),
             core,
+            transport: Transport::Proxy,
             protocol: spec.protocol.as_str().to_string(),
             address: spec.address.clone(),
             port: spec.port,
             config: config_from_spec(core, spec),
+            raw_config: None,
             source: Some(spec.source.clone()),
             group_id: None,
             group_name: None,
             group_url: None,
+        }
+    }
+
+    pub fn is_proxy(&self) -> bool {
+        self.transport.is_proxy()
+    }
+
+    pub fn tunnel_profile(&self) -> Option<TunnelProfile> {
+        if self.is_proxy() {
+            return None;
+        }
+        Some(TunnelProfile {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            transport: self.transport,
+            config: self.raw_config.clone().unwrap_or_default(),
+            dns: Vec::new(),
+            allowed_apps: Vec::new(),
+            excluded_apps: Vec::new(),
+            bypass_cidrs: Vec::new(),
+            mtu: None,
+            accent: "cyan".to_string(),
+        })
+    }
+
+    pub fn transport_label(&self) -> &'static str {
+        if self.is_proxy() {
+            self.core.label()
+        } else {
+            match self.transport {
+                Transport::WireGuard => "WireGuard",
+                Transport::AmneziaWg => "AmneziaWG",
+                Transport::IpSec => "IPSec",
+                Transport::OpenVpn => "OpenVPN",
+                Transport::Proxy => self.core.label(),
+            }
         }
     }
 
@@ -213,20 +259,22 @@ impl Store {
             // Link-based profiles are generated artifacts: re-render them so
             // transport/config fixes (for example XHTTP settings) reach users
             // without requiring a re-import.
-            if let Some(source) = profile.source.clone() {
-                if !source.trim().is_empty() {
-                    if let Ok(spec) = crate::link::parse(Some(&profile.name), &source) {
-                        let mut core = profile.core;
-                        if matches!(spec.network.as_str(), "xhttp" | "splithttp")
-                            && core == CoreKind::SingBox
-                        {
-                            core = CoreKind::Xray;
+            if profile.is_proxy() {
+                if let Some(source) = profile.source.clone() {
+                    if !source.trim().is_empty() {
+                        if let Ok(spec) = crate::link::parse(Some(&profile.name), &source) {
+                            let mut core = profile.core;
+                            if matches!(spec.network.as_str(), "xhttp" | "splithttp")
+                                && core == CoreKind::SingBox
+                            {
+                                core = CoreKind::Xray;
+                            }
+                            profile.core = core;
+                            profile.protocol = spec.protocol.as_str().to_string();
+                            profile.address = spec.address.clone();
+                            profile.port = spec.port;
+                            profile.config = config_from_spec(core, &spec);
                         }
-                        profile.core = core;
-                        profile.protocol = spec.protocol.as_str().to_string();
-                        profile.address = spec.address.clone();
-                        profile.port = spec.port;
-                        profile.config = config_from_spec(core, &spec);
                     }
                 }
             }
@@ -334,6 +382,8 @@ pub fn default_profiles() -> Vec<Profile> {
             id: new_id(),
             name: "Direct · Xray".to_string(),
             core: CoreKind::Xray,
+            transport: Transport::Proxy,
+            raw_config: None,
             protocol: "direct".to_string(),
             address: "local".to_string(),
             port: 0,
@@ -369,6 +419,8 @@ pub fn default_profiles() -> Vec<Profile> {
             id: new_id(),
             name: "Direct · sing-box".to_string(),
             core: CoreKind::SingBox,
+            transport: Transport::Proxy,
+            raw_config: None,
             protocol: "direct".to_string(),
             address: "local".to_string(),
             port: 0,
@@ -832,6 +884,8 @@ mod tests {
                 id: String::new(),
                 name: "Legacy".to_string(),
                 core: CoreKind::default(),
+                transport: Transport::Proxy,
+                raw_config: None,
                 protocol: String::new(),
                 address: String::new(),
                 port: 0,
@@ -857,6 +911,8 @@ mod tests {
                 id: "p1".to_string(),
                 name: "XHTTP".to_string(),
                 core: CoreKind::SingBox,
+                transport: Transport::Proxy,
+                raw_config: None,
                 protocol: "vless".to_string(),
                 address: "example.com".to_string(),
                 port: 443,

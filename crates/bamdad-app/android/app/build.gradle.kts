@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.5.0"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.5.1"
     }
 
     compileOptions {
@@ -85,4 +85,6 @@ android {
 dependencies {
     // The Android tunnel (tun2socks) is packaged as a native-library
     // executable by scripts/fetch-android-tun2socks.sh; no AAR is needed.
+    // WireGuard and AmneziaWG use the vendored userspace backend.
+    implementation(project(":amneziawg-tunnel"))
 }

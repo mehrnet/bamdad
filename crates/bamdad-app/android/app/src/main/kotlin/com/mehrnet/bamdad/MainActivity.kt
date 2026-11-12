@@ -34,6 +34,17 @@ class MainActivity : NativeActivity() {
             } else {
                 Log.w(TAG, "VPN consent denied")
             }
+        } else if (requestCode == VPN_REQUEST_NATIVE) {
+            val json = pendingNativeTunnel
+            pendingNativeTunnel = null
+            if (resultCode == RESULT_OK && json != null) {
+                startNativeTunnelService(this, json)
+            } else {
+                Log.w(TAG, "native VPN consent denied")
+                nativeTunnelEvent(
+                    """{"state":"error","error":"VPN permission denied"}""",
+                )
+            }
         }
         super.onActivityResult(requestCode, resultCode, data)
     }
@@ -42,12 +53,20 @@ class MainActivity : NativeActivity() {
         private const val TAG = "Bamdad"
         private const val VPN_REQUEST = 1001
         private const val NOTIFICATION_REQUEST = 1002
+        private const val VPN_REQUEST_NATIVE = 1003
 
         @Volatile
         private var instance: MainActivity? = null
 
         @Volatile
         private var pendingVpnPort: Int = 10808
+
+        @Volatile
+        private var pendingNativeTunnel: String? = null
+
+        /** Registered by Rust; forwards native backend state into the session. */
+        @JvmStatic
+        external fun nativeTunnelEvent(json: String)
 
         @JvmStatic
         fun nativeLibraryDir(): String =
@@ -84,6 +103,37 @@ class MainActivity : NativeActivity() {
             Log.i(TAG, "stopVpn requested")
             Handler(Looper.getMainLooper()).post {
                 BamdadVpnService.stop(activity)
+            }
+        }
+
+        /**
+         * Starts a native WireGuard/AmneziaWG backend. The backend owns its
+         * own VpnService; the existing proxy VpnService must already be
+         * stopped by Rust.
+         */
+        @JvmStatic
+        fun startNativeTunnel(json: String) {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).postDelayed({
+                requestNotificationPermission(activity)
+                val consent = VpnService.prepare(activity)
+                if (consent != null) {
+                    pendingNativeTunnel = json
+                    activity.startActivityForResult(consent, VPN_REQUEST_NATIVE)
+                } else {
+                    startNativeTunnelService(activity, json)
+                }
+            }, 500)
+        }
+
+        @JvmStatic
+        fun stopNativeTunnel() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                val intent = Intent(activity, TunnelService::class.java).apply {
+                    action = TunnelService.ACTION_STOP
+                }
+                activity.startService(intent)
             }
         }
 
@@ -207,6 +257,18 @@ class MainActivity : NativeActivity() {
 
         private fun startVpnService(context: Context, socksPort: Int) {
             BamdadVpnService.start(context, socksPort)
+        }
+
+        private fun startNativeTunnelService(context: Context, json: String) {
+            val intent = Intent(context, TunnelService::class.java).apply {
+                action = TunnelService.ACTION_START
+                putExtra(TunnelService.EXTRA_PROFILE, json)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
 
         private fun requestNotificationPermission(activity: MainActivity) {

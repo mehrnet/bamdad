@@ -19,6 +19,7 @@ type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
 static SWITCHING: AtomicBool = AtomicBool::new(false);
+static NATIVE_TUNNEL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LAST_IPV4: Mutex<String> = Mutex::new(String::new());
 static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
 static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
@@ -163,6 +164,7 @@ pub(crate) fn init_attached(
                 if SWITCHING.load(Ordering::SeqCst) {
                     return;
                 }
+                NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Disconnected".into());
@@ -620,7 +622,7 @@ fn node_row(
         )
         .into(),
         protocol: protocol_label(&profile.protocol).into(),
-        core: profile.core.label().into(),
+        core: profile.transport_label().into(),
         ping: ping.into(),
         ping_state,
         selected: selected_id == Some(profile.id.as_str()),
@@ -736,7 +738,8 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
 }
 
 fn initial_ping(profile: &config::Profile) -> String {
-    if profile.protocol.eq_ignore_ascii_case("direct")
+    if !profile.is_proxy()
+        || profile.protocol.eq_ignore_ascii_case("direct")
         || profile.address == "local"
         || profile.address.is_empty()
         || profile.port == 0
@@ -753,6 +756,10 @@ fn protocol_label(protocol: &str) -> String {
         "vmess" => "VMESS",
         "trojan" => "TROJAN",
         "shadowsocks" | "ss" => "SS",
+        "wireguard" | "wg" => "WIREGUARD",
+        "amneziawg" | "awg" => "AMNEZIAWG",
+        "ipsec" | "ikev2" => "IPSEC",
+        "openvpn" | "ovpn" => "OPENVPN",
         "direct" => "DIRECT",
         _ => "CUSTOM",
     }
@@ -837,6 +844,23 @@ fn setup_callbacks(
             };
 
             let trimmed = raw.trim();
+            if let Some(profile) = bamdad_core::native::profile_from_config(None, trimmed) {
+                let name = profile.name.clone();
+                let label = profile.transport_label();
+                {
+                    let mut guard = store.lock().unwrap();
+                    guard.add_profile(profile);
+                    let _ = save_store(&guard);
+                }
+                let guard = store.lock().unwrap();
+                ui.set_groups(group_model(&guard, &pings));
+                ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
+                drop(guard);
+                push_log(&ui, &logs, format!("imported {name} ({label})"));
+                ui.set_status_text("Imported".into());
+                return;
+            }
+
             if trimmed.starts_with('{') {
                 match serde_json::from_str::<serde_json::Value>(trimmed) {
                     Ok(config)
@@ -850,10 +874,12 @@ fn setup_callbacks(
                             id: config::new_id(),
                             name: name.clone(),
                             core,
+                            transport: bamdad_core::Transport::Proxy,
                             protocol: "custom".to_string(),
                             address: String::new(),
                             port: 0,
                             config,
+                            raw_config: None,
                             source: None,
                             group_id: None,
                             group_name: None,
@@ -1896,7 +1922,8 @@ fn begin_ping(
     let profile = store.lock().unwrap().profile_by_id(&id).cloned();
     let Some(profile) = profile else { return };
 
-    if profile.protocol.eq_ignore_ascii_case("direct")
+    if !profile.is_proxy()
+        || profile.protocol.eq_ignore_ascii_case("direct")
         || profile.address == "local"
         || profile.address.is_empty()
         || profile.port == 0
@@ -1973,6 +2000,61 @@ fn start_connection(
     };
     ui.set_active_profile(profile.name.clone().into());
     set_active_profile_name(&profile.name);
+
+    if !profile.is_proxy() {
+        #[cfg(target_os = "android")]
+        {
+            let Some(mut request) = profile.tunnel_profile() else {
+                push_log(ui, logs, "native profile has no raw config".to_string());
+                return;
+            };
+            if request.config.trim().is_empty() {
+                push_log(ui, logs, "native profile has an empty config".to_string());
+                return;
+            }
+            request.accent = settings.accent.clone();
+            let json = match serde_json::to_string(&request) {
+                Ok(json) => json,
+                Err(error) => {
+                    push_log(ui, logs, format!("could not encode native tunnel: {error}"));
+                    return;
+                }
+            };
+            if switching {
+                SWITCHING.store(true, Ordering::SeqCst);
+            }
+            NATIVE_TUNNEL_ACTIVE.store(true, Ordering::SeqCst);
+            engine.stop();
+            crate::stop_android_vpn();
+            push_log(
+                ui,
+                logs,
+                format!(
+                    "starting {} via {} (direct VpnService)",
+                    profile.name,
+                    profile.transport_label()
+                ),
+            );
+            ui.set_busy(true);
+            ui.set_status_text("Starting…".into());
+            ui.set_total_down_text("0 B".into());
+            ui.set_total_up_text("0 B".into());
+            crate::start_native_tunnel(&json);
+            return;
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            push_log(
+                ui,
+                logs,
+                format!(
+                    "{} profiles are Android-only for now",
+                    profile.transport_label()
+                ),
+            );
+            return;
+        }
+    }
 
     // Log the transport shape (never credentials) so reports can identify
     // slow XHTTP modes, missing ALPN or a fallback transport.
@@ -2109,6 +2191,9 @@ fn stop_connection(
     logs: &LogBuffer,
 ) {
     SWITCHING.store(false, Ordering::SeqCst);
+    if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
+        crate::stop_native_tunnel();
+    }
     engine.stop();
     crate::stop_android_vpn();
     ui.set_busy(true);
@@ -2221,83 +2306,86 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         }
                     });
                 });
-                let weak = ui.as_weak();
-                let logs = logs.clone();
-                std::thread::spawn(move || {
-                    use std::net::{SocketAddr, TcpStream};
-                    let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
-                    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-                    let mut ready = false;
-                    for _ in 0..50 {
-                        if TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok() {
-                            ready = true;
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-
-                    #[cfg(target_os = "android")]
-                    if ready {
-                        crate::start_android_vpn(port);
-                    }
-
-                    let (message, status) = if !ready {
-                        (
-                            format!("proxy check: SOCKS 127.0.0.1:{port} never opened"),
-                            Some("Proxy unreachable"),
-                        )
-                    } else {
-                        match proxy_probe(port) {
-                            ProxyProbe::Ok(message) => (message, None),
-                            ProxyProbe::Dns(message) => (message, Some("Proxy DNS issue")),
-                            ProxyProbe::Failed(message) => (message, Some("Proxy unreachable")),
-                        }
-                    };
-
-                    let network = if status.is_none() {
-                        fetch_exit_ips(port)
-                    } else {
-                        None
-                    };
-                    let (ipv4, ipv6, country) = match network {
-                        Some((ipv4, ipv6)) => {
-                            let country = ipv4
-                                .or(ipv6)
-                                .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
-                            (
-                                ipv4.map(|ip| ip.to_string()),
-                                ipv6.map(|ip| ip.to_string()),
-                                country,
-                            )
-                        }
-                        None => (None, None, None),
-                    };
-                    set_last_network(ipv4.as_deref(), ipv6.as_deref(), country.as_deref());
-
-                    #[cfg(target_os = "android")]
-                    crate::logcat(&message);
-                    let weak_for_log = weak.clone();
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = weak_for_log.upgrade() {
-                            push_log(&ui, &logs, message);
-                            if ui.get_connected() {
-                                set_network_text(
-                                    &ui,
-                                    ipv4.as_deref().unwrap_or_default(),
-                                    ipv6.as_deref().unwrap_or_default(),
-                                );
-                                ui.set_country_flag(
-                                    country.as_deref().map(country_flag).unwrap_or_default(),
-                                );
+                if !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
+                    let weak = ui.as_weak();
+                    let logs = logs.clone();
+                    std::thread::spawn(move || {
+                        use std::net::{SocketAddr, TcpStream};
+                        let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
+                        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                        let mut ready = false;
+                        for _ in 0..50 {
+                            if TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
+                            {
+                                ready = true;
+                                break;
                             }
-                            if let Some(status) = status {
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+
+                        #[cfg(target_os = "android")]
+                        if ready {
+                            crate::start_android_vpn(port);
+                        }
+
+                        let (message, status) = if !ready {
+                            (
+                                format!("proxy check: SOCKS 127.0.0.1:{port} never opened"),
+                                Some("Proxy unreachable"),
+                            )
+                        } else {
+                            match proxy_probe(port) {
+                                ProxyProbe::Ok(message) => (message, None),
+                                ProxyProbe::Dns(message) => (message, Some("Proxy DNS issue")),
+                                ProxyProbe::Failed(message) => (message, Some("Proxy unreachable")),
+                            }
+                        };
+
+                        let network = if status.is_none() {
+                            fetch_exit_ips(port)
+                        } else {
+                            None
+                        };
+                        let (ipv4, ipv6, country) = match network {
+                            Some((ipv4, ipv6)) => {
+                                let country = ipv4
+                                    .or(ipv6)
+                                    .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
+                                (
+                                    ipv4.map(|ip| ip.to_string()),
+                                    ipv6.map(|ip| ip.to_string()),
+                                    country,
+                                )
+                            }
+                            None => (None, None, None),
+                        };
+                        set_last_network(ipv4.as_deref(), ipv6.as_deref(), country.as_deref());
+
+                        #[cfg(target_os = "android")]
+                        crate::logcat(&message);
+                        let weak_for_log = weak.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = weak_for_log.upgrade() {
+                                push_log(&ui, &logs, message);
                                 if ui.get_connected() {
-                                    ui.set_status_text(status.into());
+                                    set_network_text(
+                                        &ui,
+                                        ipv4.as_deref().unwrap_or_default(),
+                                        ipv6.as_deref().unwrap_or_default(),
+                                    );
+                                    ui.set_country_flag(
+                                        country.as_deref().map(country_flag).unwrap_or_default(),
+                                    );
+                                }
+                                if let Some(status) = status {
+                                    if ui.get_connected() {
+                                        ui.set_status_text(status.into());
+                                    }
                                 }
                             }
-                        }
+                        });
                     });
-                });
+                }
             }
             EngineState::Stopping => {
                 if SWITCHING.load(Ordering::SeqCst) {
@@ -2311,6 +2399,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
             }
             EngineState::Error(message) => {
                 SWITCHING.store(false, Ordering::SeqCst);
+                NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);

@@ -50,3 +50,21 @@ SOFTWARE.
 
 Xray-core is MPL-2.0 and sing-box is GPL-3.0. They are shipped as separate
 executables; include their licenses and data notices in release artifacts.
+
+## amneziawg-android
+
+- Project: https://github.com/amnezia-vpn/amneziawg-android
+- License: Apache-2.0
+- Used on Android for the WireGuard and AmneziaWG userspace backend.
+
+## strongSwan
+
+- Project: https://github.com/strongswan/strongswan
+- License: GPL-2.0-or-later
+- Will be used on Android for the IPSec/IKEv2 backend.
+
+## ics-openvpn
+
+- Project: https://github.com/schwabe/ics-openvpn
+- License: GPL-2.0-only with additional terms
+- OpenVPN integration is pending a GPL-3.0-compatible licensing decision.

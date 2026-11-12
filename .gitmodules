@@ -1,0 +1,3 @@
+[submodule "crates/bamdad-app/android/vendor/amneziawg-android"]
+	path = crates/bamdad-app/android/vendor/amneziawg-android
+	url = https://github.com/amnezia-vpn/amneziawg-android

@@ -23,6 +23,13 @@ pub fn set_event_sender(sender: Sender<EngineEvent>) {
     let _ = EVENT_SENDER.set(sender);
 }
 
+/// Emit a transport-neutral event from a Kotlin native backend.
+pub fn emit_event(event: EngineEvent) {
+    if let Some(sender) = EVENT_SENDER.get() {
+        let _ = sender.send(event);
+    }
+}
+
 fn log(line: impl Into<String>) {
     let line = line.into();
     crate::logcat(&line);

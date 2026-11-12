@@ -10,6 +10,7 @@ import {
     MenuItem,
     PrimaryButton,
     SecondaryButton,
+    TextArea,
     TextField,
     TransferRow,
 } from "components.slint";
@@ -193,8 +194,8 @@ component ImportDialog inherits Rectangle {
     }
 
     Card {
-        width: root.phone ? parent.width - 32px : 520px;
-        height: 268px;
+        width: root.phone ? parent.width - 32px : 560px;
+        height: 430px;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
 
@@ -203,24 +204,20 @@ component ImportDialog inherits Rectangle {
             spacing: 10px;
 
             Text {
-                text: "Import link or JSON";
+                text: "Import link, config or JSON";
                 color: Theme.text;
                 font-size: 18px;
                 font-weight: 700;
             }
             Text {
-                text: "Paste a vless://, vmess://, trojan:// or ss:// link, or a native Xray/sing-box JSON config.";
+                text: "Paste a vless://, vmess://, trojan:// or ss:// link, a WireGuard/AmneziaWG .conf, an OpenVPN .ovpn, or a native Xray/sing-box JSON config.";
                 color: Theme.muted;
                 font-size: 12px;
                 wrap: word-wrap;
             }
-            TextField {
+            TextArea {
                 text <=> root.link-input;
-                placeholder: "vless://  vmess://  trojan://  ss://  { ... }";
-                accepted => {
-                    root.import(root.link-input, root.core-choice);
-                    root.link-input = "";
-                }
+                placeholder: "[Interface]\nPrivateKey = ...\n\n[Peer]\nEndpoint = host:51820\n\n...or vless:// / { JSON }";
             }
             HorizontalLayout {
                 spacing: 7px;
