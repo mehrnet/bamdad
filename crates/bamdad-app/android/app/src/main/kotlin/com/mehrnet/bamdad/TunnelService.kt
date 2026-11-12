@@ -12,8 +12,10 @@ import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -35,6 +37,12 @@ class TunnelService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var profile: TunnelProfile? = null
     private var lastStatus: TunnelStatus? = null
+    private var watchdogJob: Job? = null
+
+    private fun log(message: String) {
+        Log.i(TAG, message)
+        MainActivity.nativeLog("BamdadTunnel: $message")
+    }
 
     override fun onBind(intent: Intent?): android.os.IBinder? = null
 
@@ -52,6 +60,7 @@ class TunnelService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                watchdogJob?.cancel()
                 scope.launch {
                     TunnelController.disconnect()
                     stopForegroundCompat()
@@ -62,16 +71,43 @@ class TunnelService : Service() {
             ACTION_START -> {
                 val raw = intent.getStringExtra(EXTRA_PROFILE) ?: return START_NOT_STICKY
                 val parsed = runCatching { TunnelProfile.fromJson(raw) }.getOrNull()
-                    ?: return START_NOT_STICKY
+                    ?: run {
+                        log("invalid native profile payload")
+                        runCatching {
+                            startForegroundCompat(
+                                buildNotification(
+                                    TunnelProfile("", "Bamdad", TunnelTransport.PROXY, ""),
+                                    "Invalid profile",
+                                ),
+                            )
+                        }
+                        MainActivity.nativeTunnelEvent(
+                            """{"state":"error","error":"Invalid native tunnel profile"}""",
+                        )
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
                 profile = parsed
-                startForegroundCompat(buildNotification(parsed, "Connecting…"))
+                log("service start ${parsed.name} (${parsed.transport})")
+                try {
+                    startForegroundCompat(buildNotification(parsed, "Connecting…"))
+                } catch (error: Throwable) {
+                    log("startForeground failed: ${error.message}")
+                    MainActivity.nativeTunnelEvent(
+                        """{"state":"error","error":"Could not start VPN notification: ${error.message}"}""",
+                    )
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 scope.launch {
                     try {
                         TunnelController.connect(this@TunnelService, parsed) { status ->
                             publish(parsed, status)
                         }
+                        startHandshakeWatchdog(parsed)
                     } catch (error: Throwable) {
                         Log.e(TAG, "tunnel connect failed", error)
+                        log("connect failed: ${error.message}")
                         publish(
                             parsed,
                             TunnelStatus(
@@ -89,9 +125,38 @@ class TunnelService : Service() {
 
     private fun publish(profile: TunnelProfile, status: TunnelStatus) {
         lastStatus = status
+        if (status.state == TunnelState.ERROR) {
+            log("error: ${status.error}")
+        } else if (status.state == TunnelState.UP) {
+            log(
+                "up ${status.endpoint} rx=${status.rxBytes} tx=${status.txBytes} " +
+                    "handshake=${status.lastHandshake}",
+            )
+        }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(profile, statusText(status)))
         MainActivity.nativeTunnelEvent(status.toJson())
+    }
+
+    private fun startHandshakeWatchdog(profile: TunnelProfile) {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            repeat(15) {
+                delay(2_000)
+                val status = TunnelController.status() ?: return@launch
+                if (status.state != TunnelState.UP) return@launch
+                if (status.lastHandshake > 0 || status.rxBytes > 0) return@launch
+            }
+            log("handshake timeout")
+            publish(
+                profile,
+                TunnelStatus(
+                    state = TunnelState.ERROR,
+                    error = "WireGuard handshake timed out. Check the endpoint, UDP port, and firewall.",
+                ),
+            )
+            TunnelController.disconnect()
+        }
     }
 
     private fun statusText(status: TunnelStatus): String {
@@ -151,6 +216,7 @@ class TunnelService : Service() {
     }
 
     override fun onDestroy() {
+        watchdogJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }

@@ -93,6 +93,7 @@ data class TunnelStatus(
         put("tx_bytes", txBytes)
         put("endpoint", endpoint)
         put("local_address", localAddress)
+        put("last_handshake", lastHandshake)
         error?.let { put("error", it) }
     }.toString()
 }

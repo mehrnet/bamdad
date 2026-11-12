@@ -77,6 +77,10 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         external fun nativeImportConfigs(group: String, filesJson: String)
 
+        /** Registered by Rust; adds a native transport log line to the app log. */
+        @JvmStatic
+        external fun nativeLog(line: String)
+
         @JvmStatic
         fun nativeLibraryDir(): String =
             instance?.applicationInfo?.nativeLibraryDir ?: ""
@@ -132,7 +136,7 @@ class MainActivity : NativeActivity() {
                 } else {
                     startNativeTunnelService(activity, json)
                 }
-            }, 500)
+            }, 1200)
         }
 
         @JvmStatic
@@ -281,10 +285,18 @@ class MainActivity : NativeActivity() {
                 action = TunnelService.ACTION_START
                 putExtra(TunnelService.EXTRA_PROFILE, json)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (error: Throwable) {
+                Log.e(TAG, "could not start native tunnel service", error)
+                nativeLog("BamdadTunnel: could not start service: ${error.message}")
+                nativeTunnelEvent(
+                    """{"state":"error","error":"Could not start the tunnel service: ${error.message}"}""",
+                )
             }
         }
 

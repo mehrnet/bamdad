@@ -168,6 +168,16 @@ mod android {
             tunnel::stop();
         }
 
+        extern "system" fn native_log(mut env: jni::JNIEnv, _class: JClass, line: JString) {
+            let Ok(line) = env.get_string(&line) else {
+                return;
+            };
+            tunnel::emit_event(EngineEvent::Log {
+                stream: bamdad_core::engine::LogStream::App,
+                line: line.into(),
+            });
+        }
+
         extern "system" fn native_import(
             mut env: jni::JNIEnv,
             _class: JClass,
@@ -240,6 +250,11 @@ mod android {
                 name: "nativeImportConfigs".into(),
                 sig: "(Ljava/lang/String;Ljava/lang/String;)V".into(),
                 fn_ptr: native_import as *mut c_void,
+            },
+            NativeMethod {
+                name: "nativeLog".into(),
+                sig: "(Ljava/lang/String;)V".into(),
+                fn_ptr: native_log as *mut c_void,
             },
         ];
         if let Err(error) = env.register_native_methods(class, &methods) {

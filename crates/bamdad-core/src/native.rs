@@ -21,6 +21,19 @@ pub fn detect(text: &str) -> Option<NativeConfig> {
         .trim_start_matches(['\u{feff}', '\u{200b}'])
         .trim_start();
     if !trimmed.starts_with("[Interface]") {
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("client")
+            && (lower.contains("remote ")
+                || lower.contains("<ca>")
+                || lower.contains("<tls-crypt>"))
+        {
+            let (address, port) = parse_openvpn_remote(trimmed);
+            return Some(NativeConfig {
+                transport: Transport::OpenVpn,
+                address,
+                port,
+            });
+        }
         return None;
     }
     if !trimmed.contains("PrivateKey") {
@@ -62,6 +75,25 @@ pub fn detect(text: &str) -> Option<NativeConfig> {
         address,
         port,
     })
+}
+
+fn parse_openvpn_remote(text: &str) -> (String, u16) {
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if !parts
+            .next()
+            .is_some_and(|part| part.eq_ignore_ascii_case("remote"))
+        {
+            continue;
+        }
+        let Some(host) = parts.next() else { continue };
+        let port = parts
+            .next()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1194);
+        return (host.to_string(), port);
+    }
+    (String::new(), 0)
 }
 
 fn parse_endpoint(text: &str) -> (String, u16) {
@@ -170,6 +202,24 @@ Endpoint = engage.example.com:51820
         let config = detect(&text).unwrap();
         assert_eq!(config.transport, Transport::WireGuard);
         assert_eq!(config.port, 51820);
+    }
+
+    #[test]
+    fn detects_openvpn() {
+        let text = r#"client
+dev tun
+proto udp
+remote vpn.example.com 1194
+<ca>
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+</ca>
+"#;
+        let config = detect(text).unwrap();
+        assert_eq!(config.transport, Transport::OpenVpn);
+        assert_eq!(config.address, "vpn.example.com");
+        assert_eq!(config.port, 1194);
     }
 
     #[test]
