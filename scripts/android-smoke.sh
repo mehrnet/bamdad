@@ -53,6 +53,21 @@ capture_splash
 adb exec-out screencap -p > "$OUT/before.png"
 adb shell dumpsys activity activities 2>/dev/null | grep -E 'bamdad|ResumedActivity' > "$OUT/activities-before.txt" || true
 
+echo '--- relaunch from background ---'
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+adb logcat -c
+launch_app >/dev/null
+sleep 3
+adb exec-out screencap -p > "$OUT/relaunched.png"
+adb logcat -d -v threadtime > "$OUT/relaunch.txt"
+if grep -q 'Bamdad  : onCreate' "$OUT/relaunch.txt"; then
+    echo 'relaunch-recreated-activity'
+    exit 1
+fi
+test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
+echo 'relaunch-reused-activity'
+
 echo '--- launcher alias ---'
 LAUNCHER=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null | tr -d '\r' | tail -1)
 echo "resolved launcher: $LAUNCHER"
