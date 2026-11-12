@@ -66,6 +66,9 @@ Android TunnelController
 - [x] Recognize `.ovpn` files during import and show them as OpenVPN profiles
       (backend still pending).
 - [x] Build in CI with recursive submodules and Go available.
+- [x] Use the official `com.wireguard.android:tunnel` backend for vanilla
+      WireGuard; keep `amneziawg-android` for AmneziaWG.
+- [x] Rename the AmneziaWG native library so both backends can coexist.
 - [x] Smoke-test WireGuard end to end against a real WireGuard server:
       handshake succeeds, HTTP traffic passes through the native TUN, and the
       TUN is released on disconnect.
