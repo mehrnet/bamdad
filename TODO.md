@@ -54,9 +54,12 @@ Android TunnelController
 - [ ] Forward native backend logs into the Rust log buffer.
 - [x] Make the import dialog accept multiline `.conf` text.
 - [x] Build in CI with recursive submodules and Go available.
-- [x] Smoke-test WireGuard: emulator starts the GoBackend, creates the native
-      TUN, and tears it down on disconnect. A real server/traffic test and an
-      explicit AmneziaWG config test are still pending.
+- [x] Smoke-test WireGuard end to end against a real WireGuard server:
+      handshake succeeds, HTTP traffic passes through the native TUN, and the
+      TUN is released on disconnect.
+- [ ] Smoke-test an explicit AmneziaWG config. The backend is the same
+      `amneziawg-android` implementation, but the test server needs AWG
+      obfuscation options.
 
 ## Phase 2: IPSec
 
@@ -99,8 +102,8 @@ Android TunnelController
 
 ## Phase 1 follow-ups
 
-- [ ] Test against a real WireGuard server and a real AmneziaWG server
-      (handshake + HTTP traffic).
+- [x] Test against a real WireGuard server (handshake + HTTP traffic).
+- [ ] Test against a real AmneziaWG server.
 - [ ] Add a file picker for `.conf` files in addition to paste.
 - [ ] Unify the native notification with the existing accent/profile/totals
       notification.
