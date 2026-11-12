@@ -44,7 +44,6 @@ class LauncherActivity : Activity() {
                 "${info.taskId}:" +
                     "base=${info.baseActivity?.className}," +
                     "top=${info.topActivity?.className}," +
-                    "real=${info.realActivity?.className}," +
                     "intent=${info.baseIntent?.component?.className}"
             })
             val task = tasks.firstOrNull { candidate ->
@@ -53,7 +52,6 @@ class LauncherActivity : Activity() {
                     info.baseActivity?.className,
                     info.topActivity?.className,
                     info.origActivity?.className,
-                    info.realActivity?.className,
                     info.baseIntent?.component?.className,
                 ).any { it == main }
             } ?: return false

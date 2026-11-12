@@ -68,6 +68,16 @@ fi
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 echo 'relaunch-reused-activity'
 
+echo '--- relaunch frames ---'
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+adb shell am start -n "$(launcher_component)" >/dev/null
+for frame in 1 2 3 4 5 6; do
+    adb exec-out screencap -p > "$OUT/relaunch-frame-$frame.png"
+    sleep 0.1
+done
+sleep 2
+
 echo '--- launcher alias ---'
 LAUNCHER=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null | tr -d '\r' | tail -1)
 echo "resolved launcher: $LAUNCHER"
