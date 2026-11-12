@@ -58,6 +58,10 @@ Android TunnelController
 - [x] Import from a file or ZIP, with password-protected ZIP support and an
       in-app password prompt.
 - [x] Trim UTF-8 BOM whitespace before native config parsing.
+- [x] Resolve WireGuard/AmneziaWG hostname endpoints before connecting, add
+      native transport logs, and add a handshake-timeout watchdog.
+- [x] Recognize `.ovpn` files during import and show them as OpenVPN profiles
+      (backend still pending).
 - [x] Build in CI with recursive submodules and Go available.
 - [x] Smoke-test WireGuard end to end against a real WireGuard server:
       handshake succeeds, HTTP traffic passes through the native TUN, and the
@@ -110,8 +114,8 @@ Android TunnelController
 - [x] Test against a real WireGuard server (handshake + HTTP traffic), using
       a quick-style config with `MTU = 1300` and a split `AllowedIPs` list.
 - [ ] Test against a real AmneziaWG server.
-- [ ] Import non-`.conf` native files (`.ovpn`, `.sswan`) once those backends
-      exist; the ZIP picker already carries them.
+- [ ] OpenVPN/strongSwan backends; `.ovpn`/`.sswan` are recognized during
+      import but cannot connect yet.
 - [ ] Unify the native notification with the existing accent/profile/totals
       notification.
 - [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile` and apply it
