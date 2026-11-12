@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "socks_port": 10808,
+    "http_port": 10809,
+    "system_proxy": false,
+    "api_addr": "127.0.0.1",
+    "accent": "pink",
+    "theme": "dark"
+  },
+  "profiles": [
+    {
+      "id": "wg-test",
+      "name": "Test \u00b7 WireGuard",
+      "core": "sing-box",
+      "transport": "wireguard",
+      "protocol": "wireguard",
+      "address": "10.0.2.2",
+      "port": 51820,
+      "raw_config": "[Interface]\nPrivateKey = GBrBA0tnRnkX9e89F5ifaN1qXargfz4jIap6XkhRKU4=\nAddress = 10.66.66.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = t10Zr/v9PNVBzeAdCKdqv35aeffzKz61ANQ7sqKKsDQ=\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = 10.0.2.2:51820\nPersistentKeepalive = 25\n",
+      "source": null
+    }
+  ],
+  "selected": "Test \u00b7 WireGuard",
+  "selected_id": "wg-test",
+  "default_group_name": "Default",
+  "group_order": {}
+}

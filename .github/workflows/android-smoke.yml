@@ -72,3 +72,51 @@ jobs:
           path: |
             /tmp/bamdad-smoke/*
           if-no-files-found: warn
+
+  wireguard:
+    name: Native WireGuard smoke on emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the x86_64 debug APK
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: native.yml
+          name: bamdad-android-debug
+          path: apk
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+      - name: Locate APK
+        run: |
+          APK=$(find apk -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run native WireGuard tunnel
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: bash scripts/android-wireguard-smoke.sh
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-wireguard-smoke
+          path: |
+            /tmp/bamdad-wg-smoke/*
+          if-no-files-found: warn
