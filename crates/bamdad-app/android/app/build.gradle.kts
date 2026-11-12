@@ -87,4 +87,5 @@ dependencies {
     // executable by scripts/fetch-android-tun2socks.sh; no AAR is needed.
     // WireGuard and AmneziaWG use the vendored userspace backend.
     implementation(project(":amneziawg-tunnel"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

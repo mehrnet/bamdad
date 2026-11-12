@@ -36,6 +36,8 @@ class TunnelService : Service() {
     private var profile: TunnelProfile? = null
     private var lastStatus: TunnelStatus? = null
 
+    override fun onBind(intent: Intent?): android.os.IBinder? = null
+
     override fun onCreate() {
         super.onCreate()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
