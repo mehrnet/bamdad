@@ -17,10 +17,7 @@ import android.util.Log
 class LauncherActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (bringExistingTaskToFront()) {
-            finish()
-            return
-        }
+        // TEST: always go through startActivity so the task snapshot is used.
         // No existing task: create the real task. NEW_TASK alone (without
         // CLEAR_TOP) keeps later launches from destroying and recreating
         // MainActivity, which would replay the splash screen.
