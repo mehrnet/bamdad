@@ -31,8 +31,43 @@ sleep 3
 adb shell am force-stop com.mehrnet.bamdad || true
 DATA_DIR=/data/user/0/com.mehrnet.bamdad/files
 adb shell run-as com.mehrnet.bamdad mkdir -p "$DATA_DIR"
+WG_CLIENT=${BAMDAD_WG_CLIENT_CONF:-/tmp/bamdad-wg/client.conf}
+if [ -f "$WG_CLIENT" ]; then
+    python3 - "$WG_CLIENT" > "$OUT/profiles.json" <<'PY'
+import json, sys
+conf = open(sys.argv[1]).read()
+store = {
+    "settings": {
+        "socks_port": 10808,
+        "http_port": 10809,
+        "system_proxy": False,
+        "api_addr": "127.0.0.1",
+        "accent": "pink",
+        "theme": "dark",
+    },
+    "profiles": [{
+        "id": "wg-test",
+        "name": "Test \u00b7 WireGuard",
+        "core": "sing-box",
+        "transport": "wireguard",
+        "protocol": "wireguard",
+        "address": "10.0.2.2",
+        "port": 51820,
+        "raw_config": conf,
+        "source": None,
+    }],
+    "selected": "Test \u00b7 WireGuard",
+    "selected_id": "wg-test",
+    "default_group_name": "Default",
+    "group_order": {},
+}
+print(json.dumps(store))
+PY
+else
+    cp scripts/android-test-wireguard.json "$OUT/profiles.json"
+fi
 adb shell "run-as com.mehrnet.bamdad sh -c 'cat > $DATA_DIR/profiles.json'" \
-    < scripts/android-test-wireguard.json
+    < "$OUT/profiles.json"
 adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
 adb shell settings put global hide_error_dialogs 1 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
@@ -83,6 +118,20 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     exit 1
 fi
 echo 'native-tun-up'
+
+NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
+if [ -n "$NETCHECK" ]; then
+    adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
+    adb shell chmod 755 /data/local/tmp/bamdad-netcheck
+    if adb shell /data/local/tmp/bamdad-netcheck example.com 80 2>&1 | tee "$OUT/netcheck.txt" | grep -q 'HTTP/1'; then
+        echo 'native-traffic-ok'
+    else
+        echo 'native-traffic-failed'
+        exit 1
+    fi
+else
+    echo 'bamdad-netcheck not found; skipping native traffic assertion'
+fi
 
 # Disconnect and verify the TUN is gone.
 adb shell input tap $((W * 86 / 100)) $((H - 180))

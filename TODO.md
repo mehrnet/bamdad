@@ -33,24 +33,30 @@ Android TunnelController
 ## Phase 1: controller + AmneziaWG
 
 - [x] Write this roadmap.
-- [ ] Move repository license to GPL-3.0 and update notices.
-- [ ] Add `Transport`, `TunnelProfile`, and `TunnelStatus` to `bamdad-core`.
-- [ ] Add `Profile.transport` and `Profile.raw_config` with serde defaults so
+- [x] Move repository license to GPL-3.0 and update notices.
+- [x] Add `Transport`, `TunnelProfile`, and `TunnelStatus` to `bamdad-core`.
+- [x] Add `Profile.transport` and `Profile.raw_config` with serde defaults so
       existing stores keep loading.
-- [ ] Update profile rows/labels for WireGuard/AmneziaWG.
-- [ ] Add `.conf` detection and import:
+- [x] Update profile rows/labels for WireGuard/AmneziaWG.
+- [x] Add `.conf` detection and import:
       - `[Interface]` + `PrivateKey` -> WireGuard
       - AmneziaWG keys (`Jc`, `Jmin`, `Jmax`, `S1`..`S4`, `H1`..`H4`,
         `I1`..`I5`) -> AmneziaWG
       - endpoint/address/port parsed for display and ping rows.
-- [ ] Vendor `amneziawg-android` (pinned) as an Android library module.
-- [ ] Add Kotlin `TunnelBackend`, `TunnelController`, `ProxyBackend`, and
+- [x] Vendor `amneziawg-android` (pinned) as an Android library module
+      (`amneziawg-tunnel` local source module).
+- [x] Add Kotlin `TunnelBackend`, `TunnelController`, and
       `AmneziaWgBackend`.
-- [ ] Route `Transport::AmneziaWg` from Rust through the controller.
-- [ ] Normalize native tunnel state/traffic/log events into Rust events.
-- [ ] Make the import dialog accept multiline `.conf` text.
-- [ ] Build in CI with recursive submodules and Go available.
-- [ ] Smoke-test WireGuard and AmneziaWG profiles.
+- [ ] Add `ProxyBackend` to the controller so proxy and native transports
+      share the same switch path.
+- [x] Route `Transport::AmneziaWg` from Rust through the controller.
+- [x] Normalize native tunnel state and traffic into Rust events.
+- [ ] Forward native backend logs into the Rust log buffer.
+- [x] Make the import dialog accept multiline `.conf` text.
+- [x] Build in CI with recursive submodules and Go available.
+- [x] Smoke-test WireGuard: emulator starts the GoBackend, creates the native
+      TUN, and tears it down on disconnect. A real server/traffic test and an
+      explicit AmneziaWG config test are still pending.
 
 ## Phase 2: IPSec
 
@@ -90,3 +96,13 @@ Android TunnelController
 - Android only allows one active VPN. Backend switches must stop the old
   backend and wait for its service to release the slot before starting the
   next one.
+
+## Phase 1 follow-ups
+
+- [ ] Test against a real WireGuard server and a real AmneziaWG server
+      (handshake + HTTP traffic).
+- [ ] Add a file picker for `.conf` files in addition to paste.
+- [ ] Unify the native notification with the existing accent/profile/totals
+      notification.
+- [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile` and apply it
+      before `Config.parse`.

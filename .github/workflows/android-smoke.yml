@@ -88,18 +88,30 @@ jobs:
           search_artifacts: true
           workflow_conclusion: success
           branch: main
+      - name: Download the Android network checker
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: native.yml
+          name: bamdad-netcheck-android
+          path: netcheck
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
       - name: Locate APK
         run: |
           APK=$(find apk -type f -name '*.apk' -print -quit)
           test -n "$APK"
           cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
           ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
+          find netcheck -type f -print
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Start WireGuard test server
+        run: bash scripts/wireguard-test-server.sh
       - name: Run native WireGuard tunnel
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -120,3 +132,6 @@ jobs:
           path: |
             /tmp/bamdad-wg-smoke/*
           if-no-files-found: warn
+      - name: Stop WireGuard test server
+        if: always()
+        run: sudo wg-quick down wg0 || true
