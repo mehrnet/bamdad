@@ -3,12 +3,14 @@
     "socks_port": 10808,
     "http_port": 10809,
     "system_proxy": false,
-    "api_addr": "127.0.0.1"
+    "api_addr": "127.0.0.1",
+    "accent": "pink",
+    "theme": "dark"
   },
   "profiles": [
     {
       "id": "test-1",
-      "name": "Test · Xray",
+      "name": "Test \u00b7 Xray",
       "core": "xray",
       "protocol": "direct",
       "address": "local",
@@ -50,7 +52,7 @@
     },
     {
       "id": "test-2",
-      "name": "Test · sing-box",
+      "name": "Test \u00b7 sing-box",
       "core": "sing-box",
       "protocol": "direct",
       "address": "local",
