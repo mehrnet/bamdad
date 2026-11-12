@@ -91,6 +91,10 @@ else
 fi
 
 echo '--- vpn notification ---'
+adb shell cmd statusbar expand-notifications 2>/dev/null || true
+sleep 1
+adb exec-out screencap -p > "$OUT/notification.png"
+adb shell cmd statusbar collapse 2>/dev/null || true
 adb shell dumpsys notification --noredact > "$OUT/notification.txt" 2>/dev/null || true
 grep -A40 'com.mehrnet.bamdad' "$OUT/notification.txt" | head -60 || true
 if grep -q 'Test' "$OUT/notification.txt"; then

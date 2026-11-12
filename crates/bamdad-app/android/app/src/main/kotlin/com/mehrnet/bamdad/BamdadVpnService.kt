@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.widget.RemoteViews
 import android.content.Intent
@@ -181,8 +182,10 @@ class BamdadVpnService : VpnService() {
                 if (night) Color.rgb(176, 190, 197) else Color.rgb(71, 85, 105),
             )
         }
+        val blankIcon = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setLargeIcon(blankIcon)
             .setColor(accent)
             .setContentTitle(title)
             .setContentText(traffic)
