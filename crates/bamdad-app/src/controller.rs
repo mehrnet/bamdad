@@ -90,15 +90,16 @@ pub(crate) fn import_native_files(group: &str, files_json: &str) -> usize {
     }
 
     let count = added.len();
+    let group = group.trim().to_string();
     if count == 0 {
-        if let Some(ui) = context.ui.upgrade() {
-            push_log(
-                &ui,
-                &context.logs,
-                "import found no supported configs".to_string(),
-            );
-            ui.set_status_text("Import failed".into());
-        }
+        let ui = context.ui.clone();
+        let logs = context.logs.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                push_log(&ui, &logs, "import found no supported configs".to_string());
+                ui.set_status_text("Import failed".into());
+            }
+        });
         return 0;
     }
 
@@ -110,26 +111,32 @@ pub(crate) fn import_native_files(group: &str, files_json: &str) -> usize {
         let _ = save_store(&store);
     }
 
-    if let Some(ui) = context.ui.upgrade() {
-        let store = context.store.lock().unwrap();
-        ui.set_groups(group_model(&store, &context.pings));
-        ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
-        drop(store);
-        let suffix = if group.trim().is_empty() {
-            String::new()
-        } else {
-            format!(" from {}", group.trim())
-        };
-        push_log(
-            &ui,
-            &context.logs,
-            format!(
-                "imported {count} config{}{suffix}",
-                if count == 1 { "" } else { "s" }
-            ),
-        );
-        ui.set_status_text("Imported".into());
-    }
+    let ui = context.ui.clone();
+    let store = context.store.clone();
+    let pings = context.pings.clone();
+    let logs = context.logs.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(ui) = ui.upgrade() {
+            let store = store.lock().unwrap();
+            ui.set_groups(group_model(&store, &pings));
+            ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
+            drop(store);
+            let suffix = if group.is_empty() {
+                String::new()
+            } else {
+                format!(" from {group}")
+            };
+            push_log(
+                &ui,
+                &logs,
+                format!(
+                    "imported {count} config{}{suffix}",
+                    if count == 1 { "" } else { "s" }
+                ),
+            );
+            ui.set_status_text("Imported".into());
+        }
+    });
     count
 }
 

@@ -159,6 +159,20 @@ Endpoint = engage.example.com:51820
     }
 
     #[test]
+    fn handles_bom_and_quick_style_options() {
+        let text = format!(
+            "\u{feff}{}",
+            WG.replace(
+                "DNS = 1.1.1.1",
+                "MTU = 1300\nDNS = 208.67.222.222,208.67.220.220"
+            )
+        );
+        let config = detect(&text).unwrap();
+        assert_eq!(config.transport, Transport::WireGuard);
+        assert_eq!(config.port, 51820);
+    }
+
+    #[test]
     fn rejects_proxy_json() {
         assert!(detect("{\"outbounds\": []}").is_none());
     }

@@ -38,6 +38,8 @@ Android TunnelController
 - [x] Add `Profile.transport` and `Profile.raw_config` with serde defaults so
       existing stores keep loading.
 - [x] Update profile rows/labels for WireGuard/AmneziaWG.
+- [x] Remove the Xray/sing-box picker from the import modal and auto-detect:
+      native `.conf`, proxy JSON shape, and link imports (Xray default).
 - [x] Add `.conf` detection and import:
       - `[Interface]` + `PrivateKey` -> WireGuard
       - AmneziaWG keys (`Jc`, `Jmin`, `Jmax`, `S1`..`S4`, `H1`..`H4`,
@@ -53,6 +55,9 @@ Android TunnelController
 - [x] Normalize native tunnel state and traffic into Rust events.
 - [ ] Forward native backend logs into the Rust log buffer.
 - [x] Make the import dialog accept multiline `.conf` text.
+- [x] Import from a file or ZIP, with password-protected ZIP support and an
+      in-app password prompt.
+- [x] Trim UTF-8 BOM whitespace before native config parsing.
 - [x] Build in CI with recursive submodules and Go available.
 - [x] Smoke-test WireGuard end to end against a real WireGuard server:
       handshake succeeds, HTTP traffic passes through the native TUN, and the
@@ -102,10 +107,20 @@ Android TunnelController
 
 ## Phase 1 follow-ups
 
-- [x] Test against a real WireGuard server (handshake + HTTP traffic).
+- [x] Test against a real WireGuard server (handshake + HTTP traffic), using
+      a quick-style config with `MTU = 1300` and a split `AllowedIPs` list.
 - [ ] Test against a real AmneziaWG server.
-- [ ] Add a file picker for `.conf` files in addition to paste.
+- [ ] Import non-`.conf` native files (`.ovpn`, `.sswan`) once those backends
+      exist; the ZIP picker already carries them.
 - [ ] Unify the native notification with the existing accent/profile/totals
       notification.
 - [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile` and apply it
       before `Config.parse`.
+
+## Import notes
+
+- The import modal no longer asks for Xray/sing-box. Native `.conf` files are
+  detected first; JSON is classified by shape (`type` = sing-box,
+  `protocol` = Xray); links default to Xray.
+- File/ZIP import accepts `.conf`, `.ovpn`, `.sswan`, `.json`, and `.txt`.
+  ZIP extraction uses zip4j and prompts for a password in-app.
