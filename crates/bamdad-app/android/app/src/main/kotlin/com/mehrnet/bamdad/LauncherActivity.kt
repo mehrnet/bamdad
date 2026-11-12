@@ -38,10 +38,24 @@ class LauncherActivity : Activity() {
         return try {
             val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val main = MainActivity::class.java.name
-            val task = manager.appTasks.firstOrNull { candidate ->
-                val base = candidate.taskInfo.baseActivity?.className
-                val top = candidate.taskInfo.topActivity?.className
-                base == main || top == main
+            val tasks = manager.appTasks
+            Log.i("Bamdad", "launcher tasks: " + tasks.joinToString { candidate ->
+                val info = candidate.taskInfo
+                "${info.taskId}:" +
+                    "base=${info.baseActivity?.className}," +
+                    "top=${info.topActivity?.className}," +
+                    "real=${info.realActivity?.className}," +
+                    "intent=${info.baseIntent?.component?.className}"
+            })
+            val task = tasks.firstOrNull { candidate ->
+                val info = candidate.taskInfo
+                listOfNotNull(
+                    info.baseActivity?.className,
+                    info.topActivity?.className,
+                    info.origActivity?.className,
+                    info.realActivity?.className,
+                    info.baseIntent?.component?.className,
+                ).any { it == main }
             } ?: return false
             task.moveToFront()
             Log.i("Bamdad", "launcher brought existing task to front")

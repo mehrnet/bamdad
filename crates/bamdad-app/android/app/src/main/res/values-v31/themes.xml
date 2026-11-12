@@ -7,7 +7,6 @@
     </style>
 
     <style name="LauncherShimTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
-        <item name="android:windowDisablePreview">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:background">@android:color/transparent</item>
