@@ -60,6 +60,8 @@ Android TunnelController
 - [x] Trim UTF-8 BOM whitespace before native config parsing.
 - [x] Resolve WireGuard/AmneziaWG hostname endpoints before connecting, add
       native transport logs, and add a handshake-timeout watchdog.
+- [x] Exclude the WireGuard endpoint IP from the TUN routes so the first
+      handshake cannot loop into the tunnel before the socket is protected.
 - [x] Recognize `.ovpn` files during import and show them as OpenVPN profiles
       (backend still pending).
 - [x] Build in CI with recursive submodules and Go available.
@@ -80,10 +82,10 @@ Android TunnelController
 
 ## Phase 3: OpenVPN
 
-- [ ] Decide the licensing path:
-      - ics-openvpn is GPL-2.0-only and cannot be linked into a GPL-3.0 app.
-      - preferred: separate OpenVPN native executable + our own management
-        client, or a GPL-3.0-compatible core.
+- [x] Licensing: use OpenVPN 3 Core under its MPL-2.0 option, which is
+      compatible with GPL-3.0. No AGPL change is needed.
+- [ ] Add OpenVPN 3 Core as a native Android module with a `TunBuilder` that
+      supplies the VpnService TUN directly.
 - [ ] Add `OpenVpnBackend`.
 - [ ] Import `.ovpn` with inline CA/cert/key/tls-auth/tls-crypt.
 - [ ] Add credential prompt for `auth-user-pass`.
