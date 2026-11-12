@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.0"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.1"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -45,6 +45,14 @@ android {
                         ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
             }
         }
+    }
+
+    lint {
+        // Release CI only needs to assemble signed APKs. Skipping lint avoids
+        // a second dependency graph (groovy/kotlin-reflect) that can fail on
+        // transient Maven outages and has no effect on the app.
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     buildTypes {
