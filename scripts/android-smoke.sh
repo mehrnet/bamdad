@@ -68,9 +68,14 @@ fi
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
 echo 'relaunch-reused-activity'
 
-echo '--- relaunch frames ---'
-adb shell input keyevent KEYCODE_HOME
+echo '--- recents snapshot ---'
+adb shell input keyevent KEYCODE_APP_SWITCH
 sleep 2
+adb exec-out screencap -p > "$OUT/recents.png"
+adb shell input keyevent KEYCODE_HOME
+sleep 1
+
+echo '--- relaunch frames ---'
 adb shell am start -n "$(launcher_component)" >/dev/null
 for frame in 1 2 3 4 5 6; do
     adb exec-out screencap -p > "$OUT/relaunch-frame-$frame.png"
