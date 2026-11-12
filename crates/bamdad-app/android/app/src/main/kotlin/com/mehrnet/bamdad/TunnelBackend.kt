@@ -85,6 +85,7 @@ data class TunnelStatus(
     val txBytes: Long = 0L,
     val endpoint: String = "",
     val localAddress: String = "",
+    val lastHandshake: Long = 0L,
     val error: String? = null,
 ) {
     fun toJson(): String = JSONObject().apply {
