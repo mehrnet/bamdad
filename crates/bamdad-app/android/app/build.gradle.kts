@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.3"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.4"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -64,18 +64,9 @@ android {
         }
     }
 
-    // Emulator smoke builds disable ABI splits so the debug APK is a single
-    // universal package containing the x86_64 jniLibs built for testing.
-    val emulatorBuild = !System.getenv("BAMDAD_ANDROID_EMULATOR_ABI").isNullOrBlank()
-    splits {
-        abi {
-            isEnable = !emulatorBuild
-            reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
-        }
-    }
-
+    // Always build a single universal APK. Publishing ABI splits led users to
+    // download a split APK directly, which Android rejects at install time
+    // ("There's a problem with the app file").
     packaging {
         jniLibs {
             useLegacyPackaging = true

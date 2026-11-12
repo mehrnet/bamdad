@@ -146,12 +146,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/android
           apkdir=crates/bamdad-app/android/app/build/outputs/apk/release
-          cp "$apkdir/app-arm64-v8a-release.apk" \
-            "dist/android/bamdad-${version}-android-arm64-v8a.apk"
-          cp "$apkdir/app-x86_64-release.apk" \
-            "dist/android/bamdad-${version}-android-x86_64.apk"
-          cp "$apkdir/app-universal-release.apk" \
-            "dist/android/bamdad-${version}-android-universal.apk"
+          apk=$(find "$apkdir" -maxdepth 1 -name '*.apk' ! -name '*unsigned*' | head -1)
+          test -n "$apk"
+          cp "$apk" "dist/android/bamdad-${version}-android.apk"
           ls -lh dist/android
       - name: Verify APK signatures
         run: |
@@ -235,9 +232,7 @@ jobs:
             row "$linux_icon" "Linux arm64" "App" "bamdad-${version}-linux-aarch64.tar.gz"
             row "$windows_icon" "Windows x86_64" "App" "bamdad-${version}-windows-x86_64.zip"
             row "$macos_icon" "macOS arm64" "App" "bamdad-${version}-macos-aarch64.tar.gz"
-            row "$android_icon" "Android arm64" "APK" "bamdad-${version}-android-arm64-v8a.apk"
-            row "$android_icon" "Android x86_64" "APK" "bamdad-${version}-android-x86_64.apk"
-            row "$android_icon" "Android universal" "APK" "bamdad-${version}-android-universal.apk"
+            row "$android_icon" "Android" "APK" "bamdad-${version}-android.apk"
             row "$checksums_icon" "Checksums" "SHA256" "SHA256SUMS"
             echo
             echo "Desktop archives include Xray-core and sing-box next to the app."
