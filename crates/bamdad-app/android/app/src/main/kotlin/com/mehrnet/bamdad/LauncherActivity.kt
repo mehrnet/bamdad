@@ -1,56 +1,28 @@
 package com.mehrnet.bamdad
 
 import android.app.Activity
-import android.app.ActivityManager
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 
 /**
  * Tiny launcher shim used by the accent activity-aliases.
  *
  * The aliases target this no-display activity so the alias is no longer
  * running when the real NativeActivity switches icons. It also means the
- * launcher click never creates a visible black trampoline window.
+ * launcher click never creates a visible trampoline window.
  */
 class LauncherActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // TEST: always go through startActivity so the task snapshot is used.
-        // No existing task: create the real task. NEW_TASK alone (without
-        // CLEAR_TOP) keeps later launches from destroying and recreating
-        // MainActivity, which would replay the splash screen.
+        // NEW_TASK (without CLEAR_TOP) brings an existing MainActivity task
+        // forward with its snapshot and state intact instead of recreating it.
+        // Using ActivityManager.moveTaskToFront here instead bypasses the task
+        // snapshot and flashes a black frame until the native surface redraws.
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
-        // Theme.NoDisplay requires the activity to finish before onResume;
-        // it has no window of its own, so this cannot hide MainActivity.
+        // Theme.NoDisplay requires the activity to finish before onResume.
         finish()
-    }
-
-    /** Brings the already-running app task forward without recreating it. */
-    private fun bringExistingTaskToFront(): Boolean {
-        return try {
-            val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val main = MainActivity::class.java.name
-            val tasks = manager.appTasks
-            val task = tasks.firstOrNull { candidate ->
-                val info = candidate.taskInfo
-                listOfNotNull(
-                    info.baseActivity?.className,
-                    info.topActivity?.className,
-                    info.origActivity?.className,
-                    info.baseIntent?.component?.className,
-                ).any { it == main }
-            } ?: return false
-            task.moveToFront()
-            Log.i("Bamdad", "launcher brought existing task to front")
-            true
-        } catch (error: Throwable) {
-            Log.w("Bamdad", "launcher task restore failed: ${error.message}")
-            false
-        }
     }
 }
