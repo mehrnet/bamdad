@@ -16,10 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.4"
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.4.5"
     }
 
     compileOptions {
@@ -64,9 +61,20 @@ android {
         }
     }
 
-    // Always build a single universal APK. Publishing ABI splits led users to
-    // download a split APK directly, which Android rejects at install time
-    // ("There's a problem with the app file").
+    // Publish standalone per-ABI APKs instead of split or universal packages:
+    // each one installs directly and stays around 60 MB, even as more cores
+    // are added later.
+    flavorDimensions += "abi"
+    productFlavors {
+        create("arm64") {
+            dimension = "abi"
+            ndk { abiFilters += "arm64-v8a" }
+        }
+        create("x86_64") {
+            dimension = "abi"
+            ndk { abiFilters += "x86_64" }
+        }
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true

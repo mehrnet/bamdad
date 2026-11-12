@@ -139,16 +139,17 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
           BAMDAD_VERSION_CODE: ${{ github.run_number }}
-        run: gradle -p crates/bamdad-app/android --no-daemon assembleRelease
+        run: gradle -p crates/bamdad-app/android --no-daemon assembleArm64Release assembleX86_64Release
       - name: Package APKs
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/android
-          apkdir=crates/bamdad-app/android/app/build/outputs/apk/release
-          apk=$(find "$apkdir" -maxdepth 1 -name '*.apk' ! -name '*unsigned*' | head -1)
-          test -n "$apk"
-          cp "$apk" "dist/android/bamdad-${version}-android.apk"
+          apkdir=crates/bamdad-app/android/app/build/outputs/apk
+          cp "$apkdir/arm64/release/app-arm64-release.apk" \
+            "dist/android/bamdad-${version}-android-arm64.apk"
+          cp "$apkdir/x86_64/release/app-x86_64-release.apk" \
+            "dist/android/bamdad-${version}-android-x86_64.apk"
           ls -lh dist/android
       - name: Verify APK signatures
         run: |
@@ -232,7 +233,8 @@ jobs:
             row "$linux_icon" "Linux arm64" "App" "bamdad-${version}-linux-aarch64.tar.gz"
             row "$windows_icon" "Windows x86_64" "App" "bamdad-${version}-windows-x86_64.zip"
             row "$macos_icon" "macOS arm64" "App" "bamdad-${version}-macos-aarch64.tar.gz"
-            row "$android_icon" "Android" "APK" "bamdad-${version}-android.apk"
+            row "$android_icon" "Android arm64 (phones)" "APK" "bamdad-${version}-android-arm64.apk"
+            row "$android_icon" "Android x86_64 (emulators)" "APK" "bamdad-${version}-android-x86_64.apk"
             row "$checksums_icon" "Checksums" "SHA256" "SHA256SUMS"
             echo
             echo "Desktop archives include Xray-core and sing-box next to the app."
