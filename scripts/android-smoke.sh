@@ -37,6 +37,7 @@ adb logcat -c
 launch_app
 sleep 8
 adb exec-out screencap -p > "$OUT/before.png"
+adb shell dumpsys activity activities 2>/dev/null | grep -E 'bamdad|ResumedActivity' > "$OUT/activities-before.txt" || true
 
 echo '--- launcher alias ---'
 LAUNCHER=$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null | tr -d '\r' | tail -1)
@@ -58,9 +59,27 @@ echo "screen ${W}x${H}"
 CONSENT=$(find /home/runner/work -type f -name 'android-consent.py' -print -quit)
 consented=false
 for offset in 225 195 255; do
+    # If the consent dialog is already showing, consume it before tapping the
+    # connect orb again; repeated orb taps can land on the dialog and cancel it.
+    for _ in 1 2 3 4 5 6; do
+        adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+        adb pull /sdcard/window.xml "$OUT/window.xml" >/dev/null 2>&1 || true
+        if python3 "$CONSENT" "$OUT/window.xml" | tee "$OUT/consent.txt" | grep -q 'tapping'; then
+            consented=true
+            break
+        fi
+        if grep -q 'com.android.vpndialogs' "$OUT/window.xml"; then
+            sleep 2
+            continue
+        fi
+        break
+    done
+    if $consented; then
+        break
+    fi
     adb shell input tap $((W * 86 / 100)) $((H - offset))
     sleep 3
-    for _ in 1 2 3 4; do
+    for _ in 1 2 3 4 5 6; do
         adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
         adb pull /sdcard/window.xml "$OUT/window.xml" >/dev/null 2>&1 || true
         if python3 "$CONSENT" "$OUT/window.xml" | tee "$OUT/consent.txt" | grep -q 'tapping'; then

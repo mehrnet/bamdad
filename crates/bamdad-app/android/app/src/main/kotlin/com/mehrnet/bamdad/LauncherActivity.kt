@@ -18,9 +18,8 @@ class LauncherActivity : Activity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(intent)
-        // Never call finishAndRemoveTask here: MainActivity usually lands in
-        // the same task as this shim, and removing the task would also remove
-        // the app that was just launched.
-        finish()
+        // Do not call finish() here. The activity is noHistory, so Android
+        // removes it once MainActivity is visible. Finishing immediately can
+        // race the task switch and leave the launcher on top instead.
     }
 }
