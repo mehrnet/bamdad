@@ -12,7 +12,7 @@ test -f "$APK"
 adb install -r "$APK"
 # Create the app data directory, then seed two local test nodes so the smoke
 # can verify mid-connection core switching.
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null 2>&1 || true
+adb shell am start -W -n com.mehrnet.bamdad/.LauncherCyan >/dev/null 2>&1 || true
 sleep 3
 adb shell am force-stop com.mehrnet.bamdad || true
 DATA_DIR=/data/user/0/com.mehrnet.bamdad/files
@@ -23,7 +23,7 @@ adb shell settings put global hide_error_dialogs 1 || true
 adb shell settings put global anr_show_background 0 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
 adb logcat -c
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity
+adb shell am start -W -n com.mehrnet.bamdad/.LauncherCyan
 sleep 8
 adb exec-out screencap -p > "$OUT/before.png"
 
@@ -166,7 +166,7 @@ if ! adb shell dumpsys activity services com.mehrnet.bamdad | grep -q 'BamdadVpn
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     exit 1
 fi
-adb shell am start -W -n com.mehrnet.bamdad/.MainActivity >/dev/null
+adb shell am start -W -n com.mehrnet.bamdad/.LauncherCyan >/dev/null
 sleep 6
 adb exec-out screencap -p > "$OUT/reopened.png"
 if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
