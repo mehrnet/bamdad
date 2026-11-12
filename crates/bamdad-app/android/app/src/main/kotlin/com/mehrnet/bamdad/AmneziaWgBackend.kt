@@ -45,24 +45,28 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
         }
     }
 
-    override suspend fun connect(profile: TunnelProfile) = withContext(Dispatchers.IO) {
-        state = Tunnel.State.DOWN
-        publish()
-        val parsed = Config.parse(BufferedReader(StringReader(profile.config)))
-        config = parsed
-        backend.setState(tunnel, Tunnel.State.UP, parsed)
+    override suspend fun connect(profile: TunnelProfile) {
+        withContext(Dispatchers.IO) {
+            state = Tunnel.State.DOWN
+            publish()
+            val parsed = Config.parse(BufferedReader(StringReader(profile.config)))
+            config = parsed
+            backend.setState(tunnel, Tunnel.State.UP, parsed)
+        }
     }
 
-    override suspend fun disconnect() = withContext(Dispatchers.IO) {
-        try {
-            backend.setState(tunnel, Tunnel.State.DOWN, null)
-        } catch (error: Throwable) {
-            Log.w(TAG, "disconnect failed: ${error.message}")
+    override suspend fun disconnect() {
+        withContext(Dispatchers.IO) {
+            try {
+                backend.setState(tunnel, Tunnel.State.DOWN, null)
+            } catch (error: Throwable) {
+                Log.w(TAG, "disconnect failed: ${error.message}")
+            }
+            config = null
+            state = Tunnel.State.DOWN
+            connectedSince = 0L
+            publish()
         }
-        config = null
-        state = Tunnel.State.DOWN
-        connectedSince = 0L
-        publish()
     }
 
     override fun status(): TunnelStatus {
