@@ -53,7 +53,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs(amneziaJava)
+            java.setSrcDirs(listOf(amneziaJava))
             manifest.srcFile("../vendor/amneziawg-android/tunnel/src/main/AndroidManifest.xml")
         }
     }
