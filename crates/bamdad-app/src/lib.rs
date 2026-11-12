@@ -114,6 +114,8 @@ mod android {
     use jni::signature::{Primitive, ReturnType};
     use jni::sys::jclass;
 
+    use bamdad_core::engine::EngineEvent;
+
     static JAVA_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
     static ACTIVITY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
