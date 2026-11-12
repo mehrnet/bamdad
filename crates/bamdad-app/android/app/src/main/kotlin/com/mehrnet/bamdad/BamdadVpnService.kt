@@ -6,9 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.PorterDuff
+import android.content.res.Configuration
+import android.graphics.Color
+import android.widget.RemoteViews
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -165,13 +165,29 @@ class BamdadVpnService : VpnService() {
         val title = activeProfile.ifBlank { "Bamdad VPN" }
         val traffic = "↓ $downText   ↑ $upText"
         val accent = accentColor(activeAccent)
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val views = RemoteViews(packageName, R.layout.notification_vpn).apply {
+            setImageViewResource(R.id.notification_icon, R.drawable.ic_launcher)
+            setInt(R.id.notification_icon, "setColorFilter", accent)
+            setTextViewText(R.id.notification_title, title)
+            setTextViewText(R.id.notification_text, traffic)
+            setTextColor(
+                R.id.notification_title,
+                if (night) Color.WHITE else Color.rgb(15, 23, 42),
+            )
+            setTextColor(
+                R.id.notification_text,
+                if (night) Color.rgb(176, 190, 197) else Color.rgb(71, 85, 105),
+            )
+        }
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setLargeIcon(accentIcon(accent))
             .setColor(accent)
             .setContentTitle(title)
             .setContentText(traffic)
-            .setStyle(Notification.BigTextStyle().bigText(traffic))
+            .setCustomContentView(views)
+            .setCustomBigContentView(views)
             .setContentIntent(pending)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -190,21 +206,6 @@ class BamdadVpnService : VpnService() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-    }
-
-    private fun accentIcon(color: Int): Bitmap {
-        val density = resources.displayMetrics.density
-        val size = (48 * density).toInt().coerceAtLeast(48)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val drawable = getDrawable(R.drawable.ic_launcher)
-        if (drawable != null) {
-            drawable.setBounds(0, 0, size, size)
-            drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN)
-            drawable.draw(canvas)
-            drawable.setColorFilter(null)
-        }
-        return bitmap
     }
 
     private fun refreshNotification() {
