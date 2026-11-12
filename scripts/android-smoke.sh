@@ -9,15 +9,30 @@ mkdir -p "$OUT"
 
 APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
 test -f "$APK"
-launch_app() {
-    local component
-    component=$(adb shell cmd package resolve-activity --brief \
+launcher_component() {
+    adb shell cmd package resolve-activity --brief \
         -a android.intent.action.MAIN \
         -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null \
-        | tr -d '\r' | tail -1)
+        | tr -d '\r' | tail -1
+}
+
+launch_app() {
+    local component
+    component=$(launcher_component)
     test -n "$component"
     echo "launching $component"
     adb shell am start -W -n "$component"
+}
+
+capture_splash() {
+    local component
+    component=$(launcher_component)
+    test -n "$component"
+    echo "capturing splash for $component"
+    adb shell am start -n "$component" >/dev/null
+    sleep 0.4
+    adb exec-out screencap -p > "$OUT/splash.png"
+    sleep 8
 }
 
 adb install -r "$APK"
@@ -34,8 +49,7 @@ adb shell settings put global hide_error_dialogs 1 || true
 adb shell settings put global anr_show_background 0 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
 adb logcat -c
-launch_app
-sleep 8
+capture_splash
 adb exec-out screencap -p > "$OUT/before.png"
 adb shell dumpsys activity activities 2>/dev/null | grep -E 'bamdad|ResumedActivity' > "$OUT/activities-before.txt" || true
 
