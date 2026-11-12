@@ -10,9 +10,10 @@
     <application
         android:allowBackup="false"
         android:hasCode="true"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -40,7 +41,7 @@
             android:targetActivity=".LauncherActivity"
             android:exported="true"
             android:enabled="true"
-            android:icon="@drawable/ic_launcher"
+            android:icon="@drawable/ic_launcher_cyan"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

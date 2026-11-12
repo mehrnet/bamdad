@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The primary application icon is deliberately accent-neutral. It is
+         used by the Android 12 splash screen and by notification surfaces
+         that ignore the notification small icon (notably One UI). -->
+    <color name="primary_icon_background">#111C26</color>
+    <color name="splash_background">#0B111A</color>
+</resources>

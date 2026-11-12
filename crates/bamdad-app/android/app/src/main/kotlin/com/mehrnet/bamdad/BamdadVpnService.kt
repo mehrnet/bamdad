@@ -196,7 +196,7 @@ class BamdadVpnService : VpnService() {
         val size = (24 * density).toInt().coerceAtLeast(24)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val drawable = getDrawable(R.drawable.ic_launcher)
+        val drawable = getDrawable(R.drawable.ic_moon)
         if (drawable != null) {
             drawable.setBounds(0, 0, size, size)
             drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN)
