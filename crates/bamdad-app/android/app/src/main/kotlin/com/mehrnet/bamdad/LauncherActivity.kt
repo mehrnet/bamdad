@@ -10,9 +10,9 @@ import android.util.Log
 /**
  * Tiny launcher shim used by the accent activity-aliases.
  *
- * Keeping the aliases on a short-lived normal activity means the alias is no
- * longer running when the real NativeActivity switches icons, so changing the
- * enabled alias can't tear down the running task.
+ * The aliases target this no-display activity so the alias is no longer
+ * running when the real NativeActivity switches icons. It also means the
+ * launcher click never creates a visible black trampoline window.
  */
 class LauncherActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,9 +28,9 @@ class LauncherActivity : Activity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
-        // Do not call finish() here. The activity is noHistory, so Android
-        // removes it once MainActivity is visible. Finishing immediately can
-        // race the task switch and leave the launcher on top instead.
+        // Theme.NoDisplay requires the activity to finish before onResume;
+        // it has no window of its own, so this cannot hide MainActivity.
+        finish()
     }
 
     /** Brings the already-running app task forward without recreating it. */
@@ -39,13 +39,6 @@ class LauncherActivity : Activity() {
             val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val main = MainActivity::class.java.name
             val tasks = manager.appTasks
-            Log.i("Bamdad", "launcher tasks: " + tasks.joinToString { candidate ->
-                val info = candidate.taskInfo
-                "${info.taskId}:" +
-                    "base=${info.baseActivity?.className}," +
-                    "top=${info.topActivity?.className}," +
-                    "intent=${info.baseIntent?.component?.className}"
-            })
             val task = tasks.firstOrNull { candidate ->
                 val info = candidate.taskInfo
                 listOfNotNull(

@@ -4,11 +4,7 @@
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
 
-    <!-- The launcher alias shim has no UI of its own; suppress its starting
-         window so relaunching an already-running app does not flash a splash. -->
-    <style name="LauncherShimTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:background">@android:color/transparent</item>
-    </style>
+    <!-- The launcher alias shim has no UI or window of its own, so relaunching
+         an already-running app never flashes a black trampoline frame. -->
+    <style name="LauncherShimTheme" parent="@android:style/Theme.NoDisplay" />
 </resources>
