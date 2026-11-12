@@ -168,6 +168,23 @@ mod android {
             tunnel::stop();
         }
 
+        extern "system" fn native_import(
+            mut env: jni::JNIEnv,
+            _class: JClass,
+            group: JString,
+            files: JString,
+        ) {
+            let group: String = env
+                .get_string(&group)
+                .map(|value| value.into())
+                .unwrap_or_default();
+            let files: String = env
+                .get_string(&files)
+                .map(|value| value.into())
+                .unwrap_or_default();
+            controller::import_native_files(&group, &files);
+        }
+
         extern "system" fn native_event(mut env: jni::JNIEnv, _class: JClass, json: JString) {
             let Ok(text) = env.get_string(&json) else {
                 return;

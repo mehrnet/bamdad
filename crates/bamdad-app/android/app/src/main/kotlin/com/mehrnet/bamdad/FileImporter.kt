@@ -131,7 +131,7 @@ object FileImporter {
                     continue
                 }
                 if (!supported(entry)) continue
-                if (header.size > MAX_FILE_BYTES) {
+                if (header.size > MAX_FILE_BYTES.toLong()) {
                     Log.w(TAG, "skipping oversized entry $entry (${header.size} bytes)")
                     continue
                 }
