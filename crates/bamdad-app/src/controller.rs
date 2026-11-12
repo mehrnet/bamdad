@@ -419,9 +419,6 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_theme_mode(store.settings.theme.clone().into());
     apply_theme(ui, &store.settings.theme, &store.settings.accent);
-    ui.set_launcher_accent(store.settings.accent.clone().into());
-    #[cfg(target_os = "android")]
-    crate::android::apply_launcher_accent(&store.settings.accent);
     let active_profile = store
         .selected_profile()
         .map(|profile| profile.name.clone())
@@ -1031,20 +1028,6 @@ fn setup_callbacks(
                 &ui.get_total_up_text(),
                 accent,
             );
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_restart_app(move || {
-            let Some(_ui) = weak.upgrade() else { return };
-            #[cfg(target_os = "android")]
-            {
-                let accent = store.lock().unwrap().settings.accent.clone();
-                crate::android::apply_launcher_accent(&accent);
-                crate::android::restart_app();
-            }
         });
     }
 

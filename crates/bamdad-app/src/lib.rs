@@ -301,14 +301,6 @@ mod android {
         });
     }
 
-    pub(super) fn apply_launcher_accent(accent: &str) {
-        string_activity_call("applyLauncherAccent", accent);
-    }
-
-    pub(super) fn restart_app() {
-        android_ping_call("restartApp");
-    }
-
     pub(super) fn read_clipboard() -> String {
         android_string_call("readClipboard").unwrap_or_default()
     }

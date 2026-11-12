@@ -628,7 +628,6 @@ export component AppWindow inherits Window {
     in-out property <bool> palette-dark: true;
     in-out property <bool> palette-black: false;
     in-out property <string> accent-mode: "cyan";
-    in-out property <string> launcher-accent: "";
     in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
@@ -672,7 +671,6 @@ export component AppWindow inherits Window {
     callback save-settings(string, string, bool);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
-    callback restart-app();
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
@@ -799,8 +797,6 @@ export component AppWindow inherits Window {
                     system-proxy <=> root.system-proxy;
                     theme <=> root.theme-mode;
                     accent <=> root.accent-mode;
-                    launcher-accent: root.launcher-accent;
-                    restart-app => { root.restart-app(); }
                     save-settings(socks, http, proxy) => {
                         root.save-settings(socks, http, proxy);
                     }
