@@ -537,11 +537,21 @@ fn system_prefers_dark() -> bool {
 
 /// Cloudflare's trace endpoint answers on a fixed IP, so it works even when
 /// DNS inside the tunnel is slow or broken.
-fn fetch_trace_ip(url: &str, ipv6: bool) -> Option<std::net::IpAddr> {
-    let agent = ureq::AgentBuilder::new()
+fn fetch_trace_ip(url: &str, ipv6: bool, socks_port: Option<u16>) -> Option<std::net::IpAddr> {
+    let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(4))
-        .timeout(Duration::from_secs(6))
-        .build();
+        .timeout(Duration::from_secs(7));
+    if let Some(port) = socks_port {
+        match ureq::Proxy::new(format!("socks5://127.0.0.1:{port}")) {
+            Ok(proxy) => builder = builder.proxy(proxy),
+            Err(error) => {
+                #[cfg(target_os = "android")]
+                crate::logcat(&format!("public exit: bad proxy: {error}"));
+                return None;
+            }
+        }
+    }
+    let agent = builder.build();
     let response = match agent.get(url).call() {
         Ok(response) => response,
         Err(error) => {
@@ -573,6 +583,22 @@ fn fetch_trace_ip(url: &str, ipv6: bool) -> Option<std::net::IpAddr> {
     None
 }
 
+/// Fast exit-address lookup using Cloudflare's fixed-IP trace endpoint. When
+/// `socks_port` is set the request goes through the proxy that is currently
+/// carrying the connection; otherwise it goes through the tun directly.
+fn fetch_exit_ips_fast(
+    socks_port: Option<u16>,
+) -> (Option<std::net::IpAddr>, Option<std::net::IpAddr>) {
+    let ipv4 = fetch_trace_ip("https://1.1.1.1/cdn-cgi/trace", false, socks_port)
+        .or_else(|| fetch_trace_ip("https://1.0.0.1/cdn-cgi/trace", false, socks_port));
+    let ipv6 = fetch_trace_ip(
+        "https://[2606:4700:4700::1111]/cdn-cgi/trace",
+        true,
+        socks_port,
+    );
+    (ipv4, ipv6)
+}
+
 /// Look up the public exit address while a native tunnel owns the default
 /// route. The app's own sockets go through the tun, so a direct request
 /// reports the address the server assigns to the tunnel.
@@ -583,9 +609,7 @@ fn refresh_native_exit_ips(ui: &AppWindow) {
         std::thread::sleep(Duration::from_millis(900));
         #[cfg(target_os = "android")]
         crate::logcat("public exit: looking up");
-        let ipv4 = fetch_trace_ip("https://1.1.1.1/cdn-cgi/trace", false)
-            .or_else(|| fetch_trace_ip("https://1.0.0.1/cdn-cgi/trace", false));
-        let ipv6 = fetch_trace_ip("https://[2606:4700:4700::1111]/cdn-cgi/trace", true);
+        let (ipv4, ipv6) = fetch_exit_ips_fast(None);
         if ipv4.is_none() && ipv6.is_none() {
             return;
         }
@@ -2618,6 +2642,58 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                             crate::start_android_vpn(port);
                         }
 
+                        // Resolve the exit address before the slower
+                        // connectivity probe so the UI can show it as soon
+                        // as the proxy answers.
+                        if ready {
+                            let (fast_v4, fast_v6) = fetch_exit_ips_fast(Some(port));
+                            let (ipv4, ipv6) = if fast_v4.is_none() && fast_v6.is_none() {
+                                match fetch_exit_ips(port) {
+                                    Some((v4, v6)) => (v4, v6),
+                                    None => (None, None),
+                                }
+                            } else {
+                                (fast_v4, fast_v6)
+                            };
+                            if ipv4.is_some() || ipv6.is_some() {
+                                let country = ipv4
+                                    .or(ipv6)
+                                    .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
+                                let v4 = ipv4.map(|ip| ip.to_string());
+                                let v6 = ipv6.map(|ip| ip.to_string());
+                                #[cfg(target_os = "android")]
+                                crate::logcat(&format!(
+                                    "public exit: {} {} (via socks)",
+                                    v4.as_deref().unwrap_or("-"),
+                                    v6.as_deref().unwrap_or("-")
+                                ));
+                                let weak_net = weak.clone();
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    let Some(ui) = weak_net.upgrade() else {
+                                        return;
+                                    };
+                                    if !ui.get_connected()
+                                        || NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
+                                    {
+                                        return;
+                                    }
+                                    set_last_network(
+                                        v4.as_deref(),
+                                        v6.as_deref(),
+                                        country.as_deref(),
+                                    );
+                                    set_network_text(
+                                        &ui,
+                                        v4.as_deref().unwrap_or_default(),
+                                        v6.as_deref().unwrap_or_default(),
+                                    );
+                                    ui.set_country_flag(
+                                        country.as_deref().map(country_flag).unwrap_or_default(),
+                                    );
+                                });
+                            }
+                        }
+
                         let (message, status) = if !ready {
                             (
                                 format!("proxy check: SOCKS 127.0.0.1:{port} never opened"),
@@ -2631,42 +2707,11 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                             }
                         };
 
-                        let network = if status.is_none() {
-                            fetch_exit_ips(port)
-                        } else {
-                            None
-                        };
-                        let (ipv4, ipv6, country) = match network {
-                            Some((ipv4, ipv6)) => {
-                                let country = ipv4
-                                    .or(ipv6)
-                                    .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
-                                (
-                                    ipv4.map(|ip| ip.to_string()),
-                                    ipv6.map(|ip| ip.to_string()),
-                                    country,
-                                )
-                            }
-                            None => (None, None, None),
-                        };
-                        set_last_network(ipv4.as_deref(), ipv6.as_deref(), country.as_deref());
-
                         #[cfg(target_os = "android")]
                         crate::logcat(&message);
-                        let weak_for_log = weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = weak_for_log.upgrade() {
+                            if let Some(ui) = weak.upgrade() {
                                 push_log(&ui, &logs, message);
-                                if ui.get_connected() {
-                                    set_network_text(
-                                        &ui,
-                                        ipv4.as_deref().unwrap_or_default(),
-                                        ipv6.as_deref().unwrap_or_default(),
-                                    );
-                                    ui.set_country_flag(
-                                        country.as_deref().map(country_flag).unwrap_or_default(),
-                                    );
-                                }
                                 if let Some(status) = status {
                                     if ui.get_connected() {
                                         ui.set_status_text(status.into());
