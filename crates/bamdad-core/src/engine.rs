@@ -41,6 +41,10 @@ pub enum EngineEvent {
         total_up: u64,
         total_down: u64,
     },
+    /// Address assigned to the local end of a native tunnel, when known.
+    TunnelInfo {
+        local_address: String,
+    },
 }
 
 #[derive(Debug, Clone)]

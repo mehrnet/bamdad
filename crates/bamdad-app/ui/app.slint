@@ -75,6 +75,7 @@ component ConnectionBar inherits Rectangle {
     in property <string> ipv6;
     in property <string> ipv4-mask;
     in property <string> ipv6-mask;
+    in property <string> tunnel;
     in property <image> country;
     in property <bool> revealed;
     callback toggle-connect();
@@ -114,6 +115,7 @@ component ConnectionBar inherits Rectangle {
                 ipv6: root.ipv6;
                 ipv4-mask: root.ipv4-mask;
                 ipv6-mask: root.ipv6-mask;
+                tunnel: root.tunnel;
                 country: root.country;
                 revealed: root.revealed;
                 toggle => { root.toggle-ip(); }
@@ -604,6 +606,7 @@ export component AppWindow inherits Window {
     in-out property <string> status-text: "Disconnected";
     in-out property <string> total-down-text: "0 B";
     in-out property <string> total-up-text: "0 B";
+    in-out property <string> tunnel-ip: "";
     in-out property <string> ipv4-text: "";
     in-out property <string> ipv6-text: "";
     in-out property <string> ipv4-mask: "";
@@ -810,6 +813,7 @@ export component AppWindow inherits Window {
                 ipv6: root.ipv6-text;
                 ipv4-mask: root.ipv4-mask;
                 ipv6-mask: root.ipv6-mask;
+                tunnel: root.tunnel-ip;
                 country: root.country-flag;
                 revealed: root.show-ip;
                 toggle-connect => { root.toggle-connect(); }

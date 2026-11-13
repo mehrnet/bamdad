@@ -253,6 +253,15 @@ pub fn init(
         );
         std::mem::forget(timer);
     }
+    if let Ok(tunnel) = std::env::var("BAMDAD_PREVIEW_TUNNEL") {
+        ui.set_connected(true);
+        ui.set_busy(false);
+        ui.set_status_text("Connected".into());
+        ui.set_tunnel_ip(tunnel.into());
+        set_network_text(&ui, "203.0.113.7", "");
+        ui.set_total_down_text("1.2 MB".into());
+        ui.set_total_up_text("312 KB".into());
+    }
 }
 
 /// Shared state that survives activity destruction on Android.
@@ -322,6 +331,7 @@ pub(crate) fn init_attached(
             EngineState::Error(_) => {
                 ui.set_connected(false);
                 ui.set_busy(false);
+                ui.set_tunnel_ip("".into());
                 ui.set_status_text("Core error".into());
             }
             EngineState::Stopped => {
@@ -2463,6 +2473,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Disconnected".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
+                ui.set_tunnel_ip("".into());
                 set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
@@ -2475,6 +2486,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 ui.set_status_text("Starting…".into());
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
+                ui.set_tunnel_ip("".into());
                 set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
             }
@@ -2617,6 +2629,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
             ..
         } => {
             set_traffic_totals(ui, total_up, total_down);
+        }
+        EngineEvent::TunnelInfo { local_address } => {
+            ui.set_tunnel_ip(local_address.into());
         }
     }
 }

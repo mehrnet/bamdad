@@ -121,6 +121,7 @@ mod android {
     static JAVA_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
     static ACTIVITY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
     static LAST_NATIVE_STATE: AtomicU8 = AtomicU8::new(255);
+    static LAST_NATIVE_LOCAL: Mutex<String> = Mutex::new(String::new());
 
     fn cache_activity_class(app: &slint::android::AndroidApp) {
         let vm = JAVA_VM.load(Ordering::Acquire);
@@ -244,6 +245,24 @@ mod android {
                     down_bps: 0,
                     total_up: status.tx_bytes,
                     total_down: status.rx_bytes,
+                });
+            }
+            // Publish the address assigned to the tunnel device (e.g.
+            // 10.8.0.2/24 for OpenVPN or the WireGuard interface address) so
+            // the UI can show it while connected.
+            let local = status.local_address.clone();
+            let changed = {
+                let mut last = LAST_NATIVE_LOCAL.lock().unwrap();
+                if *last == local {
+                    false
+                } else {
+                    *last = local.clone();
+                    true
+                }
+            };
+            if changed {
+                tunnel::emit_event(EngineEvent::TunnelInfo {
+                    local_address: local,
                 });
             }
         }
