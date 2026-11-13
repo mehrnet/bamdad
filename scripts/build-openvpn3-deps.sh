@@ -119,6 +119,7 @@ for abi in "${ABIS[@]}"; do
     local out="$BUILD/out-mbedtls-$abi"
     rm -rf "$out"
     "$CMAKE" -S "$BUILD/mbedtls" -B "$out" -G Ninja \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$abi" -DANDROID_PLATFORM="android-$ANDROID_PLATFORM" \
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -132,6 +133,7 @@ for abi in "${ABIS[@]}"; do
     local out="$BUILD/out-jsoncpp-$abi"
     rm -rf "$out"
     "$CMAKE" -S "$BUILD/jsoncpp" -B "$out" -G Ninja \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$abi" -DANDROID_PLATFORM="android-$ANDROID_PLATFORM" \
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
