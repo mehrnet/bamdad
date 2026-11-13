@@ -448,8 +448,12 @@ public final class GoBackend implements Backend {
             currentTunnel = tunnel;
             currentConfig = config;
 
-            service.protect(awgGetSocketV4(currentTunnelHandle));
-            service.protect(awgGetSocketV6(currentTunnelHandle));
+            final int socketV4 = awgGetSocketV4(currentTunnelHandle);
+            final int socketV6 = awgGetSocketV6(currentTunnelHandle);
+            final boolean protectedV4 = service.protect(socketV4);
+            final boolean protectedV6 = service.protect(socketV6);
+            Log.i(TAG, "protect v4fd=" + socketV4 + " ok=" + protectedV4
+                + " v6fd=" + socketV6 + " ok=" + protectedV6);
 
             launchStatusJob();
         } else {

@@ -145,7 +145,15 @@ class TunnelService : Service() {
                 delay(2_000)
                 val status = TunnelController.status() ?: return@launch
                 if (status.state != TunnelState.UP) return@launch
-                if (status.lastHandshake > 0 || status.rxBytes > 0) return@launch
+                if (status.lastHandshake > 0) {
+                    log("handshake established in ${status.lastHandshake}ms")
+                    return@launch
+                }
+                if (status.rxBytes > 0) {
+                    log("traffic received rx=${status.rxBytes} tx=${status.txBytes}")
+                    return@launch
+                }
+                log("waiting handshake rx=${status.rxBytes} tx=${status.txBytes} hs=${status.lastHandshake}")
             }
             log("handshake timeout")
             publish(

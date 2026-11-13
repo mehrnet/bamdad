@@ -27,8 +27,7 @@ object TunnelController {
         active = null
 
         val backend = when (profile.transport) {
-            TunnelTransport.WIREGUARD -> VanillaWireGuardBackend(context)
-            TunnelTransport.AMNEZIAWG -> AmneziaWgBackend(context)
+            TunnelTransport.WIREGUARD, TunnelTransport.AMNEZIAWG -> AmneziaWgBackend(context)
             else -> error("transport ${profile.transport} is not implemented yet")
         }
         backend.onStatus = onStatus

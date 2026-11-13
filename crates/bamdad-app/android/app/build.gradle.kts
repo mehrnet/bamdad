@@ -89,5 +89,4 @@ dependencies {
     implementation(project(":amneziawg-tunnel"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
-    implementation("com.wireguard.android:tunnel:1.0.20260102")
 }
