@@ -37,6 +37,12 @@ using openvpn::TunBuilderBase;
 
 static JavaVM *g_vm = nullptr;
 static jobject g_service = nullptr;
+static jclass g_service_class = nullptr;
+static jmethodID g_mid_establish_tun = nullptr;
+static jmethodID g_mid_protect = nullptr;
+static jmethodID g_mid_teardown = nullptr;
+static jmethodID g_mid_event = nullptr;
+static jmethodID g_mid_log = nullptr;
 static std::atomic<bool> g_stop{false};
 static std::thread g_thread;
 static std::mutex g_thread_mutex;
@@ -44,6 +50,12 @@ static std::mutex g_thread_mutex;
 // ---------------------------------------------------------------------------
 // JNI helpers
 // ---------------------------------------------------------------------------
+//
+// All class and method lookups happen in set_vm_and_service(), on the Java
+// thread that owns the service. Calling FindClass() from the OpenVPN worker
+// thread would use the boot class loader, fail for app classes, and leave a
+// pending ClassNotFoundException that makes the next JNI call abort the
+// process.
 
 static JNIEnv *attach() {
   JNIEnv *env = nullptr;
@@ -57,40 +69,59 @@ static JNIEnv *attach() {
   return env;
 }
 
-static jclass service_class(JNIEnv *env) {
-  return env->FindClass("com/mehrnet/bamdad/OpenVpnService");
+static void clear_exception(JNIEnv *env) {
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+  }
 }
 
-static int call_int_string(JNIEnv *env, const char *name, const std::string &value) {
-  if (!g_service) return -1;
-  jclass cls = service_class(env);
-  if (!cls) return -1;
-  jmethodID mid = env->GetMethodID(cls, name, "(Ljava/lang/String;)I");
-  if (!mid) return -1;
-  jstring jvalue = env->NewStringUTF(value.c_str());
+// OpenVPN log/event text can contain arbitrary bytes. The JNI string helpers
+// require modified UTF-8, so keep only printable ASCII and cap the length.
+static std::string jni_safe(const std::string &text, size_t limit = 1500) {
+  std::string out;
+  out.reserve(text.size() < limit ? text.size() : limit);
+  for (unsigned char c : text) {
+    if (out.size() >= limit) break;
+    if (c == '\n' || c == '\t' || (c >= 0x20 && c <= 0x7e)) {
+      out.push_back(static_cast<char>(c));
+    } else {
+      out.push_back('?');
+    }
+  }
+  return out;
+}
+
+static int call_int_string(JNIEnv *env, jmethodID mid, const std::string &value) {
+  if (!g_service || !mid) return -1;
+  std::string safe = jni_safe(value, 32768);
+  jstring jvalue = env->NewStringUTF(safe.c_str());
+  if (!jvalue) {
+    clear_exception(env);
+    return -1;
+  }
   jint result = env->CallIntMethod(g_service, mid, jvalue);
   env->DeleteLocalRef(jvalue);
+  clear_exception(env);
   return result;
 }
 
-static void call_void_string(JNIEnv *env, const char *name, const std::string &value) {
-  if (!g_service) return;
-  jclass cls = service_class(env);
-  if (!cls) return;
-  jmethodID mid = env->GetMethodID(cls, name, "(Ljava/lang/String;)V");
-  if (!mid) return;
-  jstring jvalue = env->NewStringUTF(value.c_str());
+static void call_void_string(JNIEnv *env, jmethodID mid, const std::string &value) {
+  if (!g_service || !mid) return;
+  std::string safe = jni_safe(value);
+  jstring jvalue = env->NewStringUTF(safe.c_str());
+  if (!jvalue) {
+    clear_exception(env);
+    return;
+  }
   env->CallVoidMethod(g_service, mid, jvalue);
   env->DeleteLocalRef(jvalue);
+  clear_exception(env);
 }
 
-static void call_void_bool(JNIEnv *env, const char *name, bool value) {
-  if (!g_service) return;
-  jclass cls = service_class(env);
-  if (!cls) return;
-  jmethodID mid = env->GetMethodID(cls, name, "(Z)V");
-  if (!mid) return;
+static void call_void_bool(JNIEnv *env, jmethodID mid, bool value) {
+  if (!g_service || !mid) return;
   env->CallVoidMethod(g_service, mid, value ? JNI_TRUE : JNI_FALSE);
+  clear_exception(env);
 }
 
 static std::string json_escape(const std::string &s) {
@@ -142,14 +173,14 @@ class Client final : public OpenVPNClient {
        << ",\"name\":\"" << json_escape(ev.name) << "\""
        << ",\"info\":\"" << json_escape(ev.info) << "\"}";
     JNIEnv *env = attach();
-    if (env) call_void_string(env, "onEvent", os.str());
+    if (env) call_void_string(env, g_mid_event, os.str());
   }
 
   void acc_event(const AppCustomControlMessageEvent &) override {}
 
   void log(const LogInfo &info) override {
     JNIEnv *env = attach();
-    if (env) call_void_string(env, "onLog", info.text);
+    if (env) call_void_string(env, g_mid_log, info.text);
   }
 
   void external_pki_cert_request(ExternalPKICertRequest &) override {}
@@ -157,12 +188,11 @@ class Client final : public OpenVPNClient {
 
   bool socket_protect(openvpn_io::detail::socket_type socket, std::string, bool) override {
     JNIEnv *env = attach();
-    if (!env || !g_service) return false;
-    jclass cls = service_class(env);
-    if (!cls) return false;
-    jmethodID mid = env->GetMethodID(cls, "protect", "(I)Z");
-    if (!mid) return false;
-    return env->CallBooleanMethod(g_service, mid, static_cast<jint>(socket)) == JNI_TRUE;
+    if (!env || !g_service || !g_mid_protect) return false;
+    const jboolean protected_socket =
+        env->CallBooleanMethod(g_service, g_mid_protect, static_cast<jint>(socket));
+    clear_exception(env);
+    return protected_socket == JNI_TRUE;
   }
 
   // TunBuilderBase overrides.
@@ -259,7 +289,7 @@ class Client final : public OpenVPNClient {
        << "],\"dns\":[" << join_strings(settings.dns) << "]}";
     JNIEnv *env = attach();
     if (!env) return -1;
-    return call_int_string(env, "establishTun", os.str());
+    return call_int_string(env, g_mid_establish_tun, os.str());
   }
 
   bool tun_builder_persist() override { return false; }
@@ -268,7 +298,7 @@ class Client final : public OpenVPNClient {
 
   void tun_builder_teardown(bool disconnect) override {
     JNIEnv *env = attach();
-    if (env) call_void_bool(env, "teardown", disconnect);
+    if (env) call_void_bool(env, g_mid_teardown, disconnect);
   }
 
  private:
@@ -301,7 +331,7 @@ static void emit_fatal(const std::string &name, const std::string &info) {
   std::ostringstream os;
   os << "{\"error\":true,\"fatal\":true,\"name\":\"" << json_escape(name)
      << "\",\"info\":\"" << json_escape(info) << "\"}";
-  call_void_string(env, "onEvent", os.str());
+  call_void_string(env, g_mid_event, os.str());
 }
 
 static void run_connect(const std::string &profile, const std::string &username,
@@ -400,11 +430,37 @@ std::string eval(const std::string &profile) {
 
 void set_vm_and_service(JavaVM *vm, jobject service) {
   g_vm = vm;
+  if (!vm || !service) return;
+
   JNIEnv *env = nullptr;
-  if (vm && vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) == JNI_OK && service) {
-    if (g_service) env->DeleteGlobalRef(g_service);
-    g_service = env->NewGlobalRef(service);
+  if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) return;
+
+  if (g_service) {
+    env->DeleteGlobalRef(g_service);
+    g_service = nullptr;
   }
+  if (g_service_class) {
+    env->DeleteGlobalRef(g_service_class);
+    g_service_class = nullptr;
+  }
+
+  g_service = env->NewGlobalRef(service);
+  jclass local_class = env->GetObjectClass(service);
+  if (!local_class) {
+    clear_exception(env);
+    return;
+  }
+  g_service_class = static_cast<jclass>(env->NewGlobalRef(local_class));
+  env->DeleteLocalRef(local_class);
+  if (!g_service_class) return;
+
+  g_mid_establish_tun =
+      env->GetMethodID(g_service_class, "establishTun", "(Ljava/lang/String;)I");
+  g_mid_protect = env->GetMethodID(g_service_class, "protect", "(I)Z");
+  g_mid_teardown = env->GetMethodID(g_service_class, "teardown", "(Z)V");
+  g_mid_event = env->GetMethodID(g_service_class, "onEvent", "(Ljava/lang/String;)V");
+  g_mid_log = env->GetMethodID(g_service_class, "onLog", "(Ljava/lang/String;)V");
+  clear_exception(env);
 }
 
 } // namespace ovpn3

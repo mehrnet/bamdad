@@ -135,3 +135,58 @@ jobs:
       - name: Stop WireGuard test server
         if: always()
         run: sudo wg-quick down wg0 || true
+
+  openvpn:
+    name: Native OpenVPN smoke on emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the x86_64 debug APK
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: native.yml
+          name: bamdad-android-debug
+          path: apk
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+      - name: Locate APK
+        run: |
+          APK=$(find apk -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start OpenVPN test server
+        run: bash scripts/openvpn-test-server.sh
+      - name: Run native OpenVPN tunnel
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: bash scripts/android-openvpn-smoke.sh
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-openvpn-smoke
+          path: |
+            /tmp/bamdad-ovpn-smoke/*
+          if-no-files-found: warn
+      - name: Stop OpenVPN test server
+        if: always()
+        run: |
+          sudo kill "$(sudo cat /tmp/bamdad-ovpn/server.pid)" 2>/dev/null || true
+          sudo cat /tmp/bamdad-ovpn/server.log || true
