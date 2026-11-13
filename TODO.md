@@ -63,6 +63,9 @@ Android TunnelController
 - [x] Exclude the WireGuard endpoint IP from both the VPN routes and the
       `AllowedIPs` set so the first handshake cannot loop into the tunnel
       before the socket is protected (works on every Android API).
+- [x] Fix the CIDR complement: the previous split still included the endpoint
+      in one generated sibling route, so the handshake looped despite the log
+      claiming the endpoint was excluded.
 - [x] Recognize `.ovpn` files during import and show them as OpenVPN profiles
       (backend still pending).
 - [x] Build in CI with recursive submodules and Go available.

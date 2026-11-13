@@ -102,8 +102,11 @@ object WireGuardConfig {
         var currentPrefix = prefix
         while (currentPrefix < 32) {
             val bit = 31 - currentPrefix
+            val excludedBit = (excluded ushr bit) and 1
             val sibling = current xor (1 shl bit)
-            result.add("${intToIpv4(sibling)}/${currentPrefix + 1}")
+            val other = if (excludedBit == 1) current else sibling
+            result.add("${intToIpv4(other)}/${currentPrefix + 1}")
+            current = if (excludedBit == 1) sibling else current
             currentPrefix++
         }
         return result
