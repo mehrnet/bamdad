@@ -78,6 +78,7 @@ component ConnectionBar inherits Rectangle {
     in property <string> tunnel;
     in property <image> country;
     in property <bool> revealed;
+    in property <string> status;
     callback toggle-connect();
     callback toggle-ip();
 
@@ -121,9 +122,23 @@ component ConnectionBar inherits Rectangle {
                 toggle => { root.toggle-ip(); }
             }
         }
-        if !root.connected : Rectangle {
+        if !root.connected && !root.busy : Rectangle {
             horizontal-stretch: 1;
             background: transparent;
+        }
+        if root.busy && !root.connected : Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+            Text {
+                text: root.status;
+                color: Theme.warn;
+                font-size: 13px;
+                font-weight: 700;
+                vertical-alignment: center;
+                horizontal-alignment: left;
+                width: 100%;
+                overflow: elide;
+            }
         }
 
         ConnectSquare {
@@ -816,6 +831,7 @@ export component AppWindow inherits Window {
                 tunnel: root.tunnel-ip;
                 country: root.country-flag;
                 revealed: root.show-ip;
+                status: root.status-text;
                 toggle-connect => { root.toggle-connect(); }
                 toggle-ip => { root.toggle-ip(); }
             }

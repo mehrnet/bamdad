@@ -253,6 +253,13 @@ pub fn init(
         );
         std::mem::forget(timer);
     }
+    if std::env::var("BAMDAD_PREVIEW_CONNECTING").is_ok() {
+        ui.set_connected(false);
+        ui.set_busy(true);
+        ui.set_status_text("Connecting…".into());
+        ui.set_total_down_text("0 B".into());
+        ui.set_total_up_text("0 B".into());
+    }
     if let Ok(tunnel) = std::env::var("BAMDAD_PREVIEW_TUNNEL") {
         ui.set_connected(true);
         ui.set_busy(false);
@@ -321,7 +328,7 @@ pub(crate) fn init_attached(
             EngineState::Starting => {
                 ui.set_connected(false);
                 ui.set_busy(true);
-                ui.set_status_text("Starting…".into());
+                ui.set_status_text("Connecting…".into());
             }
             EngineState::Stopping => {
                 ui.set_connected(false);
@@ -2306,6 +2313,20 @@ fn set_ping(
     ui.set_groups(group_model(&guard, pings));
 }
 
+/// Leave the busy state when a start is aborted before the core launches.
+/// Restores the previous visual state because an aborted switch leaves the
+/// running tunnel untouched.
+fn cancel_starting(ui: &AppWindow, was_connected: bool) {
+    SWITCHING.store(false, Ordering::SeqCst);
+    ui.set_busy(false);
+    ui.set_connected(was_connected);
+    ui.set_status_text(if was_connected {
+        "Connected".into()
+    } else {
+        "Disconnected".into()
+    });
+}
+
 /// Enter the yellow "busy" state immediately when a connection starts or the
 /// user switches profiles, and clear the previous session's counters and
 /// addresses so no stale values stay on screen while the new core comes up.
@@ -2315,7 +2336,7 @@ fn enter_starting_state(ui: &AppWindow, switching: bool) {
     ui.set_status_text(if switching {
         "Switching…".into()
     } else {
-        "Starting…".into()
+        "Connecting…".into()
     });
     ui.set_total_down_text("0 B".into());
     ui.set_total_up_text("0 B".into());
@@ -2344,15 +2365,25 @@ fn start_connection(
     ui.set_active_profile(profile.name.clone().into());
     set_active_profile_name(&profile.name);
 
+    // Flip the bar into the yellow connecting state before any validation or
+    // engine work, so the click is acknowledged on the next frame.
+    let was_connected = ui.get_connected();
+    if switching {
+        SWITCHING.store(true, Ordering::SeqCst);
+    }
+    enter_starting_state(ui, switching);
+
     if !profile.is_proxy() {
         #[cfg(target_os = "android")]
         {
             let Some(mut request) = profile.tunnel_profile() else {
                 push_log(ui, logs, "native profile has no raw config".to_string());
+                cancel_starting(ui, was_connected);
                 return;
             };
             if request.config.trim().is_empty() {
                 push_log(ui, logs, "native profile has an empty config".to_string());
+                cancel_starting(ui, was_connected);
                 return;
             }
             request.accent = settings.accent.clone();
@@ -2360,12 +2391,10 @@ fn start_connection(
                 Ok(json) => json,
                 Err(error) => {
                     push_log(ui, logs, format!("could not encode native tunnel: {error}"));
+                    cancel_starting(ui, was_connected);
                     return;
                 }
             };
-            if switching {
-                SWITCHING.store(true, Ordering::SeqCst);
-            }
             NATIVE_TUNNEL_ACTIVE.store(true, Ordering::SeqCst);
             engine.stop();
             crate::stop_android_vpn();
@@ -2378,7 +2407,6 @@ fn start_connection(
                     profile.transport_label()
                 ),
             );
-            enter_starting_state(ui, switching);
             crate::start_native_tunnel(&json);
             return;
         }
@@ -2392,6 +2420,7 @@ fn start_connection(
                     profile.transport_label()
                 ),
             );
+            cancel_starting(ui, was_connected);
             return;
         }
     }
@@ -2467,6 +2496,7 @@ fn start_connection(
             ),
         );
         ui.set_status_text(format!("{} missing", profile.core.label()).into());
+        cancel_starting(ui, was_connected);
         return;
     };
 
@@ -2474,6 +2504,7 @@ fn start_connection(
         Ok(port) => port,
         Err(error) => {
             push_log(ui, logs, format!("could not reserve API port: {error}"));
+            cancel_starting(ui, was_connected);
             return;
         }
     };
@@ -2483,6 +2514,7 @@ fn start_connection(
         Ok(config) => config,
         Err(error) => {
             push_log(ui, logs, format!("invalid config: {error}"));
+            cancel_starting(ui, was_connected);
             return;
         }
     };
@@ -2493,6 +2525,7 @@ fn start_connection(
             logs,
             format!("could not create data directory: {error}"),
         );
+        cancel_starting(ui, was_connected);
         return;
     }
 
@@ -2508,10 +2541,6 @@ fn start_connection(
         api_port,
     };
 
-    if switching {
-        SWITCHING.store(true, Ordering::SeqCst);
-    }
-    enter_starting_state(ui, switching);
     engine.start(spec);
 
     if settings.system_proxy && !cfg!(target_os = "android") {
