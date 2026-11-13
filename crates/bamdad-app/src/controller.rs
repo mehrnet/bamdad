@@ -573,18 +573,23 @@ fn refresh_native_exit_ips(ui: &AppWindow) {
         std::thread::sleep(Duration::from_millis(900));
         #[cfg(target_os = "android")]
         crate::logcat("public exit: looking up");
-        let ipv4 = fetch_public_ip(
-            &[
-                "https://api.ipify.org",
-                "https://ipv4.icanhazip.com",
-                "https://checkip.amazonaws.com",
-            ],
-            false,
-        );
-        let ipv6 = fetch_public_ip(
-            &["https://api6.ipify.org", "https://ipv6.icanhazip.com"],
-            true,
-        );
+        let ipv4 = fetch_trace_ip("https://1.1.1.1/cdn-cgi/trace", false).or_else(|| {
+            fetch_public_ip(
+                &[
+                    "https://api.ipify.org",
+                    "https://ipv4.icanhazip.com",
+                    "https://checkip.amazonaws.com",
+                ],
+                false,
+            )
+        });
+        let ipv6 =
+            fetch_trace_ip("https://[2606:4700:4700::1111]/cdn-cgi/trace", true).or_else(|| {
+                fetch_public_ip(
+                    &["https://api6.ipify.org", "https://ipv6.icanhazip.com"],
+                    true,
+                )
+            });
         if ipv4.is_none() && ipv6.is_none() {
             return;
         }
