@@ -99,8 +99,19 @@ class MainActivity : NativeActivity() {
                 val manager =
                     activity.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                 val active = manager.activeNetwork ?: return false
-                val capabilities = manager.getNetworkCapabilities(active)
-                val target = capabilities?.underlyingNetworks?.firstOrNull() ?: active
+                val activeCaps = manager.getNetworkCapabilities(active)
+                val vpnActive =
+                    activeCaps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                val target =
+                    if (!vpnActive) {
+                        active
+                    } else {
+                        manager.allNetworks.firstOrNull { network ->
+                            val caps = manager.getNetworkCapabilities(network) ?: return@firstOrNull false
+                            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                        } ?: active
+                    }
                 val descriptor = ParcelFileDescriptor.fromFd(fd)
                 try {
                     target.bindSocket(descriptor.fileDescriptor)

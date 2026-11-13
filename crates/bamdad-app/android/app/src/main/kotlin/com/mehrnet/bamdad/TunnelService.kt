@@ -190,7 +190,7 @@ class TunnelService : Service() {
                 else -> "Disconnected"
             }
         }
-        "↓ ${formatBytes(status.rxBytes)}   ↑ ${formatBytes(status.txBytes)}"
+        return "↓ ${formatBytes(status.rxBytes)}   ↑ ${formatBytes(status.txBytes)}"
     }
 
     private fun buildNotification(profile: TunnelProfile, text: String): Notification {
