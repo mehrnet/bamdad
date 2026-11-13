@@ -63,11 +63,32 @@ executables; include their licenses and data notices in release artifacts.
 - License: GPL-2.0-or-later
 - Will be used on Android for the IPSec/IKEv2 backend.
 
+## OpenVPN 3 Core Library
+
+- Project: https://github.com/OpenVPN/openvpn3
+- Version: `release/3.11.8` (git submodule at `crates/bamdad-app/android/vendor/openvpn3`)
+- License: MPL-2.0 (the library is dual-licensed AGPL-3.0-only /
+  MPL-2.0; Bamdad uses it under MPL-2.0, which is compatible with GPL-3.0)
+- Used on Android by the `openvpn3-tunnel` module and the `OpenVpnService`
+  VpnService backend. The tun device and socket protection are implemented by
+  Bamdad; no ics-openvpn code is used.
+
+## OpenVPN 3 native dependencies
+
+Built by `scripts/build-openvpn3-deps.sh` and linked statically into
+`libbamdad_openvpn3.so`:
+
+- asio 1.24.0 — Boost Software License 1.0, with the OpenVPN patches.
+- mbedTLS 2.28.4 — Apache-2.0.
+- LZ4 1.8.3 — BSD 2-Clause.
+- jsoncpp 1.8.4 — MIT / public domain.
+
 ## ics-openvpn
 
 - Project: https://github.com/schwabe/ics-openvpn
 - License: GPL-2.0-only with additional terms
-- OpenVPN integration is pending a GPL-3.0-compatible licensing decision.
+- Not used. Its OpenVPN 3 fork is AGPL-3.0-only; Bamdad uses upstream OpenVPN 3
+  under MPL-2.0 instead.
 
 ## zip4j
 

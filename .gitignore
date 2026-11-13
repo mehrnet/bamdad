@@ -13,6 +13,10 @@
 # Android build output and signing material
 crates/bamdad-app/android/.gradle/
 crates/bamdad-app/android/app/build/
+crates/bamdad-app/android/openvpn3-tunnel/build/
+crates/bamdad-app/android/openvpn3-tunnel/deps/
+crates/bamdad-app/android/amneziawg-tunnel/build/
+.native-deps/
 crates/bamdad-app/android/app/src/main/jniLibs/
 crates/bamdad-app/android/local.properties
 *.jks

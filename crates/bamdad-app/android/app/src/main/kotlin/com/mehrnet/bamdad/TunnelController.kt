@@ -28,6 +28,7 @@ object TunnelController {
 
         val backend = when (profile.transport) {
             TunnelTransport.WIREGUARD, TunnelTransport.AMNEZIAWG -> AmneziaWgBackend(context)
+            TunnelTransport.OPENVPN -> OpenVpnBackend(context)
             else -> error("transport ${profile.transport} is not implemented yet")
         }
         backend.onStatus = onStatus

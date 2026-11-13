@@ -132,6 +132,14 @@ jobs:
           BINSTALL_VERSION: "1.17.5"
       - name: Install cargo-ndk
         run: cargo binstall --no-confirm cargo-ndk@4.1.2 || cargo install cargo-ndk --version 4.1.2 --locked
+      - uses: actions/cache@v4
+        with:
+          path: |
+            crates/bamdad-app/android/openvpn3-tunnel/deps
+            .native-deps/openvpn3/cache
+          key: openvpn3-deps-${{ hashFiles('scripts/build-openvpn3-deps.sh', 'crates/bamdad-app/android/vendor/openvpn3/deps/lib-versions') }}
+      - name: Build OpenVPN 3 dependencies
+        run: ./scripts/build-openvpn3-deps.sh x86_64
       - name: Build x86_64 native libraries
         run: ./crates/bamdad-app/android/build-native.sh x86_64
       - name: Build Android network checker

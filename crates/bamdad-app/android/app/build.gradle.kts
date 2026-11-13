@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.5.9"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.6.0"
     }
 
     compileOptions {
@@ -87,6 +87,7 @@ dependencies {
     // executable by scripts/fetch-android-tun2socks.sh; no AAR is needed.
     // WireGuard and AmneziaWG use the vendored userspace backend.
     implementation(project(":amneziawg-tunnel"))
+    implementation(project(":openvpn3-tunnel"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 }

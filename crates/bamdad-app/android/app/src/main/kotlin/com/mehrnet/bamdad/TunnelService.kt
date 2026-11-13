@@ -147,8 +147,16 @@ class TunnelService : Service() {
             while (isActive) {
                 delay(1_000)
                 val status = TunnelController.status() ?: break
+                if (profile.transport == TunnelTransport.OPENVPN) {
+                    publish(profile, status)
+                    if (status.state == TunnelState.DOWN || status.state == TunnelState.ERROR) break
+                    continue
+                }
                 if (status.state != TunnelState.UP) break
                 publish(profile, status)
+                // The handshake watchdog is WireGuard-specific; OpenVPN
+                // sessions have no handshake timestamp and reconnect on their
+                // own.
                 if (status.lastHandshake > 0) {
                     if (upPolls == 0) log("handshake established")
                     upPolls++

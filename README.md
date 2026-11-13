@@ -198,8 +198,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.5.9
-git push origin v0.5.9
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -320,9 +320,9 @@ for VPN consent on first use. Desktop keeps the system-proxy path.
 
 Bamdad is GPL-3.0-only. Proxy cores are shipped as separate executables:
 Xray-core is MPL-2.0 and sing-box is GPL-3.0. Android native transports use
-Apache-2.0 `amneziawg-android` and GPL-2.0-or-later strongSwan. Include each
-component's license and the `geoip.dat`/`geosite.dat` notices in release
-artifacts.
+Apache-2.0 `amneziawg-android`, MPL-2.0 OpenVPN 3, and GPL-2.0-or-later
+strongSwan. Include each component's license and the
+`geoip.dat`/`geosite.dat` notices in release artifacts.
 
 ## Versioning
 
@@ -335,4 +335,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.5.9`.
+`v0.6.0`.
