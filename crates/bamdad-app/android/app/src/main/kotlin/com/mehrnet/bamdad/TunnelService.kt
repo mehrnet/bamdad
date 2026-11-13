@@ -37,7 +37,8 @@ class TunnelService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var profile: TunnelProfile? = null
     private var lastStatus: TunnelStatus? = null
-    private var watchdogJob: Job? = null
+    private var pollingJob: Job? = null
+    private var lastLoggedState: TunnelState? = null
 
     private fun log(message: String) {
         Log.i(TAG, message)
@@ -60,7 +61,7 @@ class TunnelService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                watchdogJob?.cancel()
+                pollingJob?.cancel()
                 scope.launch {
                     TunnelController.disconnect()
                     stopForegroundCompat()
@@ -104,7 +105,7 @@ class TunnelService : Service() {
                         TunnelController.connect(this@TunnelService, parsed) { status ->
                             publish(parsed, status)
                         }
-                        startHandshakeWatchdog(parsed)
+                        startStatusPolling(parsed)
                     } catch (error: Throwable) {
                         Log.e(TAG, "tunnel connect failed", error)
                         log("connect failed: ${error.message}")
@@ -125,45 +126,47 @@ class TunnelService : Service() {
 
     private fun publish(profile: TunnelProfile, status: TunnelStatus) {
         lastStatus = status
-        if (status.state == TunnelState.ERROR) {
-            log("error: ${status.error}")
-        } else if (status.state == TunnelState.UP) {
-            log(
-                "up ${status.endpoint} rx=${status.rxBytes} tx=${status.txBytes} " +
-                    "handshake=${status.lastHandshake}",
-            )
+        if (status.state != lastLoggedState) {
+            lastLoggedState = status.state
+            when (status.state) {
+                TunnelState.ERROR -> log("error: ${status.error}")
+                TunnelState.UP -> log("up ${status.endpoint} ${status.localAddress}")
+                else -> Unit
+            }
         }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(profile, statusText(status)))
         MainActivity.nativeTunnelEvent(status.toJson())
     }
 
-    private fun startHandshakeWatchdog(profile: TunnelProfile) {
-        watchdogJob?.cancel()
-        watchdogJob = scope.launch {
-            repeat(15) {
-                delay(2_000)
-                val status = TunnelController.status() ?: return@launch
-                if (status.state != TunnelState.UP) return@launch
+    private fun startStatusPolling(profile: TunnelProfile) {
+        pollingJob?.cancel()
+        pollingJob = scope.launch {
+            var upPolls = 0
+            while (isActive) {
+                delay(1_000)
+                val status = TunnelController.status() ?: break
+                if (status.state != TunnelState.UP) break
+                publish(profile, status)
                 if (status.lastHandshake > 0) {
-                    log("handshake established in ${status.lastHandshake}ms")
-                    return@launch
+                    if (upPolls == 0) log("handshake established")
+                    upPolls++
+                    continue
                 }
-                if (status.rxBytes > 0) {
-                    log("traffic received rx=${status.rxBytes} tx=${status.txBytes}")
-                    return@launch
+                upPolls++
+                if (upPolls >= 30) {
+                    log("handshake timeout")
+                    publish(
+                        profile,
+                        TunnelStatus(
+                            state = TunnelState.ERROR,
+                            error = "WireGuard handshake timed out. Check the endpoint, UDP port, and firewall.",
+                        ),
+                    )
+                    TunnelController.disconnect()
+                    break
                 }
-                log("waiting handshake rx=${status.rxBytes} tx=${status.txBytes} hs=${status.lastHandshake}")
             }
-            log("handshake timeout")
-            publish(
-                profile,
-                TunnelStatus(
-                    state = TunnelState.ERROR,
-                    error = "WireGuard handshake timed out. Check the endpoint, UDP port, and firewall.",
-                ),
-            )
-            TunnelController.disconnect()
         }
     }
 
@@ -224,7 +227,7 @@ class TunnelService : Service() {
     }
 
     override fun onDestroy() {
-        watchdogJob?.cancel()
+        pollingJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }
