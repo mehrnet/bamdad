@@ -9,6 +9,8 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
 use bamdad_core::config::{self, load_store, save_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
+use bamdad_core::error::CoreError;
+use bamdad_core::httpprobe::{self, HttpProbe};
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
@@ -27,6 +29,7 @@ static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
+static PROBE_SEMAPHORE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -722,6 +725,16 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_xray_version(core_version(CoreKind::Xray).into());
     ui.set_singbox_version(core_version(CoreKind::SingBox).into());
+    #[cfg(target_os = "android")]
+    {
+        ui.set_wireguard_version(crate::android_wireguard_version().into());
+        ui.set_openvpn_version(crate::android_openvpn_version().into());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        ui.set_wireguard_version("Android only".into());
+        ui.set_openvpn_version("Android only".into());
+    }
 }
 
 fn core_version(kind: CoreKind) -> String {
@@ -2222,6 +2235,41 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
     Ok((title, nodes))
 }
 
+async fn http_ping(
+    profile: config::Profile,
+    settings: config::AppSettings,
+) -> Result<u64, CoreError> {
+    let semaphore = PROBE_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(3));
+    let _permit = semaphore
+        .acquire()
+        .await
+        .map_err(|_| CoreError::Spawn("probe scheduler is unavailable".to_string()))?;
+
+    let core = profile.core;
+    let config = profile.config.clone();
+    let joined = tokio::task::spawn_blocking(move || {
+        let Some(binary_path) = binary::resolve_kind(core) else {
+            return Err(CoreError::Spawn(format!(
+                "{} is not installed",
+                core.label()
+            )));
+        };
+        httpprobe::measure(
+            HttpProbe {
+                core,
+                binary: binary_path,
+                config,
+                settings,
+            },
+            Duration::from_secs(5),
+        )
+    })
+    .await
+    .map_err(|error| CoreError::Spawn(format!("probe task failed: {error}")))?;
+
+    joined
+}
+
 fn begin_ping(
     weak: &Weak<AppWindow>,
     runtime: &tokio::runtime::Handle,
@@ -2244,6 +2292,10 @@ fn begin_ping(
     }
 
     set_ping(&ui, store, pings, &id, "…".to_string(), 1);
+    let settings = store.lock().unwrap().settings.clone();
+    let is_active =
+        ui.get_connected() && store.lock().unwrap().selected_id.as_deref() == Some(id.as_str());
+    let native_active = NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst);
 
     let weak = weak.clone();
     let pings = pings.clone();
@@ -2255,11 +2307,49 @@ fn begin_ping(
         // to the configured endpoint instead so those profiles also show a
         // latency instead of a dash.
         let result = if native {
+            if is_active && native_active {
+                // The app's own traffic already follows the active native
+                // tunnel, so this is a real end-to-end request.
+                tokio::task::spawn_blocking(|| httpprobe::measure_direct(Duration::from_secs(5)))
+                    .await
+                    .unwrap_or_else(|error| {
+                        Err(CoreError::Spawn(format!("probe task failed: {error}")))
+                    })
+            } else {
+                probe::best_native_latency(
+                    &profile.address,
+                    profile.port,
+                    Duration::from_millis(2_000),
+                )
+                .await
+            }
+        } else if is_active && !native_active {
+            // Reuse the active proxy's SOCKS listener; no second core needed.
+            tokio::task::spawn_blocking(move || {
+                httpprobe::measure_through(settings.socks_port, Duration::from_secs(5))
+            })
+            .await
+            .unwrap_or_else(|error| Err(CoreError::Spawn(format!("probe task failed: {error}"))))
+        } else if native_active {
+            // A proxy core started now would be routed through the native
+            // tunnel, so keep the measurement on the physical path.
             probe::best_native_latency(&profile.address, profile.port, Duration::from_millis(2_000))
                 .await
         } else {
-            probe::best_tcp_latency(&profile.address, profile.port, Duration::from_millis(2_000))
-                .await
+            // Real minimal HTTP request through the profile's own core,
+            // radar-node style. Fall back to a TCP handshake when the core is
+            // missing or cannot be started.
+            match http_ping(profile.clone(), settings).await {
+                Ok(ms) => Ok(ms),
+                Err(_) => {
+                    probe::best_tcp_latency(
+                        &profile.address,
+                        profile.port,
+                        Duration::from_millis(2_000),
+                    )
+                    .await
+                }
+            }
         };
 
         let (text, state) = match result {

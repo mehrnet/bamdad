@@ -190,9 +190,7 @@ class TunnelService : Service() {
                 else -> "Disconnected"
             }
         }
-        val totals = "↓ ${formatBytes(status.rxBytes)}   ↑ ${formatBytes(status.txBytes)}"
-        val tunnel = status.localAddress.substringBefore(',').trim()
-        return if (tunnel.isNotEmpty()) "$tunnel · $totals" else totals
+        "↓ ${formatBytes(status.rxBytes)}   ↑ ${formatBytes(status.txBytes)}"
     }
 
     private fun buildNotification(profile: TunnelProfile, text: String): Notification {

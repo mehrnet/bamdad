@@ -15,6 +15,25 @@ use crate::config::{self, AppSettings};
 use crate::error::{CoreError, Result};
 use crate::{binary, paths, CoreKind};
 
+/// Optional hook that binds a freshly created socket to the device's physical
+/// network. On Android the app's sockets otherwise follow the active VPN, which
+/// would make a latency probe measure the tunnel instead of the raw path.
+static SOCKET_PROTECTOR: OnceLock<fn(i32) -> bool> = OnceLock::new();
+
+pub fn set_socket_protector(protector: fn(i32) -> bool) {
+    let _ = SOCKET_PROTECTOR.set(protector);
+}
+
+fn protect_socket(socket: &Socket) {
+    #[cfg(unix)]
+    if let Some(protector) = SOCKET_PROTECTOR.get() {
+        use std::os::fd::AsRawFd;
+        let _ = protector(socket.as_raw_fd());
+    }
+    #[cfg(not(unix))]
+    let _ = socket;
+}
+
 /// Transport-level latency shared by every protocol.
 ///
 /// All supported protocols (VLESS, VMess, Trojan, Shadowsocks, and their
@@ -83,17 +102,66 @@ pub async fn best_tcp_latency(host: &str, port: u16, timeout: Duration) -> Resul
 }
 
 async fn connect_addrs(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
-    let start = Instant::now();
-    match tokio::time::timeout(timeout, TokioTcpStream::connect(addrs.as_slice())).await {
-        Ok(Ok(stream)) => {
-            drop(stream);
-            Ok(start.elapsed().as_millis() as u64)
-        }
-        Ok(Err(error)) => Err(CoreError::Io(error)),
+    tcp_attempt(addrs, timeout, false).await
+}
+
+async fn tcp_attempt(
+    addrs: Arc<Vec<SocketAddr>>,
+    timeout: Duration,
+    accept_refused: bool,
+) -> Result<u64> {
+    let join = tokio::task::spawn_blocking(move || {
+        tcp_connect_blocking(addrs.as_slice(), timeout, accept_refused)
+    });
+    match tokio::time::timeout(timeout + Duration::from_millis(500), join).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(CoreError::Spawn(format!("probe task failed: {error}"))),
         Err(_) => Err(CoreError::Spawn(format!(
             "timed out after {} ms",
             timeout.as_millis()
         ))),
+    }
+}
+
+fn tcp_connect_blocking(
+    addrs: &[SocketAddr],
+    timeout: Duration,
+    accept_refused: bool,
+) -> Result<u64> {
+    use std::io::ErrorKind;
+    let addr = addrs
+        .iter()
+        .find(|addr| addr.is_ipv4())
+        .or_else(|| addrs.first())
+        .copied()
+        .ok_or_else(|| CoreError::Spawn("no resolved address".to_string()))?;
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket =
+        Socket::new(domain, Type::STREAM, Some(SocketProtocol::TCP)).map_err(CoreError::Io)?;
+    protect_socket(&socket);
+    socket.set_nonblocking(false).map_err(CoreError::Io)?;
+    socket
+        .set_write_timeout(Some(timeout))
+        .map_err(CoreError::Io)?;
+    let start = Instant::now();
+    match socket.connect(&addr.into()) {
+        Ok(()) => Ok(start.elapsed().as_millis() as u64),
+        Err(error)
+            if accept_refused
+                && matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionRefused
+                        | ErrorKind::ConnectionReset
+                        | ErrorKind::ConnectionAborted
+                ) =>
+        {
+            Ok(start.elapsed().as_millis() as u64)
+        }
+        Err(error) => Err(CoreError::Io(error)),
     }
 }
 
@@ -124,9 +192,9 @@ pub async fn best_tcp_rtt(host: &str, port: u16, timeout: Duration) -> Result<u6
         return Err(CoreError::Spawn(format!("{host} did not resolve")));
     }
     let (first, second, third) = tokio::join!(
-        connect_addrs_any(addrs.clone(), timeout),
-        connect_addrs_any(addrs.clone(), timeout),
-        connect_addrs_any(addrs.clone(), timeout),
+        tcp_attempt(addrs.clone(), timeout, true),
+        tcp_attempt(addrs.clone(), timeout, true),
+        tcp_attempt(addrs.clone(), timeout, true),
     );
     [first, second, third]
         .into_iter()
@@ -138,32 +206,6 @@ pub async fn best_tcp_rtt(host: &str, port: u16, timeout: Duration) -> Result<u6
                 timeout.as_millis()
             ))
         })
-}
-
-async fn connect_addrs_any(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
-    use std::io::ErrorKind;
-    let start = Instant::now();
-    match tokio::time::timeout(timeout, TokioTcpStream::connect(addrs.as_slice())).await {
-        Ok(Ok(stream)) => {
-            drop(stream);
-            Ok(start.elapsed().as_millis() as u64)
-        }
-        Ok(Err(error))
-            if matches!(
-                error.kind(),
-                ErrorKind::ConnectionRefused
-                    | ErrorKind::ConnectionReset
-                    | ErrorKind::ConnectionAborted
-            ) =>
-        {
-            Ok(start.elapsed().as_millis() as u64)
-        }
-        Ok(Err(error)) => Err(CoreError::Io(error)),
-        Err(_) => Err(CoreError::Spawn(format!(
-            "timed out after {} ms",
-            timeout.as_millis()
-        ))),
-    }
 }
 
 /// Latency probe for transports that do not expose a TCP listener
@@ -206,6 +248,7 @@ fn icmp_once(addr: IpAddr, timeout: Duration) -> Result<u64> {
         (Domain::IPV6, SocketProtocol::ICMPV6)
     };
     let socket = Socket::new(domain, Type::DGRAM, Some(protocol)).map_err(CoreError::Io)?;
+    protect_socket(&socket);
     socket
         .set_read_timeout(Some(timeout))
         .map_err(CoreError::Io)?;

@@ -17,6 +17,7 @@
 #include <ovpncli.hpp>
 
 #include <openvpn/client/dns_options.hpp>
+#include <openvpn/common/version.hpp>
 #include <openvpn/tun/builder/base.hpp>
 #include <openvpn/tun/builder/rgwflags.hpp>
 
@@ -505,6 +506,11 @@ JNIEXPORT void JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeStop(JNIEnv *
 JNIEXPORT jstring JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeStats(JNIEnv *env,
                                                                             jclass) {
   return env->NewStringUTF(bamdad::ovpn3::stats().c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeVersion(JNIEnv *env,
+                                                                              jclass) {
+  return env->NewStringUTF(OPENVPN_VERSION);
 }
 
 JNIEXPORT jstring JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeEval(JNIEnv *env, jclass,

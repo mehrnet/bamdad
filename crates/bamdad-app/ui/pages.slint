@@ -70,6 +70,8 @@ export component SettingsPage inherits Rectangle {
     in property <bool> mobile;
     in property <string> xray-version;
     in property <string> singbox-version;
+    in property <string> wireguard-version;
+    in property <string> openvpn-version;
     in property <string> data-dir;
     in property <[string]> logs;
     in-out property <string> socks-port;
@@ -310,8 +312,32 @@ export component SettingsPage inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "WireGuard"; tint: Theme.accent; badge-width: 62px; }
+                        Text {
+                            text: root.wireguard-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "OpenVPN"; tint: Theme.accent; badge-width: 62px; }
+                        Text {
+                            text: root.openvpn-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
                     Text {
-                        text: "Install a core with scripts/fetch-xray.sh or scripts/fetch-singbox.sh. You can also set BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN.";
+                        text: "Install a core with scripts/fetch-xray.sh or scripts/fetch-singbox.sh. You can also set BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN. WireGuard and OpenVPN 3 are bundled with the Android app.";
                         color: Theme.muted;
                         font-size: 12px;
                         wrap: word-wrap;

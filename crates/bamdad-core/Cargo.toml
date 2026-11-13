@@ -22,7 +22,7 @@ base64.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
 socket2 = "0.6"
-ureq = "2"
+ureq = { version = "2", features = ["socks-proxy"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

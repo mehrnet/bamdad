@@ -142,6 +142,7 @@ mod android {
             return;
         };
         register_tunnel_natives(&mut env, &class);
+        bamdad_core::probe::set_socket_protector(bind_socket_to_physical_network);
         let Ok(global) = env.new_global_ref(&class) else {
             return;
         };
@@ -154,6 +155,29 @@ mod android {
     /// activity class. Registering against the already-loaded class object
     /// avoids the classloader mismatch that plain JNI exports run into with
     /// NativeActivity.
+    /// Bind a probe socket to the device's physical network so latency checks
+    /// stay off the active VPN. Returns false when no binding is possible.
+    fn bind_socket_to_physical_network(fd: i32) -> bool {
+        with_activity(|env, class| {
+            let method_id = env
+                .get_static_method_id(class, "bindSocketToPhysicalNetwork", "(I)Z")
+                .ok()?;
+            let args = [JValue::Int(fd).as_jni()];
+            // SAFETY: method_id was resolved from this exact jclass.
+            let value = unsafe {
+                env.call_static_method_unchecked(
+                    class,
+                    method_id,
+                    ReturnType::Primitive(Primitive::Boolean),
+                    &args,
+                )
+                .ok()?
+            };
+            value.z().ok()
+        })
+        .unwrap_or(false)
+    }
+
     fn register_tunnel_natives(env: &mut jni::JNIEnv, class: &JClass) {
         use jni::sys::{jboolean, jint};
         use jni::NativeMethod;
@@ -425,6 +449,14 @@ mod android {
         string_activity_call("startNativeTunnel", json);
     }
 
+    pub(super) fn wireguard_version() -> String {
+        android_string_call("wireGuardVersion").unwrap_or_else(|| "bundled".into())
+    }
+
+    pub(super) fn openvpn_version() -> String {
+        android_string_call("openVpnVersion").unwrap_or_else(|| "bundled".into())
+    }
+
     pub(super) fn stop_native_tunnel() {
         android_ping_call("stopNativeTunnel");
     }
@@ -581,6 +613,16 @@ pub fn open_import_file() {}
 #[cfg(target_os = "android")]
 pub fn start_android_vpn(port: u16) {
     android::start_vpn(port);
+}
+
+#[cfg(target_os = "android")]
+pub fn android_wireguard_version() -> String {
+    android::wireguard_version()
+}
+
+#[cfg(target_os = "android")]
+pub fn android_openvpn_version() -> String {
+    android::openvpn_version()
 }
 
 #[cfg(target_os = "android")]

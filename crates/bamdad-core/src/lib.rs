@@ -6,6 +6,7 @@ pub mod binary;
 pub mod config;
 pub mod engine;
 pub mod error;
+pub mod httpprobe;
 pub mod kind;
 pub mod link;
 pub mod native;

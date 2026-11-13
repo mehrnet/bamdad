@@ -1014,7 +1014,6 @@ export component IpRow inherits Rectangle {
     in property <string> ipv6;
     in property <string> ipv4-mask;
     in property <string> ipv6-mask;
-    in property <string> tunnel;
     in property <image> country;
     in property <bool> revealed;
     callback toggle();
@@ -1022,7 +1021,7 @@ export component IpRow inherits Rectangle {
     property <int> dot-count: 0;
     Timer {
         interval: 380ms;
-        running: root.visible && root.ipv4 == "" && root.ipv6 == "" && root.tunnel == "";
+        running: root.visible && root.ipv4 == "" && root.ipv6 == "";
         triggered => { root.dot-count = Math.mod(root.dot-count + 1, 3); }
     }
 
@@ -1062,22 +1061,6 @@ export component IpRow inherits Rectangle {
                 spacing: 4px;
                 alignment: start;
                 cross-axis-alignment: center;
-                if root.tunnel != "" : Text {
-                    text: root.tunnel;
-                    color: Theme.accent;
-                    font-size: 12px;
-                    font-family: "monospace";
-                    font-weight: 700;
-                    vertical-alignment: center;
-                    horizontal-stretch: 0;
-                }
-                if root.tunnel != "" && (root.ipv4 != "" || root.ipv6 != "") : Text {
-                    text: "·";
-                    color: Theme.muted;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    horizontal-stretch: 0;
-                }
                 if root.ipv4 != "" : Text {
                     text: root.revealed ? root.ipv4 : root.ipv4-mask;
                     color: Theme.text;
@@ -1102,7 +1085,7 @@ export component IpRow inherits Rectangle {
                     horizontal-stretch: 1;
                     overflow: elide;
                 }
-                if root.ipv4 == "" && root.ipv6 == "" && root.tunnel == "" : Text {
+                if root.ipv4 == "" && root.ipv6 == "" : Text {
                     text: root.dot-count == 0 ? "." : root.dot-count == 1 ? ".." : "...";
                     color: Theme.muted;
                     font-size: 12px;

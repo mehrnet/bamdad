@@ -75,7 +75,6 @@ component ConnectionBar inherits Rectangle {
     in property <string> ipv6;
     in property <string> ipv4-mask;
     in property <string> ipv6-mask;
-    in property <string> tunnel;
     in property <image> country;
     in property <bool> revealed;
     in property <string> status;
@@ -116,7 +115,6 @@ component ConnectionBar inherits Rectangle {
                 ipv6: root.ipv6;
                 ipv4-mask: root.ipv4-mask;
                 ipv6-mask: root.ipv6-mask;
-                tunnel: root.tunnel;
                 country: root.country;
                 revealed: root.revealed;
                 toggle => { root.toggle-ip(); }
@@ -639,6 +637,8 @@ export component AppWindow inherits Window {
     in-out property <bool> mobile: false;
     in-out property <string> xray-version: "not installed";
     in-out property <string> singbox-version: "not installed";
+    in-out property <string> wireguard-version: "Android only";
+    in-out property <string> openvpn-version: "Android only";
     in-out property <string> data-dir: "";
     in-out property <int> page: 0;
     in-out property <[GroupRow]> groups;
@@ -798,6 +798,8 @@ export component AppWindow inherits Window {
                     mobile: root.mobile;
                     xray-version: root.xray-version;
                     singbox-version: root.singbox-version;
+                    wireguard-version: root.wireguard-version;
+                    openvpn-version: root.openvpn-version;
                     data-dir: root.data-dir;
                     logs: root.logs;
                     socks-port <=> root.socks-port;
@@ -828,7 +830,6 @@ export component AppWindow inherits Window {
                 ipv6: root.ipv6-text;
                 ipv4-mask: root.ipv4-mask;
                 ipv6-mask: root.ipv6-mask;
-                tunnel: root.tunnel-ip;
                 country: root.country-flag;
                 revealed: root.show-ip;
                 status: root.status-text;

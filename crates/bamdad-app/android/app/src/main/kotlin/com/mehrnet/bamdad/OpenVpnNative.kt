@@ -36,4 +36,8 @@ object OpenVpnNative {
     /** Parses a profile without connecting; returns a small JSON summary. */
     @JvmStatic
     external fun nativeEval(profile: String): String
+
+    /** Returns the OpenVPN 3 core version string. */
+    @JvmStatic
+    external fun nativeVersion(): String
 }

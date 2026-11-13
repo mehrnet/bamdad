@@ -8,11 +8,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.widget.Toast
 
@@ -84,6 +87,52 @@ class MainActivity : NativeActivity() {
         @JvmStatic
         fun nativeLibraryDir(): String =
             instance?.applicationInfo?.nativeLibraryDir ?: ""
+
+        /**
+         * Binds a probe socket to the physical network under the active VPN so
+         * latency checks measure the raw path, not the tunnel.
+         */
+        @JvmStatic
+        fun bindSocketToPhysicalNetwork(fd: Int): Boolean {
+            val activity = instance ?: return false
+            return try {
+                val manager =
+                    activity.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val active = manager.activeNetwork ?: return false
+                val capabilities = manager.getNetworkCapabilities(active)
+                val target = capabilities?.underlyingNetworks?.firstOrNull() ?: active
+                val descriptor = ParcelFileDescriptor.fromFd(fd)
+                try {
+                    target.bindSocket(descriptor.fileDescriptor)
+                    true
+                } finally {
+                    descriptor.close()
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "could not bind socket $fd to the physical network: ${error.message}")
+                false
+            }
+        }
+
+        /** Version of the bundled WireGuard/AmneziaWG userspace backend. */
+        @JvmStatic
+        fun wireGuardVersion(): String =
+            try {
+                instance?.let { org.amnezia.awg.backend.GoBackend(it).version } ?: "unavailable"
+            } catch (error: Throwable) {
+                Log.w(TAG, "could not read the WireGuard version", error)
+                "unavailable"
+            }
+
+        /** Version of the bundled OpenVPN 3 core library. */
+        @JvmStatic
+        fun openVpnVersion(): String =
+            try {
+                OpenVpnNative.nativeVersion()
+            } catch (error: Throwable) {
+                Log.w(TAG, "could not read the OpenVPN version", error)
+                "unavailable"
+            }
 
         @JvmStatic
         fun contentReady() {
