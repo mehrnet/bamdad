@@ -2256,7 +2256,14 @@ fn begin_ping(
         };
 
         let (text, state) = match result {
-            Ok(ms) => (format!("{ms} ms"), latency_state(ms)),
+            Ok(ms) => {
+                #[cfg(target_os = "android")]
+                crate::logcat(&format!(
+                    "ping {} ({}:{}): {ms} ms",
+                    profile.name, profile.address, profile.port
+                ));
+                (format!("{ms} ms"), latency_state(ms))
+            }
             Err(error) => {
                 #[cfg(target_os = "android")]
                 crate::logcat(&format!(
