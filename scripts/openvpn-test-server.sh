@@ -85,6 +85,12 @@ EOF
   echo '</tls-crypt>'
 } > "$WORK/client.ovpn"
 
+# NAT the tunnel so the emulator can reach the internet and the app can
+# discover its public exit address.
+sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+sudo iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
+  || sudo iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
+
 sudo openvpn --config "$WORK/server.conf" --daemon --log "$WORK/server.log" \
   --writepid "$WORK/server.pid"
 

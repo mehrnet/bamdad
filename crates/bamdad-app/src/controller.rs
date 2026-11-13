@@ -535,6 +535,78 @@ fn system_prefers_dark() -> bool {
     true
 }
 
+fn fetch_public_ip(urls: &[&str], ipv6: bool) -> Option<std::net::IpAddr> {
+    for url in urls {
+        let Ok(response) = ureq::get(url).timeout(Duration::from_secs(6)).call() else {
+            continue;
+        };
+        let Ok(body) = response.into_string() else {
+            continue;
+        };
+        let candidate = body.lines().next().unwrap_or("").trim();
+        if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
+            if ip.is_ipv6() == ipv6 {
+                return Some(ip);
+            }
+        }
+    }
+    None
+}
+
+/// Look up the public exit address while a native tunnel owns the default
+/// route. The app's own sockets go through the tun, so a direct request
+/// reports the address the server assigns to the tunnel.
+fn refresh_native_exit_ips(ui: &AppWindow) {
+    let weak = ui.as_weak();
+    std::thread::spawn(move || {
+        // Give Android a moment to install the routes.
+        std::thread::sleep(Duration::from_millis(900));
+        let ipv4 = fetch_public_ip(
+            &[
+                "https://api.ipify.org",
+                "https://ipv4.icanhazip.com",
+                "https://checkip.amazonaws.com",
+            ],
+            false,
+        );
+        let ipv6 = fetch_public_ip(
+            &["https://api6.ipify.org", "https://ipv6.icanhazip.com"],
+            true,
+        );
+        if ipv4.is_none() && ipv6.is_none() {
+            return;
+        }
+        let country = ipv4
+            .or(ipv6)
+            .and_then(|ip| crate::country::lookup(ip).map(str::to_string));
+        let v4 = ipv4.map(|ip| ip.to_string());
+        let v6 = ipv6.map(|ip| ip.to_string());
+        #[cfg(target_os = "android")]
+        crate::logcat(&format!(
+            "public exit: {} {}",
+            v4.as_deref().unwrap_or("-"),
+            v6.as_deref().unwrap_or("-")
+        ));
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            // A disconnect or transport switch may have happened while the
+            // lookup was in flight; never apply stale results.
+            if !ui.get_connected() || !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
+                return;
+            }
+            set_last_network(v4.as_deref(), v6.as_deref(), country.as_deref());
+            set_network_text(
+                &ui,
+                v4.as_deref().unwrap_or_default(),
+                v6.as_deref().unwrap_or_default(),
+            );
+            ui.set_country_flag(country.as_deref().map(country_flag).unwrap_or_default());
+        });
+    });
+}
+
 fn fetch_exit_ips(port: u16) -> Option<(Option<std::net::IpAddr>, Option<std::net::IpAddr>)> {
     const V4_ECHOES: &[(&str, &str)] = &[
         ("api.ipify.org", "/"),
@@ -2508,6 +2580,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                         }
                     });
                 });
+                if NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
+                    refresh_native_exit_ips(ui);
+                }
                 if !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
                     let weak = ui.as_weak();
                     let logs = logs.clone();

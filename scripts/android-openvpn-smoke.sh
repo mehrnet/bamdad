@@ -106,7 +106,7 @@ adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
 echo '--- interfaces ---'
 adb shell ip addr show tun0 || true
 echo '--- logcat ---'
-grep -Ei 'BamdadOpenVpn|BamdadTunnel|FATAL EXCEPTION|AndroidRuntime|OpenVPN' \
+grep -Ei 'BamdadOpenVpn|BamdadTunnel|public exit|FATAL EXCEPTION|AndroidRuntime|OpenVPN' \
     "$OUT/full-logcat.txt" | tail -120 || true
 
 test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
@@ -123,3 +123,19 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     exit 1
 fi
 echo 'openvpn-tun-up'
+
+# The public exit lookup runs through the tunnel; report whether it resolved.
+public_ip=false
+for _ in $(seq 1 8); do
+    adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+    if grep -Eq 'public exit: [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$OUT/full-logcat.txt"; then
+        public_ip=true
+        break
+    fi
+    sleep 3
+done
+if $public_ip; then
+    echo 'public-exit-ip-ok'
+else
+    echo 'public-exit-ip-missing'
+fi
