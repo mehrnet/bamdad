@@ -105,6 +105,14 @@ adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
 
 echo '--- interfaces ---'
 adb shell ip addr show tun0 || true
+echo '--- routes ---'
+adb shell ip route show table all | head -40 || true
+echo '--- ping gateway ---'
+adb shell ping -c 2 -W 2 10.8.0.1 || true
+echo '--- ping internet ---'
+adb shell ping -c 2 -W 2 1.1.1.1 || true
+echo '--- dns ---'
+adb shell ping -c 1 -W 2 api.ipify.org || true
 echo '--- logcat ---'
 grep -Ei 'BamdadOpenVpn|BamdadTunnel|public exit|FATAL EXCEPTION|AndroidRuntime|OpenVPN' \
     "$OUT/full-logcat.txt" | tail -120 || true
