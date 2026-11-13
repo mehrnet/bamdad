@@ -86,10 +86,19 @@ EOF
 } > "$WORK/client.ovpn"
 
 # NAT the tunnel so the emulator can reach the internet and the app can
-# discover its public exit address.
+# discover its public exit address. GitHub runners can have a restrictive
+# FORWARD policy, so allow the tunnel explicitly.
 sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null
+sudo iptables -P FORWARD ACCEPT || true
+sudo iptables -C FORWARD -s 10.8.0.0/24 -j ACCEPT 2>/dev/null \
+  || sudo iptables -I FORWARD -s 10.8.0.0/24 -j ACCEPT
+sudo iptables -C FORWARD -d 10.8.0.0/24 -j ACCEPT 2>/dev/null \
+  || sudo iptables -I FORWARD -d 10.8.0.0/24 -j ACCEPT
 sudo iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -j MASQUERADE 2>/dev/null \
   || sudo iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
+sudo sysctl net.ipv4.ip_forward
+sudo iptables -t nat -L POSTROUTING -n -v
+sudo iptables -L FORWARD -n -v
 
 sudo openvpn --config "$WORK/server.conf" --daemon --log "$WORK/server.log" \
   --writepid "$WORK/server.pid"

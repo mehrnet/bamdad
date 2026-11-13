@@ -535,38 +535,14 @@ fn system_prefers_dark() -> bool {
     true
 }
 
-fn fetch_public_ip(urls: &[&str], ipv6: bool) -> Option<std::net::IpAddr> {
-    for url in urls {
-        match ureq::get(url).timeout(Duration::from_secs(6)).call() {
-            Ok(response) => match response.into_string() {
-                Ok(body) => {
-                    let candidate = body.lines().next().unwrap_or("").trim();
-                    if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
-                        if ip.is_ipv6() == ipv6 {
-                            return Some(ip);
-                        }
-                    }
-                    #[cfg(target_os = "android")]
-                    crate::logcat(&format!("public exit: {url} returned '{candidate}'"));
-                }
-                Err(error) => {
-                    #[cfg(target_os = "android")]
-                    crate::logcat(&format!("public exit: {url} body error: {error}"));
-                }
-            },
-            Err(error) => {
-                #[cfg(target_os = "android")]
-                crate::logcat(&format!("public exit: {url} failed: {error}"));
-            }
-        }
-    }
-    None
-}
-
 /// Cloudflare's trace endpoint answers on a fixed IP, so it works even when
 /// DNS inside the tunnel is slow or broken.
 fn fetch_trace_ip(url: &str, ipv6: bool) -> Option<std::net::IpAddr> {
-    let response = match ureq::get(url).timeout(Duration::from_secs(6)).call() {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(4))
+        .timeout(Duration::from_secs(6))
+        .build();
+    let response = match agent.get(url).call() {
         Ok(response) => response,
         Err(error) => {
             #[cfg(target_os = "android")]
@@ -607,23 +583,9 @@ fn refresh_native_exit_ips(ui: &AppWindow) {
         std::thread::sleep(Duration::from_millis(900));
         #[cfg(target_os = "android")]
         crate::logcat("public exit: looking up");
-        let ipv4 = fetch_trace_ip("https://1.1.1.1/cdn-cgi/trace", false).or_else(|| {
-            fetch_public_ip(
-                &[
-                    "https://api.ipify.org",
-                    "https://ipv4.icanhazip.com",
-                    "https://checkip.amazonaws.com",
-                ],
-                false,
-            )
-        });
-        let ipv6 =
-            fetch_trace_ip("https://[2606:4700:4700::1111]/cdn-cgi/trace", true).or_else(|| {
-                fetch_public_ip(
-                    &["https://api6.ipify.org", "https://ipv6.icanhazip.com"],
-                    true,
-                )
-            });
+        let ipv4 = fetch_trace_ip("https://1.1.1.1/cdn-cgi/trace", false)
+            .or_else(|| fetch_trace_ip("https://1.0.0.1/cdn-cgi/trace", false));
+        let ipv6 = fetch_trace_ip("https://[2606:4700:4700::1111]/cdn-cgi/trace", true);
         if ipv4.is_none() && ipv6.is_none() {
             return;
         }
