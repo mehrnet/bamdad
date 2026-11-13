@@ -19,14 +19,15 @@ fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
-make-cadir "$WORK/easy-rsa" >/dev/null
+echo "Creating easy-rsa PKI in $WORK"
+make-cadir "$WORK/easy-rsa"
 cd "$WORK/easy-rsa"
 
-./easyrsa --batch --req-cn=bamdad-test build-ca nopass >/dev/null
-./easyrsa --batch --req-cn=server gen-req server nopass >/dev/null
-./easyrsa --batch sign-req server server >/dev/null
-./easyrsa --batch --req-cn=client gen-req client nopass >/dev/null
-./easyrsa --batch sign-req client client >/dev/null
+./easyrsa --batch --req-cn=bamdad-test build-ca nopass
+./easyrsa --batch --req-cn=server gen-req server nopass
+./easyrsa --batch sign-req server server
+./easyrsa --batch --req-cn=client gen-req client nopass
+./easyrsa --batch sign-req client client
 
 if ! openvpn --genkey secret "$WORK/ta.key" 2>/dev/null; then
   openvpn --genkey --secret "$WORK/ta.key"
