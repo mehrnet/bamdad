@@ -88,6 +88,7 @@ dependencies {
     // WireGuard and AmneziaWG use the vendored userspace backend.
     implementation(project(":amneziawg-tunnel"))
     implementation(project(":openvpn3-tunnel"))
+    implementation("androidx.annotation:annotation:1.7.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 }
