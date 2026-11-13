@@ -18,6 +18,7 @@
 
 #include <openvpn/client/dns_options.hpp>
 #include <openvpn/tun/builder/base.hpp>
+#include <openvpn/tun/builder/rgwflags.hpp>
 
 namespace bamdad {
 namespace ovpn3 {
@@ -186,7 +187,13 @@ class Client final : public OpenVPNClient {
 
   bool tun_builder_set_route_metric_default(int) override { return true; }
 
-  bool tun_builder_reroute_gw(bool ipv4, bool ipv6, unsigned int) override {
+  bool tun_builder_reroute_gw(bool ipv4, bool ipv6, unsigned int flags) override {
+    // When the core emulates excluded routes it has already emitted the
+    // concrete include routes through tun_builder_add_route(); adding a
+    // default route here would defeat the exclusions.
+    if (flags & openvpn::RGWFlags::EmulateExcludeRoutes) {
+      return true;
+    }
     if (ipv4) {
       settings.routes.push_back(
           "{\"addr\":\"0.0.0.0\",\"prefix\":0,\"metric\":-1,\"ipv6\":false}");
