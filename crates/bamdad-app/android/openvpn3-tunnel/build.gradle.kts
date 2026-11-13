@@ -10,6 +10,15 @@ android {
 
     defaultConfig {
         minSdk = 29
+        // Only these ABIs have vendored OpenVPN 3 dependencies. A release
+        // build covers both; a debug build can narrow this with
+        // -PbamdadAbis=x86_64 to skip the other cross-build.
+        val abis = (project.findProperty("bamdadAbis") as String?)
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            ?: listOf("arm64-v8a", "x86_64")
+        ndk { abiFilters += abis }
     }
 
     externalNativeBuild {

@@ -145,7 +145,7 @@ jobs:
       - name: Build Android network checker
         run: ./scripts/build-android-netcheck.sh "$PWD/netcheck"
       - name: Build debug APK
-        run: gradle -p crates/bamdad-app/android --no-daemon assembleX86_64Debug
+        run: gradle -p crates/bamdad-app/android --no-daemon -PbamdadAbis=x86_64 assembleX86_64Debug
       - name: Inspect APK
         run: |
           find crates/bamdad-app/android/app/build/outputs/apk/x86_64/debug -type f | sort
