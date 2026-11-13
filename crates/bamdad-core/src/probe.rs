@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::mem::MaybeUninit;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use socket2::{Domain, Protocol as SocketProtocol, Socket, Type};
 use tokio::net::TcpStream as TokioTcpStream;
 
 use crate::config::{self, AppSettings};
@@ -93,6 +95,167 @@ async fn connect_addrs(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result
             timeout.as_millis()
         ))),
     }
+}
+
+/// Endpoint latency for native transports.
+///
+/// ICMP is the direct measurement, but mobile networks and many VPN hosts
+/// filter it. In that case a TCP handshake to the same host is used: even a
+/// refused connection proves the host is reachable and yields a valid RTT.
+pub async fn best_native_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
+    match best_icmp_latency(host, port, Duration::from_millis(1_200)).await {
+        Ok(ms) => Ok(ms),
+        Err(icmp_error) => best_tcp_rtt(host, port, timeout)
+            .await
+            .map_err(|_| icmp_error),
+    }
+}
+
+/// Best-of-three TCP round trips where a refused/reset connection still
+/// counts: the SYN reached the host, so the elapsed time is the endpoint RTT.
+pub async fn best_tcp_rtt(host: &str, port: u16, timeout: Duration) -> Result<u64> {
+    if host.trim().is_empty() || port == 0 {
+        return Err(CoreError::InvalidLink(
+            "profile has no reachable endpoint".to_string(),
+        ));
+    }
+    let addrs = Arc::new(resolve_cached(host, port, Duration::from_secs(4)).await?);
+    if addrs.is_empty() {
+        return Err(CoreError::Spawn(format!("{host} did not resolve")));
+    }
+    let (first, second, third) = tokio::join!(
+        connect_addrs_any(addrs.clone(), timeout),
+        connect_addrs_any(addrs.clone(), timeout),
+        connect_addrs_any(addrs.clone(), timeout),
+    );
+    [first, second, third]
+        .into_iter()
+        .filter_map(Result::ok)
+        .min()
+        .ok_or_else(|| {
+            CoreError::Spawn(format!(
+                "all TCP probes failed within {} ms",
+                timeout.as_millis()
+            ))
+        })
+}
+
+async fn connect_addrs_any(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
+    use std::io::ErrorKind;
+    let start = Instant::now();
+    match tokio::time::timeout(timeout, TokioTcpStream::connect(addrs.as_slice())).await {
+        Ok(Ok(stream)) => {
+            drop(stream);
+            Ok(start.elapsed().as_millis() as u64)
+        }
+        Ok(Err(error))
+            if matches!(
+                error.kind(),
+                ErrorKind::ConnectionRefused
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+            ) =>
+        {
+            Ok(start.elapsed().as_millis() as u64)
+        }
+        Ok(Err(error)) => Err(CoreError::Io(error)),
+        Err(_) => Err(CoreError::Spawn(format!(
+            "timed out after {} ms",
+            timeout.as_millis()
+        ))),
+    }
+}
+
+/// Latency probe for transports that do not expose a TCP listener
+/// (WireGuard, AmneziaWG, and UDP OpenVPN). Uses an unprivileged ICMP echo
+/// socket, which Android and desktop Unix allow without root.
+pub async fn best_icmp_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
+    if host.trim().is_empty() {
+        return Err(CoreError::InvalidLink(
+            "profile has no reachable endpoint".to_string(),
+        ));
+    }
+
+    let addrs = resolve_cached(host, port.max(1), Duration::from_secs(4)).await?;
+    let ip = addrs
+        .iter()
+        .map(SocketAddr::ip)
+        .find(IpAddr::is_ipv4)
+        .or_else(|| addrs.first().map(SocketAddr::ip))
+        .ok_or_else(|| CoreError::Spawn(format!("{host} did not resolve")))?;
+
+    let probe = |timeout: Duration| tokio::task::spawn_blocking(move || icmp_once(ip, timeout));
+    let (first, second, third) = tokio::join!(probe(timeout), probe(timeout), probe(timeout));
+    [first, second, third]
+        .into_iter()
+        .filter_map(|joined| joined.ok())
+        .filter_map(|result| result.ok())
+        .min()
+        .ok_or_else(|| {
+            CoreError::Spawn(format!(
+                "all ICMP probes failed within {} ms",
+                timeout.as_millis()
+            ))
+        })
+}
+
+fn icmp_once(addr: IpAddr, timeout: Duration) -> Result<u64> {
+    let (domain, protocol) = if addr.is_ipv4() {
+        (Domain::IPV4, SocketProtocol::ICMPV4)
+    } else {
+        (Domain::IPV6, SocketProtocol::ICMPV6)
+    };
+    let socket = Socket::new(domain, Type::DGRAM, Some(protocol)).map_err(CoreError::Io)?;
+    socket
+        .set_read_timeout(Some(timeout))
+        .map_err(CoreError::Io)?;
+    socket
+        .set_write_timeout(Some(timeout))
+        .map_err(CoreError::Io)?;
+
+    let mut packet = [0u8; 16];
+    packet[0] = if addr.is_ipv4() { 8 } else { 128 };
+    let seq = (std::process::id() as u16) ^ (timeout.subsec_nanos() as u16);
+    packet[6..8].copy_from_slice(&seq.to_be_bytes());
+    if addr.is_ipv4() {
+        let sum = icmp_checksum(&packet);
+        packet[2..4].copy_from_slice(&sum.to_be_bytes());
+    }
+
+    let start = Instant::now();
+    socket
+        .send_to(&packet, &SocketAddr::new(addr, 0).into())
+        .map_err(CoreError::Io)?;
+
+    let mut buf = [MaybeUninit::<u8>::uninit(); 512];
+    loop {
+        let (read, from) = socket.recv_from(&mut buf).map_err(CoreError::Io)?;
+        if read < 8 || from.as_socket().map(|addr| addr.ip()) != Some(addr) {
+            continue;
+        }
+        // SAFETY: recv_from reported `read` initialized bytes.
+        let data = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), read) };
+        let expected = if addr.is_ipv4() { 0 } else { 129 };
+        if data[0] == expected && data[6..8] == seq.to_be_bytes() {
+            return Ok(start.elapsed().as_millis() as u64);
+        }
+    }
+}
+
+fn icmp_checksum(data: &[u8]) -> u16 {
+    let mut sum = 0u32;
+    for chunk in data.chunks(2) {
+        let word = if chunk.len() == 2 {
+            u16::from_be_bytes([chunk[0], chunk[1]])
+        } else {
+            u16::from_be_bytes([chunk[0], 0])
+        };
+        sum += u32::from(word);
+    }
+    while sum >> 16 != 0 {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    !(sum as u16)
 }
 
 fn dns_cache() -> &'static Mutex<HashMap<(String, u16), (Instant, Vec<SocketAddr>)>> {
@@ -356,6 +519,38 @@ mod tests {
         });
 
         let latency = tcp_latency("127.0.0.1", port, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(latency < 1_000);
+    }
+
+    #[tokio::test]
+    async fn icmp_probes_loopback() {
+        let latency = best_icmp_latency("127.0.0.1", 1, Duration::from_secs(2))
+            .await
+            .unwrap();
+        assert!(latency < 2_000);
+    }
+
+    #[tokio::test]
+    async fn tcp_rtt_accepts_a_listener() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let _ = listener.accept().await;
+        });
+        let latency = best_tcp_rtt("127.0.0.1", port, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(latency < 1_000);
+    }
+
+    #[tokio::test]
+    async fn tcp_rtt_accepts_a_refused_port() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let latency = best_tcp_rtt("127.0.0.1", port, Duration::from_secs(1))
             .await
             .unwrap();
         assert!(latency < 1_000);

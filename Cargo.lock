@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-app"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "bamdad-core",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-core"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -556,6 +556,7 @@ dependencies = [
  "protoc-bin-vendored",
  "serde",
  "serde_json",
+ "socket2",
  "thiserror 2.0.21",
  "tokio",
  "tonic",
@@ -567,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-netcheck"
-version = "0.6.5"
+version = "0.6.6"
 
 [[package]]
 name = "base64"

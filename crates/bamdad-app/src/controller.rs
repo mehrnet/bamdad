@@ -1021,8 +1021,7 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
 }
 
 fn initial_ping(profile: &config::Profile) -> String {
-    if !profile.is_proxy()
-        || profile.protocol.eq_ignore_ascii_case("direct")
+    if profile.protocol.eq_ignore_ascii_case("direct")
         || profile.address == "local"
         || profile.address.is_empty()
         || profile.port == 0
@@ -2227,8 +2226,8 @@ fn begin_ping(
     let profile = store.lock().unwrap().profile_by_id(&id).cloned();
     let Some(profile) = profile else { return };
 
-    if !profile.is_proxy()
-        || profile.protocol.eq_ignore_ascii_case("direct")
+    let native = !profile.is_proxy();
+    if profile.protocol.eq_ignore_ascii_case("direct")
         || profile.address == "local"
         || profile.address.is_empty()
         || profile.port == 0
@@ -2244,15 +2243,28 @@ fn begin_ping(
     let store = store.clone();
     let runtime = runtime.clone();
     runtime.spawn(async move {
-        // Warm TCP handshakes keep the displayed number in the same range as
-        // other clients and avoid starting a core for every ping.
-        let result =
+        // Proxies expose a TCP listener, so a warm TCP handshake is the right
+        // probe. WireGuard/AmneziaWG and UDP OpenVPN do not; use an ICMP echo
+        // to the configured endpoint instead so those profiles also show a
+        // latency instead of a dash.
+        let result = if native {
+            probe::best_native_latency(&profile.address, profile.port, Duration::from_millis(2_000))
+                .await
+        } else {
             probe::best_tcp_latency(&profile.address, profile.port, Duration::from_millis(2_000))
-                .await;
+                .await
+        };
 
         let (text, state) = match result {
             Ok(ms) => (format!("{ms} ms"), latency_state(ms)),
-            Err(_) => ("timeout".to_string(), 4),
+            Err(error) => {
+                #[cfg(target_os = "android")]
+                crate::logcat(&format!(
+                    "ping {} ({}:{}): {error}",
+                    profile.name, profile.address, profile.port
+                ));
+                ("timeout".to_string(), 4)
+            }
         };
 
         let _ = slint::invoke_from_event_loop(move || {
@@ -2285,6 +2297,25 @@ fn set_ping(
 
     let guard = store.lock().unwrap();
     ui.set_groups(group_model(&guard, pings));
+}
+
+/// Enter the yellow "busy" state immediately when a connection starts or the
+/// user switches profiles, and clear the previous session's counters and
+/// addresses so no stale values stay on screen while the new core comes up.
+fn enter_starting_state(ui: &AppWindow, switching: bool) {
+    ui.set_connected(false);
+    ui.set_busy(true);
+    ui.set_status_text(if switching {
+        "Switching…".into()
+    } else {
+        "Starting…".into()
+    });
+    ui.set_total_down_text("0 B".into());
+    ui.set_total_up_text("0 B".into());
+    ui.set_tunnel_ip("".into());
+    set_network_text(ui, "", "");
+    ui.set_country_flag(Default::default());
+    clear_last_network();
 }
 
 fn start_connection(
@@ -2340,10 +2371,7 @@ fn start_connection(
                     profile.transport_label()
                 ),
             );
-            ui.set_busy(true);
-            ui.set_status_text("Starting…".into());
-            ui.set_total_down_text("0 B".into());
-            ui.set_total_up_text("0 B".into());
+            enter_starting_state(ui, switching);
             crate::start_native_tunnel(&json);
             return;
         }
@@ -2476,11 +2504,8 @@ fn start_connection(
     if switching {
         SWITCHING.store(true, Ordering::SeqCst);
     }
+    enter_starting_state(ui, switching);
     engine.start(spec);
-    ui.set_busy(true);
-    ui.set_status_text("Starting…".into());
-    ui.set_total_down_text("0 B".into());
-    ui.set_total_up_text("0 B".into());
 
     if settings.system_proxy && !cfg!(target_os = "android") {
         let proxy = ProxySettings {
