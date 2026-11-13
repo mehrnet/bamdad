@@ -22,12 +22,14 @@ mkdir -p "$WORK"
 echo "Creating easy-rsa PKI in $WORK"
 make-cadir "$WORK/easy-rsa"
 cd "$WORK/easy-rsa"
+mkdir -p "$WORK/tmp"
+TMP_OPT="--tmp-dir=$WORK/tmp"
 
-./easyrsa --batch --req-cn=bamdad-test build-ca nopass
-./easyrsa --batch --req-cn=server gen-req server nopass
-./easyrsa --batch sign-req server server
-./easyrsa --batch --req-cn=client gen-req client nopass
-./easyrsa --batch sign-req client client
+./easyrsa --batch "$TMP_OPT" --req-cn=bamdad-test build-ca nopass
+./easyrsa --batch "$TMP_OPT" --req-cn=server gen-req server nopass
+./easyrsa --batch "$TMP_OPT" sign-req server server
+./easyrsa --batch "$TMP_OPT" --req-cn=client gen-req client nopass
+./easyrsa --batch "$TMP_OPT" sign-req client client
 
 if ! openvpn --genkey secret "$WORK/ta.key" 2>/dev/null; then
   openvpn --genkey --secret "$WORK/ta.key"
