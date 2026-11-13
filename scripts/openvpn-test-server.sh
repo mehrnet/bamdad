@@ -25,6 +25,7 @@ cd "$WORK/easy-rsa"
 mkdir -p "$WORK/tmp"
 TMP_OPT="--tmp-dir=$WORK/tmp"
 
+./easyrsa --batch "$TMP_OPT" init-pki
 ./easyrsa --batch "$TMP_OPT" --req-cn=bamdad-test build-ca nopass
 ./easyrsa --batch "$TMP_OPT" --req-cn=server gen-req server nopass
 ./easyrsa --batch "$TMP_OPT" sign-req server server
