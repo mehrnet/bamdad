@@ -81,7 +81,6 @@ Built by `scripts/build-openvpn3-deps.sh` and linked statically into
 - asio 1.24.0 — Boost Software License 1.0, with the OpenVPN patches.
 - mbedTLS 2.28.4 — Apache-2.0.
 - LZ4 1.8.3 — BSD 2-Clause.
-- jsoncpp 1.8.4 — MIT / public domain.
 
 ## ics-openvpn
 

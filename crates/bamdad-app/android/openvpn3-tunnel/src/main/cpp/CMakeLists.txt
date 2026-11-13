@@ -58,6 +58,5 @@ target_link_libraries(bamdad_openvpn3
   "${O3_DEPS}/lib/libmbedx509.a"
   "${O3_DEPS}/lib/libmbedcrypto.a"
   "${O3_DEPS}/lib/liblz4.a"
-  "${O3_DEPS}/lib/libjsoncpp.a"
   ${ANDROID_LOG_LIB}
 )

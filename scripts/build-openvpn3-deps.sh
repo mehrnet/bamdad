@@ -24,8 +24,6 @@ LZ4_VERSION=1.8.3
 LZ4_SHA=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 MBEDTLS_VERSION=2.28.4
 MBEDTLS_SHA=578c4dcd15bbff3f5cd56aa07cd4f850fc733634e3d5947be4f7157d5bfd81ac
-JSONCPP_VERSION=1.8.4
-JSONCPP_SHA=c49deac9e0933bcb7044f08516861a2d560988540b23de2ac1ad443b219afdb6
 
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$SDK/ndk/27.0.12077973}}"
@@ -82,13 +80,10 @@ download "https://github.com/lz4/lz4/archive/v${LZ4_VERSION}.tar.gz" \
   "lz4-v${LZ4_VERSION}.tar.gz" "$LZ4_SHA"
 download "https://github.com/ARMmbed/mbedtls/archive/refs/tags/v${MBEDTLS_VERSION}.tar.gz" \
   "mbedtls-v${MBEDTLS_VERSION}.tar.gz" "$MBEDTLS_SHA"
-download "https://github.com/open-source-parsers/jsoncpp/archive/refs/tags/${JSONCPP_VERSION}.tar.gz" \
-  "jsoncpp-${JSONCPP_VERSION}.tar.gz" "$JSONCPP_SHA"
 
 extract "${ASIO_VERSION}.tar.gz" asio
 extract "lz4-v${LZ4_VERSION}.tar.gz" lz4
 extract "mbedtls-v${MBEDTLS_VERSION}.tar.gz" mbedtls
-extract "jsoncpp-${JSONCPP_VERSION}.tar.gz" jsoncpp
 
 ASIO_SRC="$BUILD/asio"
 if [[ ! -f "$ASIO_SRC/.openvpn-patched" ]]; then
@@ -129,20 +124,6 @@ for abi in "${ABIS[@]}"; do
     "$CMAKE" --build "$out" --target install -j "$JOBS"
   }
 
-  build_jsoncpp() {
-    local out="$BUILD/out-jsoncpp-$abi"
-    rm -rf "$out"
-    "$CMAKE" -S "$BUILD/jsoncpp" -B "$out" -G Ninja \
-      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-      -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
-      -DANDROID_ABI="$abi" -DANDROID_PLATFORM="android-$ANDROID_PLATFORM" \
-      -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-      -DCMAKE_INSTALL_PREFIX="$prefix" \
-      -DBUILD_SHARED_LIBS=OFF -DJSONCPP_WITH_TESTS=OFF \
-      -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF
-    "$CMAKE" --build "$out" --target install -j "$JOBS"
-  }
-
   build_lz4() {
     # LZ4 1.8.3 has no CMake build; compile the two library sources directly.
     local out="$BUILD/out-lz4-$abi"
@@ -156,9 +137,6 @@ for abi in "${ABIS[@]}"; do
 
   if [[ ! -f "$prefix/lib/libmbedtls.a" || "${FORCE_DEPS:-0}" == "1" ]]; then
     build_mbedtls
-  fi
-  if [[ ! -f "$prefix/lib/libjsoncpp.a" || "${FORCE_DEPS:-0}" == "1" ]]; then
-    build_jsoncpp
   fi
   if [[ ! -f "$prefix/lib/liblz4.a" || "${FORCE_DEPS:-0}" == "1" ]]; then
     build_lz4

@@ -92,7 +92,7 @@ Android TunnelController
 - [x] Licensing: use OpenVPN 3 Core under its MPL-2.0 option, which is
       compatible with GPL-3.0. No AGPL change is needed.
 - [x] Pin upstream `OpenVPN/openvpn3` at `release/3.11.8` (MPL-2.0 submodule).
-- [x] Build the OpenVPN 3 native dependencies (asio, jsoncpp, lz4, mbedTLS) for
+- [x] Build the OpenVPN 3 native dependencies (asio, lz4, mbedTLS) for
       arm64-v8a and x86_64 (`scripts/build-openvpn3-deps.sh`).
 - [x] Add the `AndroidTunBuilder` JNI adapter and `OpenVpnBackend` that supplies
       the VpnService TUN directly.
