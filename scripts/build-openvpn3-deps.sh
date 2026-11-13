@@ -125,8 +125,8 @@ for abi in "${ABIS[@]}"; do
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DCMAKE_INSTALL_PREFIX="$prefix" \
       -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DENABLE_ZLIB_SUPPORT=OFF \
-      -DUSE_STATIC_MBEDTLS_LIBRARY=ON -DUSE_SHARED_MBEDTLS_LIBRARY=OFF >/dev/null
-    "$CMAKE" --build "$out" --target install -j "$JOBS" >/dev/null
+      -DUSE_STATIC_MBEDTLS_LIBRARY=ON -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
+    "$CMAKE" --build "$out" --target install -j "$JOBS"
   }
 
   build_jsoncpp() {
@@ -139,8 +139,8 @@ for abi in "${ABIS[@]}"; do
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DCMAKE_INSTALL_PREFIX="$prefix" \
       -DBUILD_SHARED_LIBS=OFF -DJSONCPP_WITH_TESTS=OFF \
-      -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF >/dev/null
-    "$CMAKE" --build "$out" --target install -j "$JOBS" >/dev/null
+      -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF
+    "$CMAKE" --build "$out" --target install -j "$JOBS"
   }
 
   build_lz4() {
