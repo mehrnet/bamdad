@@ -537,16 +537,26 @@ fn system_prefers_dark() -> bool {
 
 fn fetch_public_ip(urls: &[&str], ipv6: bool) -> Option<std::net::IpAddr> {
     for url in urls {
-        let Ok(response) = ureq::get(url).timeout(Duration::from_secs(6)).call() else {
-            continue;
-        };
-        let Ok(body) = response.into_string() else {
-            continue;
-        };
-        let candidate = body.lines().next().unwrap_or("").trim();
-        if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
-            if ip.is_ipv6() == ipv6 {
-                return Some(ip);
+        match ureq::get(url).timeout(Duration::from_secs(6)).call() {
+            Ok(response) => match response.into_string() {
+                Ok(body) => {
+                    let candidate = body.lines().next().unwrap_or("").trim();
+                    if let Ok(ip) = candidate.parse::<std::net::IpAddr>() {
+                        if ip.is_ipv6() == ipv6 {
+                            return Some(ip);
+                        }
+                    }
+                    #[cfg(target_os = "android")]
+                    crate::logcat(&format!("public exit: {url} returned '{candidate}'"));
+                }
+                Err(error) => {
+                    #[cfg(target_os = "android")]
+                    crate::logcat(&format!("public exit: {url} body error: {error}"));
+                }
+            },
+            Err(error) => {
+                #[cfg(target_os = "android")]
+                crate::logcat(&format!("public exit: {url} failed: {error}"));
             }
         }
     }
@@ -561,6 +571,8 @@ fn refresh_native_exit_ips(ui: &AppWindow) {
     std::thread::spawn(move || {
         // Give Android a moment to install the routes.
         std::thread::sleep(Duration::from_millis(900));
+        #[cfg(target_os = "android")]
+        crate::logcat("public exit: looking up");
         let ipv4 = fetch_public_ip(
             &[
                 "https://api.ipify.org",
