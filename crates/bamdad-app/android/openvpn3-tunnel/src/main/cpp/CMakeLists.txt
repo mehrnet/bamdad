@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Root of the vendored OpenVPN 3 Core Library (MPL-2.0).
-set(OPENVPN3_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/openvpn3"
+set(OPENVPN3_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../vendor/openvpn3"
     CACHE PATH "OpenVPN 3 core source tree")
 
 if(NOT EXISTS "${OPENVPN3_SOURCE}/client/ovpncli.cpp")
@@ -16,7 +16,7 @@ if(NOT EXISTS "${OPENVPN3_SOURCE}/client/ovpncli.cpp")
 endif()
 
 # Static dependencies produced by scripts/build-openvpn3-deps.sh.
-set(O3_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/../../deps/${ANDROID_ABI}"
+set(O3_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/../../../deps/${ANDROID_ABI}"
     CACHE PATH "OpenVPN 3 per-ABI dependency prefix")
 
 if(NOT EXISTS "${O3_DEPS}/lib/libmbedtls.a")
