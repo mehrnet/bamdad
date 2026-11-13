@@ -2242,6 +2242,10 @@ fn start_connection(
         }
     }
 
+    if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
+        crate::stop_native_tunnel();
+    }
+
     // Log the transport shape (never credentials) so reports can identify
     // slow XHTTP modes, missing ALPN or a fallback transport.
     if let Some(outbound) = profile

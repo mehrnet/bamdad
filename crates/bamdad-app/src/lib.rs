@@ -114,10 +114,13 @@ mod android {
     use jni::signature::{Primitive, ReturnType};
     use jni::sys::jclass;
 
+    use std::sync::atomic::AtomicU8;
+
     use bamdad_core::engine::EngineEvent;
 
     static JAVA_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
     static ACTIVITY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+    static LAST_NATIVE_STATE: AtomicU8 = AtomicU8::new(255);
 
     fn cache_activity_class(app: &slint::android::AndroidApp) {
         let vm = JAVA_VM.load(Ordering::Acquire);
@@ -205,21 +208,36 @@ mod android {
                 return;
             };
             use bamdad_core::TunnelState;
-            let state = match status.state {
-                TunnelState::Down => EngineEvent::State(bamdad_core::EngineState::Stopped),
-                TunnelState::Connecting => EngineEvent::State(bamdad_core::EngineState::Starting),
-                TunnelState::Up => EngineEvent::State(bamdad_core::EngineState::Running),
-                TunnelState::Disconnecting => {
-                    EngineEvent::State(bamdad_core::EngineState::Stopping)
-                }
-                TunnelState::Error => EngineEvent::State(bamdad_core::EngineState::Error(
-                    status
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "native tunnel failed".into()),
-                )),
+            // The Kotlin backend polls every second and reports the same UP
+            // state each time. Emit the state event only on transitions so a
+            // periodic UP does not reset the totals to zero between traffic
+            // samples.
+            let state_code = match status.state {
+                TunnelState::Down => 0u8,
+                TunnelState::Connecting => 1,
+                TunnelState::Up => 2,
+                TunnelState::Disconnecting => 3,
+                TunnelState::Error => 4,
             };
-            tunnel::emit_event(state);
+            if LAST_NATIVE_STATE.swap(state_code, Ordering::SeqCst) != state_code {
+                let state = match status.state {
+                    TunnelState::Down => EngineEvent::State(bamdad_core::EngineState::Stopped),
+                    TunnelState::Connecting => {
+                        EngineEvent::State(bamdad_core::EngineState::Starting)
+                    }
+                    TunnelState::Up => EngineEvent::State(bamdad_core::EngineState::Running),
+                    TunnelState::Disconnecting => {
+                        EngineEvent::State(bamdad_core::EngineState::Stopping)
+                    }
+                    TunnelState::Error => EngineEvent::State(bamdad_core::EngineState::Error(
+                        status
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "native tunnel failed".into()),
+                    )),
+                };
+                tunnel::emit_event(state);
+            }
             if status.rx_bytes > 0 || status.tx_bytes > 0 {
                 tunnel::emit_event(EngineEvent::Traffic {
                     up_bps: 0,
