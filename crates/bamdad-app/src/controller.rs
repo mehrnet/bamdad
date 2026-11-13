@@ -563,6 +563,24 @@ fn fetch_public_ip(urls: &[&str], ipv6: bool) -> Option<std::net::IpAddr> {
     None
 }
 
+/// Cloudflare's trace endpoint answers on a fixed IP, so it works even when
+/// DNS inside the tunnel is slow or broken.
+fn fetch_trace_ip(url: &str, ipv6: bool) -> Option<std::net::IpAddr> {
+    let response = ureq::get(url).timeout(Duration::from_secs(6)).call().ok()?;
+    let body = response.into_string().ok()?;
+    for line in body.lines() {
+        let Some(value) = line.strip_prefix("ip=") else {
+            continue;
+        };
+        if let Ok(ip) = value.trim().parse::<std::net::IpAddr>() {
+            if ip.is_ipv6() == ipv6 {
+                return Some(ip);
+            }
+        }
+    }
+    None
+}
+
 /// Look up the public exit address while a native tunnel owns the default
 /// route. The app's own sockets go through the tun, so a direct request
 /// reports the address the server assigns to the tunnel.
