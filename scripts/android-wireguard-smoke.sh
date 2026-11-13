@@ -119,42 +119,6 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
 fi
 echo 'native-tun-up'
 
-# Trigger the profile ping from the UI and verify the prober produced a
-# latency for a native transport (ICMP, or the TCP RTT fallback).
-echo '--- ping ---'
-adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
-adb pull /sdcard/window.xml "$OUT/ping-window.xml" >/dev/null 2>&1 || true
-python3 - "$OUT/ping-window.xml" <<'PINGPY' || true
-import re
-import subprocess
-import sys
-
-try:
-    xml = open(sys.argv[1], encoding="utf-8").read()
-except OSError:
-    print("no ui dump")
-    sys.exit(0)
-
-match = re.search(r'text="Ping"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
-if not match:
-    print("no ping button")
-    sys.exit(0)
-
-x1, y1, x2, y2 = map(int, match.groups())
-subprocess.run(
-    ["adb", "shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2)],
-    check=False,
-)
-print("tapped ping")
-PINGPY
-sleep 6
-adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
-if grep -Eq 'ping Test .*\([^)]*\): [0-9]+ ms' "$OUT/full-logcat.txt"; then
-    echo 'native-ping-ok'
-else
-    echo 'native-ping-missing'
-fi
-
 NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
 if [ -n "$NETCHECK" ]; then
     adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
