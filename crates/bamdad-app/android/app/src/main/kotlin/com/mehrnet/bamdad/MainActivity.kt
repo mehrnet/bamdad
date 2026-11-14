@@ -41,6 +41,15 @@ class MainActivity : NativeActivity() {
             if (resultCode == RESULT_OK) {
                 data?.data?.let { FileImporter.handle(this, it) }
             }
+        } else if (requestCode == VPN_REQUEST_KILL) {
+            if (resultCode == RESULT_OK) {
+                KillSwitchService.start(this)
+            } else {
+                Log.w(TAG, "kill switch VPN consent denied")
+                nativeTunnelEvent(
+                    """{"state":"error","error":"VPN permission denied for the kill switch"}""",
+                )
+            }
         } else if (requestCode == VPN_REQUEST_NATIVE) {
             val json = pendingNativeTunnel
             pendingNativeTunnel = null
@@ -61,6 +70,7 @@ class MainActivity : NativeActivity() {
         private const val VPN_REQUEST = 1001
         private const val NOTIFICATION_REQUEST = 1002
         private const val VPN_REQUEST_NATIVE = 1003
+        private const val VPN_REQUEST_KILL = 1005
         const val IMPORT_FILE_REQUEST = 1004
 
         @Volatile
@@ -204,6 +214,33 @@ class MainActivity : NativeActivity() {
             val activity = instance ?: return
             Handler(Looper.getMainLooper()).post {
                 FileImporter.pick(activity)
+            }
+        }
+
+        /** Starts the no-leak sinkhole while no tunnel is active. */
+        @JvmStatic
+        fun configureTunnel(json: String) {
+            TunnelOptions.configure(json)
+        }
+
+        @JvmStatic
+        fun startKillSwitch() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                val consent = VpnService.prepare(activity)
+                if (consent != null) {
+                    activity.startActivityForResult(consent, VPN_REQUEST_KILL)
+                } else {
+                    KillSwitchService.start(activity)
+                }
+            }
+        }
+
+        @JvmStatic
+        fun stopKillSwitch() {
+            val activity = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                KillSwitchService.stop(activity)
             }
         }
 

@@ -23,7 +23,7 @@ class OpenVpnBackend(private val context: Context) : TunnelBackend {
     override suspend fun connect(profile: TunnelProfile) {
         withContext(Dispatchers.IO) {
             MainActivity.nativeLog("BamdadOpenVpn: starting ${profile.name}")
-            OpenVpnService.start(context, profile, username = "", password = "")
+            OpenVpnService.start(context, profile, profile.authUser, profile.authPass)
             val settled = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
                 while (true) {
                     val state = OpenVpnService.snapshot().state

@@ -30,6 +30,8 @@ static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
+static CREDENTIALS_TARGET: Mutex<String> = Mutex::new(String::new());
+static KILL_SWITCH: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -174,6 +176,8 @@ fn profiles_from_text(name: &str, text: &str) -> Vec<config::Profile> {
                     group_id: None,
                     group_name: None,
                     group_url: None,
+                    auth_user: None,
+                    auth_pass: None,
                 }];
             }
         }
@@ -232,6 +236,9 @@ pub fn init(
     );
     start_size_watch(ui);
     start_bridge(ui.as_weak(), events, logs);
+    if KILL_SWITCH.load(Ordering::SeqCst) {
+        crate::start_kill_switch();
+    }
 
     // Headless visual-test hooks (used by caged Wayland previews).
     if let Ok(page) = std::env::var("BAMDAD_PREVIEW_PAGE") {
@@ -344,6 +351,9 @@ pub(crate) fn init_attached(
                 ui.set_busy(false);
                 ui.set_tunnel_ip("".into());
                 ui.set_status_text("Core error".into());
+                if KILL_SWITCH.load(Ordering::SeqCst) {
+                    crate::start_kill_switch();
+                }
             }
             EngineState::Stopped => {
                 // Ignore a stale Stopped from the previous session while a new
@@ -705,6 +715,22 @@ fn fetch_exit_ips(port: u16) -> Option<(Option<std::net::IpAddr>, Option<std::ne
     }
 }
 
+fn apply_tunnel_options(settings: &config::AppSettings) {
+    let dns: Vec<&str> = settings
+        .custom_dns
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect();
+    let json = serde_json::json!({
+        "dns": dns,
+        "split_mode": settings.split_mode,
+        "split_apps": settings.split_apps,
+    })
+    .to_string();
+    crate::configure_tunnel(&json);
+}
+
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     let store = store.lock().unwrap();
 
@@ -716,6 +742,12 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_socks_port(store.settings.socks_port.to_string().into());
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
+    ui.set_kill_switch(store.settings.kill_switch);
+    ui.set_custom_dns(store.settings.custom_dns.clone().into());
+    ui.set_split_mode(store.settings.split_mode.clone().into());
+    ui.set_split_apps_text(store.settings.split_apps.join(", ").into());
+    KILL_SWITCH.store(store.settings.kill_switch, Ordering::SeqCst);
+    apply_tunnel_options(&store.settings);
     ui.set_theme_mode(store.settings.theme.clone().into());
     apply_theme(ui, &store.settings.theme, &store.settings.accent);
     #[cfg(target_os = "android")]
@@ -1212,6 +1244,8 @@ fn setup_callbacks(
                             group_id: None,
                             group_name: None,
                             group_url: None,
+                            auth_user: None,
+                            auth_pass: None,
                         };
                         {
                             let mut guard = store.lock().unwrap();
@@ -1293,7 +1327,7 @@ fn setup_callbacks(
         let weak = ui.as_weak();
         let store = store.clone();
         let logs = logs.clone();
-        ui.on_save_settings(move |socks, http, system_proxy| {
+        ui.on_save_settings(move |socks, http, system_proxy, custom_dns, split_mode, split_apps| {
             let Some(ui) = weak.upgrade() else { return };
             let socks_port: u16 = match socks.as_str().parse() {
                 Ok(port) => port,
@@ -1315,6 +1349,18 @@ fn setup_callbacks(
                 guard.settings.socks_port = socks_port;
                 guard.settings.http_port = http_port;
                 guard.settings.system_proxy = system_proxy;
+                guard.settings.custom_dns = custom_dns.trim().to_string();
+                guard.settings.split_mode = match split_mode.as_str() {
+                    "allow" | "exclude" => split_mode.to_string(),
+                    _ => "off".to_string(),
+                };
+                guard.settings.split_apps = split_apps
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect();
+                apply_tunnel_options(&guard.settings);
                 let _ = save_store(&guard);
             }
 
@@ -1397,6 +1443,27 @@ fn setup_callbacks(
                 &ui.get_total_up_text(),
                 accent,
             );
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_set_kill_switch(move |enabled| {
+            {
+                let mut guard = store.lock().unwrap();
+                guard.settings.kill_switch = enabled;
+                let _ = save_store(&guard);
+            }
+            KILL_SWITCH.store(enabled, Ordering::SeqCst);
+            if let Some(ui) = weak.upgrade() {
+                ui.set_kill_switch(enabled);
+                if !enabled {
+                    crate::stop_kill_switch();
+                } else if !ui.get_connected() && !ui.get_busy() {
+                    crate::start_kill_switch();
+                }
+            }
         });
     }
 
@@ -1843,14 +1910,19 @@ fn setup_callbacks(
         let store = store.clone();
         ui.on_open_config_menu(move |id| {
             let Some(ui) = weak.upgrade() else { return };
-            let name = store
-                .lock()
-                .unwrap()
-                .profile_by_id(id.as_str())
-                .map(|profile| profile.name.clone());
-            let Some(name) = name else { return };
+            let prepared = {
+                let guard = store.lock().unwrap();
+                let Some(profile) = guard.profile_by_id(id.as_str()) else {
+                    return;
+                };
+                (
+                    profile.name.clone(),
+                    profile.transport == bamdad_core::Transport::OpenVpn,
+                )
+            };
             ui.set_config_menu_id(id.clone());
-            ui.set_config_menu_name(name.into());
+            ui.set_config_menu_name(prepared.0.into());
+            ui.set_config_menu_credentials(prepared.1);
             ui.set_config_menu_open(true);
         });
     }
@@ -1861,6 +1933,62 @@ fn setup_callbacks(
             if let Some(ui) = weak.upgrade() {
                 ui.set_config_menu_open(false);
             }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_open_credentials(move |id| {
+            let Some(ui) = weak.upgrade() else { return };
+            let prepared = {
+                let guard = store.lock().unwrap();
+                let Some(profile) = guard.profile_by_id(id.as_str()) else {
+                    return;
+                };
+                (
+                    profile.id.clone(),
+                    profile.name.clone(),
+                    profile.auth_user.clone().unwrap_or_default(),
+                    profile.auth_pass.clone().unwrap_or_default(),
+                )
+            };
+            *CREDENTIALS_TARGET.lock().unwrap() = prepared.0;
+            ui.set_credentials_name(prepared.1.into());
+            ui.set_credentials_user(prepared.2.into());
+            ui.set_credentials_pass(prepared.3.into());
+            ui.set_credentials_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_close_credentials(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_credentials_open(false);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let pings = pings.clone();
+        ui.on_save_credentials(move |user, pass| {
+            let Some(ui) = weak.upgrade() else { return };
+            let target = CREDENTIALS_TARGET.lock().unwrap().clone();
+            {
+                let mut guard = store.lock().unwrap();
+                let user = user.trim().to_string();
+                let pass = pass.to_string();
+                if let Some(profile) = guard.profiles.iter_mut().find(|p| p.id == target) {
+                    profile.auth_user = if user.is_empty() { None } else { Some(user) };
+                    profile.auth_pass = if pass.is_empty() { None } else { Some(pass) };
+                }
+                let _ = save_store(&guard);
+                ui.set_groups(group_model(&guard, &pings));
+            }
+            ui.set_credentials_open(false);
         });
     }
 
@@ -2482,6 +2610,7 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
 /// user switches profiles, and clear the previous session's counters and
 /// addresses so no stale values stay on screen while the new core comes up.
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
+    crate::stop_kill_switch();
     STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
     ui.set_busy(true);
@@ -2800,6 +2929,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
+                if KILL_SWITCH.load(Ordering::SeqCst) {
+                    crate::start_kill_switch();
+                }
                 let _ = system_proxy::disable();
             }
             EngineState::Starting => {

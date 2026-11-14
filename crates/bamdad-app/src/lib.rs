@@ -461,6 +461,18 @@ mod android {
         android_ping_call("stopNativeTunnel");
     }
 
+    pub(super) fn start_kill_switch() {
+        android_ping_call("startKillSwitch");
+    }
+
+    pub(super) fn stop_kill_switch() {
+        android_ping_call("stopKillSwitch");
+    }
+
+    pub(super) fn configure_tunnel(json: &str) {
+        string_activity_call("configureTunnel", json);
+    }
+
     pub(super) fn open_import_file() {
         android_ping_call("openImportFile");
     }
@@ -624,6 +636,30 @@ pub fn android_wireguard_version() -> String {
 pub fn android_openvpn_version() -> String {
     android::openvpn_version()
 }
+
+#[cfg(target_os = "android")]
+pub fn start_kill_switch() {
+    android::start_kill_switch();
+}
+
+#[cfg(target_os = "android")]
+pub fn stop_kill_switch() {
+    android::stop_kill_switch();
+}
+
+#[cfg(target_os = "android")]
+pub fn configure_tunnel(json: &str) {
+    android::configure_tunnel(json);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn configure_tunnel(_json: &str) {}
+
+#[cfg(not(target_os = "android"))]
+pub fn start_kill_switch() {}
+
+#[cfg(not(target_os = "android"))]
+pub fn stop_kill_switch() {}
 
 #[cfg(target_os = "android")]
 pub fn stop_android_vpn() {

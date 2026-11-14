@@ -50,6 +50,8 @@ data class TunnelProfile(
     val bypassCidrs: List<String> = emptyList(),
     val mtu: Int? = null,
     val accent: String = "cyan",
+    val authUser: String = "",
+    val authPass: String = "",
 ) {
     companion object {
         fun fromJson(text: String): TunnelProfile {
@@ -65,6 +67,8 @@ data class TunnelProfile(
                 bypassCidrs = json.stringList("bypass_cidrs"),
                 mtu = if (json.has("mtu")) json.optInt("mtu") else null,
                 accent = json.optString("accent", "cyan"),
+                authUser = json.optString("auth_user"),
+                authPass = json.optString("auth_pass"),
             )
         }
     }

@@ -285,6 +285,7 @@ export component TextField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder: "";
     in property <bool> read-only: false;
+    in property <bool> password: false;
     callback edited();
     callback accepted();
 
@@ -301,6 +302,7 @@ export component TextField inherits Rectangle {
         height: parent.height - 8px;
         text <=> root.text;
         read-only: root.read-only;
+        input-type: root.password ? InputType.password : InputType.text;
         single-line: true;
         color: Theme.text;
         font-size: Theme.font-ui;

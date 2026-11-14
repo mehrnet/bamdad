@@ -123,6 +123,7 @@ object FileImporter {
                 zip.setPassword(password.toCharArray())
             }
             val files = JSONArray()
+            val all = mutableMapOf<String, String>()
             var count = 0
             for (header in zip.fileHeaders) {
                 if (header.isDirectory) continue
@@ -130,17 +131,24 @@ object FileImporter {
                 if (entry.startsWith("__MACOSX/") || entry.substringAfterLast('/').startsWith(".")) {
                     continue
                 }
-                if (!supported(entry)) continue
                 if (header.uncompressedSize > MAX_FILE_BYTES.toLong()) {
                     Log.w(TAG, "skipping oversized entry $entry (${header.uncompressedSize} bytes)")
                     continue
                 }
                 if (count >= MAX_ENTRIES) break
                 val text = zip.getInputStream(header).bufferedReader().use { it.readText() }
+                // Sibling files are needed to inline .ovpn references.
+                all[entry.substringAfterLast('/').lowercase()] = text
+                if (!supported(entry)) continue
+                val inline = if (entry.lowercase().endsWith(".ovpn")) {
+                    inlineOpenVpnReferences(text, all)
+                } else {
+                    text
+                }
                 files.put(
                     JSONObject()
                         .put("name", entry.substringAfterLast('/'))
-                        .put("text", text),
+                        .put("text", inline),
                 )
                 count++
             }
@@ -161,6 +169,51 @@ object FileImporter {
             Log.e(TAG, "zip extraction failed", error)
             toast(activity, "ZIP error: ${error.message}")
         }
+    }
+
+    private val inlineTags = mapOf(
+        "ca" to "ca",
+        "cert" to "cert",
+        "key" to "key",
+        "tls-auth" to "tls-auth",
+        "tls-crypt" to "tls-crypt",
+        "dh" to "dh",
+        "pkcs12" to "pkcs12",
+    )
+
+    /**
+     * Replace `ca ca.crt`-style file references with inline blocks using
+     * sibling files from the same ZIP. OpenVPN 3 cannot read external files
+     * from a profile string.
+     */
+    private fun inlineOpenVpnReferences(text: String, files: Map<String, String>): String {
+        if (!text.contains("client", ignoreCase = true)) return text
+        val out = StringBuilder()
+        var keyDirection = false
+        for (line in text.lineSequence()) {
+            val parts = line.trim().split(Regex("\\s+"))
+            val directive = parts.firstOrNull()?.lowercase()
+            val tag = directive?.let { inlineTags[it] }
+            if (tag != null && parts.size >= 2 && !parts[1].startsWith("<")) {
+                val content = files[parts[1].substringAfterLast('/').lowercase()]
+                if (content != null && content.isNotBlank()) {
+                    out.append('<').append(tag).append('>').append('\n')
+                    out.append(content.trim()).append('\n')
+                    out.append("</").append(tag).append('>').append('\n')
+                    if (
+                        (directive == "tls-auth" || directive == "tls-crypt") &&
+                        parts.size >= 3 &&
+                        parts[2] == "1"
+                    ) {
+                        keyDirection = true
+                    }
+                    continue
+                }
+            }
+            out.append(line).append('\n')
+        }
+        if (keyDirection) out.append("key-direction 1\n")
+        return out.toString()
     }
 
     private fun importPlain(name: String, bytes: ByteArray) {

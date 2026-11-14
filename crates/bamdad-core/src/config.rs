@@ -27,6 +27,14 @@ pub struct AppSettings {
     pub theme: String,
     #[serde(default = "default_accent")]
     pub accent: String,
+    #[serde(default)]
+    pub kill_switch: bool,
+    #[serde(default)]
+    pub custom_dns: String,
+    #[serde(default = "default_split_mode")]
+    pub split_mode: String,
+    #[serde(default)]
+    pub split_apps: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -38,6 +46,10 @@ impl Default for AppSettings {
             api_addr: default_api_addr(),
             theme: default_theme(),
             accent: default_accent(),
+            kill_switch: false,
+            custom_dns: String::new(),
+            split_mode: default_split_mode(),
+            split_apps: Vec::new(),
         }
     }
 }
@@ -58,6 +70,10 @@ fn default_theme() -> String {
 
 fn default_accent() -> String {
     "cyan".to_string()
+}
+
+fn default_split_mode() -> String {
+    "off".to_string()
 }
 
 fn default_group_name() -> String {
@@ -101,6 +117,12 @@ pub struct Profile {
     /// Subscription source URL, if this node came from a subscription.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_url: Option<String>,
+    /// OpenVPN username, if the profile needs auth-user-pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_user: Option<String>,
+    /// OpenVPN password. Stored in the app-private profile store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_pass: Option<String>,
 }
 
 impl Profile {
@@ -119,6 +141,8 @@ impl Profile {
             group_id: None,
             group_name: None,
             group_url: None,
+            auth_user: None,
+            auth_pass: None,
         }
     }
 
@@ -141,6 +165,8 @@ impl Profile {
             bypass_cidrs: Vec::new(),
             mtu: None,
             accent: "cyan".to_string(),
+            auth_user: self.auth_user.clone(),
+            auth_pass: self.auth_pass.clone(),
         })
     }
 
@@ -391,6 +417,8 @@ pub fn default_profiles() -> Vec<Profile> {
             group_id: None,
             group_name: None,
             group_url: None,
+            auth_user: None,
+            auth_pass: None,
             config: json!({
                 "log": { "loglevel": "warning" },
                 "inbounds": [
@@ -428,6 +456,8 @@ pub fn default_profiles() -> Vec<Profile> {
             group_id: None,
             group_name: None,
             group_url: None,
+            auth_user: None,
+            auth_pass: None,
             config: json!({
                 "log": { "level": "warn", "timestamp": true },
                 "inbounds": [

@@ -65,9 +65,11 @@ class BamdadVpnService : VpnService() {
             .addAddress("fdfe:dcba:9876::1", 126)
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
-            .addDnsServer("2606:4700:4700::1111")
+        if (TunnelOptions.dns.isEmpty()) {
+            builder.addDnsServer("1.1.1.1")
+            builder.addDnsServer("8.8.8.8")
+            builder.addDnsServer("2606:4700:4700::1111")
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -79,6 +81,7 @@ class BamdadVpnService : VpnService() {
         } catch (error: Exception) {
             Log.w(TAG, "could not exclude $packageName: ${error.message}")
         }
+        TunnelOptions.apply(builder)
 
         val fd = try {
             builder.establish()

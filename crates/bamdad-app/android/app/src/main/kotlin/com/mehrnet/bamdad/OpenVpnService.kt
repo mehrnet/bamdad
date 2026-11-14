@@ -200,16 +200,19 @@ class OpenVpnService : VpnService() {
                 }
             }
 
-            val dns = json.optJSONArray("dns") ?: JSONArray()
-            for (index in 0 until dns.length()) {
-                val address = dns.optString(index)
-                if (address.isBlank()) continue
-                try {
-                    builder.addDnsServer(InetAddress.getByName(address))
-                } catch (error: Throwable) {
-                    Log.w(TAG, "addDnsServer $address failed: ${error.message}")
+            if (TunnelOptions.dns.isEmpty()) {
+                val dns = json.optJSONArray("dns") ?: JSONArray()
+                for (index in 0 until dns.length()) {
+                    val address = dns.optString(index)
+                    if (address.isBlank()) continue
+                    try {
+                        builder.addDnsServer(InetAddress.getByName(address))
+                    } catch (error: Throwable) {
+                        Log.w(TAG, "addDnsServer $address failed: ${error.message}")
+                    }
                 }
             }
+            TunnelOptions.apply(builder)
 
             val fd = try {
                 builder.establish()

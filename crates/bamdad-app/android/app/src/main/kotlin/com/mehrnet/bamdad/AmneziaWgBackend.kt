@@ -50,7 +50,8 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
             state = Tunnel.State.DOWN
             publish()
             val clean = profile.config.trimStart { it.isWhitespace() || it == '\uFEFF' || it == '\u200B' }
-            val resolved = WireGuardConfig.prepare(clean)
+            val options = WireGuardConfig.applyTunnelOptions(clean)
+            val resolved = WireGuardConfig.prepare(options)
             val parsed = Config.parse(BufferedReader(StringReader(resolved)))
             config = parsed
             val endpoint = parsed.peers.firstOrNull()?.endpoint?.orElse(null)

@@ -452,11 +452,13 @@ component GroupActionsMenu inherits Rectangle {
 
 component ConfigActionsMenu inherits Rectangle {
     in property <string> name;
+    in property <bool> credentials-able: false;
     callback rename();
+    callback credentials();
     callback delete();
 
     width: 240px;
-    height: 98px;
+    height: 140px;
     background: transparent;
 
     Card {
@@ -470,6 +472,11 @@ component ConfigActionsMenu inherits Rectangle {
             padding: 6px;
             spacing: 2px;
 
+            if root.credentials-able : MenuItem {
+                icon: @image-url("icons/sliders.svg");
+                text: "Credentials";
+                clicked => { root.credentials(); }
+            }
             MenuItem {
                 icon: @image-url("icons/pencil.svg");
                 text: "Rename config";
@@ -479,6 +486,63 @@ component ConfigActionsMenu inherits Rectangle {
                 icon: @image-url("icons/trash.svg");
                 text: "Delete config";
                 clicked => { root.delete(); }
+            }
+        }
+    }
+}
+
+component CredentialsDialog inherits Rectangle {
+    in property <bool> phone;
+    in property <string> name;
+    in-out property <string> username;
+    in-out property <string> password;
+    callback close();
+    callback save(string, string);
+
+    width: 100%;
+    height: 100%;
+    background: Theme.scrim;
+
+    TouchArea { clicked => { root.close(); } }
+
+    Card {
+        width: root.phone ? parent.width - 32px : 420px;
+        height: 300px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 9px;
+            Text {
+                text: "Credentials · " + root.name;
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            Text {
+                text: "OpenVPN auth-user-pass";
+                color: Theme.muted;
+                font-size: 12px;
+            }
+            Text { text: "USERNAME"; color: Theme.muted; font-size: 10px; font-weight: 700; }
+            TextField { text <=> root.username; placeholder: "Username"; }
+            Text { text: "PASSWORD"; color: Theme.muted; font-size: 10px; font-weight: 700; }
+            TextField { text <=> root.password; placeholder: "Password"; password: true; }
+            HorizontalLayout {
+                spacing: 7px;
+                Rectangle { horizontal-stretch: 1; }
+                SecondaryButton {
+                    width: 84px;
+                    text: "Cancel";
+                    clicked => { root.close(); }
+                }
+                PrimaryButton {
+                    width: 96px;
+                    text: "Save";
+                    clicked => { root.save(root.username, root.password); }
+                }
             }
         }
     }
@@ -627,6 +691,10 @@ export component AppWindow inherits Window {
     in-out property <string> active-profile: "";
     in-out property <image> country-flag;
     in-out property <bool> show-ip: false;
+    in-out property <bool> kill-switch: false;
+    in-out property <string> custom-dns: "";
+    in-out property <string> split-mode: "off";
+    in-out property <string> split-apps-text: "";
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
     in-out property <bool> system-proxy: false;
@@ -667,6 +735,11 @@ export component AppWindow inherits Window {
     in-out property <length> config-menu-y: 0px;
     in-out property <string> config-menu-id: "";
     in-out property <string> config-menu-name: "";
+    in-out property <bool> config-menu-credentials: false;
+    in-out property <bool> credentials-open: false;
+    in-out property <string> credentials-name: "";
+    in-out property <string> credentials-user: "";
+    in-out property <string> credentials-pass: "";
     in-out property <bool> rename-open: false;
     in-out property <string> rename-target: "";
     in-out property <string> rename-title: "";
@@ -677,9 +750,10 @@ export component AppWindow inherits Window {
     callback select-profile(string);
     callback import-link(string);
     callback file-import();
-    callback save-settings(string, string, bool);
+    callback save-settings(string, string, bool, string, string, string);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
+    callback set-kill-switch(bool);
     callback reload-profiles();
     callback clear-logs();
     callback test-proxy();
@@ -708,6 +782,9 @@ export component AppWindow inherits Window {
     callback clear-group(string);
     callback reset-config-order(string);
     callback sort-group-latency(string);
+    callback open-credentials(string);
+    callback close-credentials();
+    callback save-credentials(string, string);
     callback open-config-menu(string);
     callback close-config-menu();
     callback request-rename(string, string, string);
@@ -734,6 +811,7 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == Key.Back || event.text == Key.Escape) {
                 if (root.logs-full) { root.logs-full = false; return accept; }
+                if (root.credentials-open) { root.close-credentials(); return accept; }
                 if (root.rename-open) { root.close-rename(); return accept; }
                 if (root.config-menu-open) { root.config-menu-open = false; return accept; }
                 if (root.group-menu-open) { root.close-group-menu(); return accept; }
@@ -797,6 +875,10 @@ export component AppWindow inherits Window {
                     visible: root.page == 1;
                     phone: root.phone;
                     mobile: root.mobile;
+                    kill-switch: root.kill-switch;
+                    custom-dns: root.custom-dns;
+                    split-mode: root.split-mode;
+                    split-apps-text: root.split-apps-text;
                     app-version: root.app-version;
                     xray-version: root.xray-version;
                     singbox-version: root.singbox-version;
@@ -809,11 +891,12 @@ export component AppWindow inherits Window {
                     system-proxy <=> root.system-proxy;
                     theme <=> root.theme-mode;
                     accent <=> root.accent-mode;
-                    save-settings(socks, http, proxy) => {
-                        root.save-settings(socks, http, proxy);
+                    save-settings(socks, http, proxy, dns, mode, apps) => {
+                        root.save-settings(socks, http, proxy, dns, mode, apps);
                     }
                     set-theme(mode) => { root.set-theme-mode(mode); }
                     set-accent(name) => { root.set-accent-mode(name); }
+                    set-kill-switch(enabled) => { root.set-kill-switch(enabled); }
                     full-logs => { root.logs-full = true; }
                     clear-logs => { root.clear-logs(); }
                     test-proxy => { root.test-proxy(); }
@@ -933,6 +1016,11 @@ export component AppWindow inherits Window {
             x: Math.max(8px, Math.min(root.config-menu-x + 28px - 240px, root.width - 248px));
             y: Math.min(root.config-menu-y + 32px, root.height - 108px);
             name: root.config-menu-name;
+            credentials-able: root.config-menu-credentials;
+            credentials => {
+                root.open-credentials(root.config-menu-id);
+                root.config-menu-open = false;
+            }
             rename => {
                 root.request-rename(
                     "config:" + root.config-menu-id,
@@ -945,6 +1033,15 @@ export component AppWindow inherits Window {
                 root.delete-config(root.config-menu-id);
                 root.config-menu-open = false;
             }
+        }
+
+        if root.credentials-open : CredentialsDialog {
+            phone: root.phone;
+            name: root.credentials-name;
+            username: root.credentials-user;
+            password: root.credentials-pass;
+            close => { root.close-credentials(); }
+            save(user, pass) => { root.save-credentials(user, pass); }
         }
 
         if root.rename-open : RenameDialog {

@@ -75,6 +75,10 @@ pub struct TunnelProfile {
     pub mtu: Option<u16>,
     #[serde(default = "default_accent")]
     pub accent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_pass: Option<String>,
 }
 
 fn default_accent() -> String {

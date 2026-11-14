@@ -12,6 +12,31 @@ import java.net.InetAddress
  *    routed into its own tunnel during startup
  */
 object WireGuardConfig {
+    /** Apply the app-wide DNS override and per-app split tunneling. */
+    fun applyTunnelOptions(text: String): String {
+        val dns = TunnelOptions.dns
+        val mode = TunnelOptions.splitMode
+        val apps = TunnelOptions.splitApps
+        if (dns.isEmpty() && mode == "off") return text
+        val kept = text.lines().filterNot { line ->
+            when (line.substringBefore('=').trim().lowercase()) {
+                "dns", "includedapplications", "excludedapplications" -> true
+                else -> false
+            }
+        }.toMutableList()
+        val options = mutableListOf<String>()
+        if (dns.isNotEmpty()) options += "DNS = ${dns.joinToString(", ")}"
+        if (mode == "allow" && apps.isNotEmpty()) {
+            options += "IncludedApplications = ${apps.joinToString(", ")}"
+        }
+        if (mode == "exclude" && apps.isNotEmpty()) {
+            options += "ExcludedApplications = ${apps.joinToString(", ")}"
+        }
+        val index = kept.indexOfFirst { it.trim().equals("[Interface]", ignoreCase = true) }
+        if (index >= 0) kept.addAll(index + 1, options)
+        return kept.joinToString("\n")
+    }
+
     fun prepare(raw: String): String {
         val lines = raw.lines().toMutableList()
         var excludedIpv4: Int? = null
