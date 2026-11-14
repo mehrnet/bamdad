@@ -21,12 +21,37 @@ if [[ ! -f "$WP/go.mod" ]]; then
   exit 1
 fi
 
+BUILD_SRC="${WIREPROXY_BUILD_DIR:-$ROOT/target/wireproxy-src}"
+
+prepare_source() {
+  if [[ -d "$BUILD_SRC" && -f "$BUILD_SRC/.bamdad-patched" ]]; then
+    return 0
+  fi
+  rm -rf "$BUILD_SRC"
+  mkdir -p "$BUILD_SRC"
+  tar -cf - -C "$WP" --exclude=.git . | tar -xf - -C "$BUILD_SRC"
+  # Android's seccomp policy SIGSYS-kills the landlock syscalls; the helper is
+  # unprivileged and does not need that extra sandbox.
+  python3 - "$BUILD_SRC/cmd/wireproxy/main.go" <<'PATCH'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+needle = "func lock(stage string, roFilles ...string) {\n"
+assert needle in text, "wireproxy lock() signature changed"
+insert = needle + '\tif os.Getenv("BAMDAD_NO_LANDLOCK") == "1" {\n\t\treturn\n\t}\n'
+text = text.replace(needle, insert, 1)
+open(path, "w", encoding="utf-8").write(text)
+PATCH
+  touch "$BUILD_SRC/.bamdad-patched"
+}
+
 build_host() {
   local out="${1:-$ROOT/target/debug/bin/bamdad-wg}"
   mkdir -p "$(dirname "$out")"
   echo "Building userspace WireGuard proxy for $(go env GOOS)/$(go env GOARCH)"
+  prepare_source
   (
-    cd "$WP"
+    cd "$BUILD_SRC"
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
       -o "$out" ./cmd/wireproxy
   )
@@ -71,8 +96,9 @@ build_android() {
 
     mkdir -p "$jni_dir/$abi"
     echo "Building userspace WireGuard proxy for android/$arch ($abi)"
+    prepare_source
     (
-      cd "$WP"
+      cd "$BUILD_SRC"
       CC="${cc:-}" CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$arch" \
         go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
         -o "$jni_dir/$abi/libbamdad_wg.so" ./cmd/wireproxy

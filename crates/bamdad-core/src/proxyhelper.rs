@@ -95,6 +95,7 @@ pub fn start(spec: HelperSpec) -> Result<RunningHelper> {
     let log_out = std::fs::File::create(&log_path).map_err(CoreError::Io)?;
     let log_err = log_out.try_clone().map_err(CoreError::Io)?;
     let mut child = Command::new(&binary_path)
+        .env("BAMDAD_NO_LANDLOCK", "1")
         .arg("-c")
         .arg(&config_path)
         .arg("-s")
