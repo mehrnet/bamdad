@@ -68,6 +68,7 @@ export component ProfilesPage inherits Rectangle {
 export component SettingsPage inherits Rectangle {
     in property <bool> phone;
     in property <bool> mobile;
+    in property <string> app-version;
     in property <string> xray-version;
     in property <string> singbox-version;
     in property <string> wireguard-version;
@@ -275,79 +276,6 @@ export component SettingsPage inherits Rectangle {
             Card {
                 VerticalLayout {
                     padding: 18px;
-                    spacing: 10px;
-                    HorizontalLayout {
-                        spacing: 7px;
-                        cross-axis-alignment: center;
-                        SectionIcon { source: @image-url("icons/chip.svg"); tint: Theme.accent; }
-                        Text {
-                            text: "Cores";
-                            color: Theme.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                            vertical-alignment: center;
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 9px;
-                        cross-axis-alignment: center;
-                        Badge { label: "Xray"; tint: Theme.accent; badge-width: 62px; }
-                        Text {
-                            text: root.xray-version;
-                            color: Theme.text-2;
-                            font-size: 12px;
-                            horizontal-stretch: 1;
-                            overflow: elide;
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 9px;
-                        cross-axis-alignment: center;
-                        Badge { label: "sing-box"; badge-width: 62px; }
-                        Text {
-                            text: root.singbox-version;
-                            color: Theme.text-2;
-                            font-size: 12px;
-                            horizontal-stretch: 1;
-                            overflow: elide;
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 9px;
-                        cross-axis-alignment: center;
-                        Badge { label: "WireGuard"; tint: Theme.accent; badge-width: 62px; }
-                        Text {
-                            text: root.wireguard-version;
-                            color: Theme.text-2;
-                            font-size: 12px;
-                            horizontal-stretch: 1;
-                            overflow: elide;
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 9px;
-                        cross-axis-alignment: center;
-                        Badge { label: "OpenVPN"; tint: Theme.accent; badge-width: 62px; }
-                        Text {
-                            text: root.openvpn-version;
-                            color: Theme.text-2;
-                            font-size: 12px;
-                            horizontal-stretch: 1;
-                            overflow: elide;
-                        }
-                    }
-                    Text {
-                        text: "Install a core with scripts/fetch-xray.sh or scripts/fetch-singbox.sh. You can also set BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN. WireGuard and OpenVPN 3 are bundled with the Android app.";
-                        color: Theme.muted;
-                        font-size: 12px;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-
-            Card {
-                VerticalLayout {
-                    padding: 18px;
                     spacing: 8px;
                     HorizontalLayout {
                         cross-axis-alignment: center;
@@ -429,6 +357,91 @@ export component SettingsPage inherits Rectangle {
                     Text {
                         text: root.data-dir;
                         color: Theme.text-2;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 7px;
+                        cross-axis-alignment: center;
+                        SectionIcon { source: @image-url("icons/moon.svg"); tint: Theme.accent; }
+                        Text {
+                            text: "About";
+                            color: Theme.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "Bamdad"; tint: Theme.accent; badge-width: 78px; }
+                        Text {
+                            text: root.app-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "Xray"; badge-width: 78px; }
+                        Text {
+                            text: root.xray-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "sing-box"; badge-width: 78px; }
+                        Text {
+                            text: root.singbox-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "WireGuard"; badge-width: 78px; }
+                        Text {
+                            text: root.wireguard-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        cross-axis-alignment: center;
+                        Badge { label: "OpenVPN"; badge-width: 78px; }
+                        Text {
+                            text: root.openvpn-version;
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    Text {
+                        text: "Xray and sing-box are installed separately (scripts/fetch-xray.sh, scripts/fetch-singbox.sh or BAMDAD_XRAY_BIN / BAMDAD_SINGBOX_BIN). WireGuard and OpenVPN 3 are bundled with the Android app.";
+                        color: Theme.muted;
                         font-size: 12px;
                         wrap: word-wrap;
                     }

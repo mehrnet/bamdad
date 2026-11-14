@@ -727,8 +727,9 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_active_profile(active_profile.clone().into());
     set_active_profile_name(&active_profile);
     ui.set_data_dir(paths::data_dir().display().to_string().into());
-    ui.set_xray_version(core_version(CoreKind::Xray).into());
-    ui.set_singbox_version(core_version(CoreKind::SingBox).into());
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_xray_version(core_version_name(CoreKind::Xray).into());
+    ui.set_singbox_version(core_version_name(CoreKind::SingBox).into());
     #[cfg(target_os = "android")]
     {
         ui.set_wireguard_version(crate::android_wireguard_version().into());
@@ -741,11 +742,21 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     }
 }
 
-fn core_version(kind: CoreKind) -> String {
+fn short_version(text: &str) -> String {
+    text.split_whitespace()
+        .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+        .map(|part| {
+            part.trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '.' || ch == '-'))
+                .to_string()
+        })
+        .unwrap_or_else(|| text.to_string())
+}
+
+fn core_version_name(kind: CoreKind) -> String {
     match binary::resolve_kind(kind) {
         Some(path) => match binary::version(&path) {
-            Ok(version) => format!("{version} · {}", path.display()),
-            Err(error) => format!("{} ({error})", path.display()),
+            Ok(version) => short_version(&version),
+            Err(error) => format!("error ({error})"),
         },
         None => "not installed".to_string(),
     }
@@ -2394,7 +2405,7 @@ fn begin_ping_batch(
 
         if !batch.is_empty() {
             let measured = tokio::task::spawn_blocking(move || {
-                httpprobe::measure_batch(batch, Duration::from_millis(3_500))
+                httpprobe::measure_batch(batch, Duration::from_millis(4_000))
             })
             .await;
             if let Ok(measured) = measured {

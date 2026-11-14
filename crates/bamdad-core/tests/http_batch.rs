@@ -17,7 +17,16 @@ fn batches_many_freedom_profiles() {
         "outbounds": [{ "protocol": "freedom", "tag": "direct" }]
     });
 
-    for count in [10usize, 200, 1000] {
+    let counts: Vec<usize> = std::env::var("BAMDAD_PROBE_COUNTS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .filter_map(|part| part.trim().parse().ok())
+                .collect()
+        })
+        .unwrap_or_else(|| vec![10, 200, 1000]);
+    for count in counts {
         let jobs: Vec<BatchJob> = (0..count)
             .map(|index| BatchJob {
                 id: format!("probe-{index}"),

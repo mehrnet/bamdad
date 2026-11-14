@@ -25,12 +25,14 @@ use crate::{binary, paths, CoreKind};
 
 /// The same cheap, globally available target Android uses for captive-portal
 /// checks.
-pub const TARGET: &str = "https://www.gstatic.com/generate_204";
+pub const TARGET: &str = "http://www.gstatic.com/generate_204";
 
 /// Profiles merged into a single core instance per batch.
 const CHUNK: usize = 128;
 /// Concurrent HTTP requests within a batch.
 const REQUESTS: usize = 64;
+/// Timed samples taken after the warm-up request.
+const SAMPLES: usize = 1;
 
 pub struct HttpProbe {
     pub core: CoreKind,
@@ -245,6 +247,34 @@ fn merged_config(core: CoreKind, jobs: &[BatchJob], ports: &[u16]) -> Result<Val
             .ok_or_else(|| CoreError::Spawn(format!("probe {} has no outbound", job.id)))?;
         let out_tag = format!("probe-out-{index}");
         outbound["tag"] = json!(out_tag);
+        // Mux keeps a warm connection to the proxy server between samples and
+        // across configs, which is what makes warm TTFB meaningful. Not used
+        // with XHTTP (own multiplexing) or REALITY (known failures).
+        let stream = outbound.get("streamSettings");
+        let network = stream
+            .and_then(|stream| stream.get("network"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let security = stream
+            .and_then(|stream| stream.get("security"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let protocol = outbound
+            .get("protocol")
+            .or_else(|| outbound.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let bypass = matches!(
+            protocol,
+            "freedom" | "blackhole" | "direct" | "block" | "dns"
+        );
+        if core == CoreKind::Xray
+            && !bypass
+            && !network.eq_ignore_ascii_case("xhttp")
+            && !security.eq_ignore_ascii_case("reality")
+        {
+            outbound["mux"] = json!({ "enabled": true, "concurrency": 8 });
+        }
         outbounds.push(outbound);
 
         let in_tag = format!("probe-in-{index}");
@@ -363,47 +393,72 @@ fn wait_for_ports(ports: &[u16], timeout: Duration) -> bool {
 
 /// Fetch the probe target through an already-running SOCKS listener.
 pub fn measure_through(socks_port: u16, timeout: Duration) -> Result<u64> {
-    request(socks_port, timeout)
+    measure_with_agent(&agent(Some(socks_port))?, timeout)
 }
 
 /// Fetch the probe target directly from this process. Used to check the
 /// active native tunnel end to end.
 pub fn measure_direct(timeout: Duration) -> Result<u64> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout(timeout)
-        .build();
-    let start = Instant::now();
-    let response = agent
-        .get(TARGET)
-        .call()
-        .map_err(|error| CoreError::Spawn(format!("probe request failed: {error}")))?;
-    if response.status() != 204 {
-        return Err(CoreError::Spawn(format!(
-            "probe returned HTTP {}",
-            response.status()
-        )));
-    }
-    Ok(start.elapsed().as_millis() as u64)
+    measure_with_agent(&agent(None)?, timeout)
 }
 
 fn request(socks_port: u16, timeout: Duration) -> Result<u64> {
-    let proxy = ureq::Proxy::new(format!("socks5://127.0.0.1:{socks_port}"))
-        .map_err(|error| CoreError::Spawn(format!("invalid probe proxy: {error}")))?;
-    let agent = ureq::AgentBuilder::new()
-        .proxy(proxy)
-        .timeout_connect(Duration::from_secs(5))
-        .timeout(timeout)
-        .build();
+    measure_with_agent(&agent(Some(socks_port))?, timeout)
+}
 
-    let start = Instant::now();
-    let response = agent
-        .get(TARGET)
-        .call()
-        .map_err(|error| CoreError::Spawn(format!("probe request failed: {error}")))?;
-    let status = response.status();
-    if status != 204 {
-        return Err(CoreError::Spawn(format!("probe returned HTTP {status}")));
+fn agent(proxy: Option<u16>) -> Result<ureq::Agent> {
+    let mut builder = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5));
+    if let Some(port) = proxy {
+        let proxy = ureq::Proxy::new(format!("socks5://127.0.0.1:{port}"))
+            .map_err(|error| CoreError::Spawn(format!("invalid probe proxy: {error}")))?;
+        builder = builder.proxy(proxy);
     }
-    Ok(start.elapsed().as_millis() as u64)
+    Ok(builder.build())
+}
+
+/// The first request warms the SOCKS/TLS path; the reported number is the
+/// lowest TTFB of the samples that follow. The whole loop is bounded by
+/// `timeout`, so a dead profile still costs one budget, not one per sample.
+fn measure_with_agent(agent: &ureq::Agent, timeout: Duration) -> Result<u64> {
+    // The first request pays connection/DNS setup. If it fails, retrying only
+    // burns the budget, so report a timeout immediately; successes are then
+    // re-sampled and the lowest TTFB wins.
+    let mut best = match sample(agent, timeout, false) {
+        Some(ms) => ms,
+        None => {
+            return Err(CoreError::Spawn("probe request failed".to_string()));
+        }
+    };
+    let deadline = Instant::now() + timeout;
+    for _ in 0..SAMPLES {
+        let left = deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(1_500));
+        if left < Duration::from_millis(50) {
+            break;
+        }
+        if let Some(ms) = sample(agent, left, true) {
+            best = best.min(ms);
+        }
+    }
+    Ok(best.max(1))
+}
+
+fn sample(agent: &ureq::Agent, timeout: Duration, close: bool) -> Option<u64> {
+    let started = Instant::now();
+    let mut request = agent.get(TARGET).timeout(timeout);
+    if close {
+        request = request.set("Connection", "close");
+    }
+    let response = request.call().ok()?;
+    let status = response.status();
+    // Consume the (empty) body so ureq can return the connection to its pool
+    // and the next sample reuses it.
+    let _ = response.into_string();
+    if status >= 400 {
+        return None;
+    }
+    Some(started.elapsed().as_millis() as u64)
 }
