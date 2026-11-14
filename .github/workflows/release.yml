@@ -30,10 +30,15 @@ jobs:
             artifact: macos-aarch64
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-desktop-${{ matrix.artifact }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
       - name: Install Slint build dependencies
         if: runner.os == 'Linux'
         timeout-minutes: 12
@@ -66,6 +71,7 @@ jobs:
           cp "target/release/bamdad${ext}" "package/bamdad${ext}"
           BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-xray.sh
           BAMDAD_CORE_DIR="$PWD/package" ./scripts/fetch-singbox.sh
+          ./scripts/build-wireguard-proxy.sh --host "$PWD/package/bamdad-wg"
           if [ -d package/assets ]; then
             mkdir -p package/bin/assets
             cp -a package/assets/. package/bin/assets/
