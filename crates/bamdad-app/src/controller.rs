@@ -11,6 +11,7 @@ use bamdad_core::config::{self, load_store, save_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
 use bamdad_core::error::CoreError;
 use bamdad_core::httpprobe;
+use bamdad_core::proxyhelper;
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
@@ -2744,6 +2745,48 @@ fn start_connection(
         SWITCHING.store(true, Ordering::SeqCst);
     }
     enter_starting_state(ui, switching);
+
+    // Vanilla WireGuard runs through the userspace helper so it behaves like a
+    // proxy transport: no VpnService WireGuard backend and it can later be
+    // used as a chain hop. AmneziaWG keeps the existing GoBackend path.
+    if profile.transport == bamdad_core::Transport::WireGuard {
+        let Some(raw) = profile
+            .raw_config
+            .clone()
+            .filter(|config| !config.trim().is_empty())
+        else {
+            push_log(ui, logs, "WireGuard profile has no raw config".to_string());
+            cancel_starting(ui, was_connected);
+            return;
+        };
+        if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
+            crate::stop_native_tunnel();
+        }
+        VPN_SOCKS_PORT.store(settings.socks_port, Ordering::Relaxed);
+        push_log(
+            ui,
+            logs,
+            format!(
+                "starting {} via userspace WireGuard proxy on port {}",
+                profile.name, settings.socks_port
+            ),
+        );
+        if settings.system_proxy && !cfg!(target_os = "android") {
+            let proxy = ProxySettings {
+                socks_port: settings.socks_port,
+                http_port: settings.http_port,
+            };
+            if let Err(error) = system_proxy::enable(proxy) {
+                push_log(ui, logs, format!("system proxy: {error}"));
+            }
+        }
+        engine.start_helper(proxyhelper::HelperSpec {
+            kind: proxyhelper::HelperKind::WireGuard,
+            config: raw,
+            socks_port: settings.socks_port,
+        });
+        return;
+    }
 
     if !profile.is_proxy() {
         #[cfg(target_os = "android")]

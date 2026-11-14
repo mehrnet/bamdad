@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, Duration};
 
 use crate::kind::CoreKind;
+use crate::proxyhelper::HelperSpec;
 use crate::stats::{self, TrafficTotals};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +62,7 @@ pub struct LaunchSpec {
 #[derive(Debug)]
 enum EngineCommand {
     Start(LaunchSpec),
+    StartHelper(HelperSpec),
     Stop,
 }
 
@@ -74,6 +76,11 @@ pub struct EngineHandle {
 impl EngineHandle {
     pub fn start(&self, spec: LaunchSpec) {
         let _ = self.tx.send(EngineCommand::Start(spec));
+    }
+
+    /// Start a userspace protocol helper that exposes a local SOCKS proxy.
+    pub fn start_helper(&self, spec: HelperSpec) {
+        let _ = self.tx.send(EngineCommand::StartHelper(spec));
     }
 
     pub fn stop(&self) {
@@ -128,6 +135,20 @@ pub fn spawn(events: Sender<EngineEvent>) -> EngineHandle {
                         join,
                     });
                 }
+                Some(EngineCommand::StartHelper(spec)) => {
+                    if let Some(mut previous) = session.take() {
+                        let _ = previous.shutdown.send(());
+                        let _ = (&mut previous.join).await;
+                    }
+
+                    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+                    let event_tx = events.clone();
+                    let join = tokio::spawn(run_helper(spec, shutdown_rx, event_tx));
+                    session = Some(Session {
+                        shutdown: shutdown_tx,
+                        join,
+                    });
+                }
                 Some(EngineCommand::Stop) => {
                     if let Some(mut current) = session.take() {
                         let _ = current.shutdown.send(());
@@ -141,6 +162,60 @@ pub fn spawn(events: Sender<EngineEvent>) -> EngineHandle {
     });
 
     EngineHandle { tx }
+}
+
+async fn run_helper(
+    spec: HelperSpec,
+    mut shutdown: oneshot::Receiver<()>,
+    events: Sender<EngineEvent>,
+) {
+    send_state(&events, EngineState::Starting);
+    let started = tokio::task::spawn_blocking(move || crate::proxyhelper::start(spec)).await;
+    match started {
+        Ok(Ok(mut helper)) => {
+            log(
+                &events,
+                LogStream::App,
+                format!(
+                    "userspace WireGuard proxy listening on 127.0.0.1:{}",
+                    helper.socks_port()
+                ),
+            );
+            send_state(&events, EngineState::Running);
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown => {
+                        send_state(&events, EngineState::Stopped);
+                        return;
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                        if !helper.alive() {
+                            log(
+                                &events,
+                                LogStream::App,
+                                "userspace proxy helper exited".to_string(),
+                            );
+                            send_state(&events, EngineState::Stopped);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Err(error)) => {
+            log(
+                &events,
+                LogStream::App,
+                format!("userspace proxy failed: {error}"),
+            );
+            send_state(&events, EngineState::Error(error.to_string()));
+        }
+        Err(error) => {
+            let message = format!("userspace proxy task failed: {error}");
+            log(&events, LogStream::App, message.clone());
+            send_state(&events, EngineState::Error(message));
+        }
+    }
 }
 
 enum Exit {

@@ -12,6 +12,7 @@ pub mod link;
 pub mod native;
 pub mod paths;
 pub mod probe;
+pub mod proxyhelper;
 pub mod socks;
 pub mod stats;
 pub mod system_proxy;
