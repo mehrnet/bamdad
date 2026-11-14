@@ -924,6 +924,8 @@ mod tests {
                 group_id: None,
                 group_name: None,
                 group_url: None,
+                auth_user: None,
+                auth_pass: None,
             }],
             ..Default::default()
         };
@@ -951,6 +953,8 @@ mod tests {
                 group_id: None,
                 group_name: None,
                 group_url: None,
+                auth_user: None,
+                auth_pass: None,
             }],
             ..Default::default()
         };
