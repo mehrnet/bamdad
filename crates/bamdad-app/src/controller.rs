@@ -715,6 +715,34 @@ fn fetch_exit_ips(port: u16) -> Option<(Option<std::net::IpAddr>, Option<std::ne
     }
 }
 
+/// Called from the Android split-tunneling app picker.
+pub(crate) fn split_apps_selected(csv: String) {
+    let context = IMPORT_CONTEXT.lock().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .map(|context| (context.ui.clone(), context.store.clone()))
+    });
+    let Some((ui, store)) = context else { return };
+    let apps: Vec<String> = csv
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    {
+        let mut guard = store.lock().unwrap();
+        guard.settings.split_apps = apps.clone();
+        apply_tunnel_options(&guard.settings);
+        let _ = save_store(&guard);
+    }
+    let text = apps.join(", ");
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(ui) = ui.upgrade() {
+            ui.set_split_apps_text(text.into());
+        }
+    });
+}
+
 fn apply_tunnel_options(settings: &config::AppSettings) {
     let dns: Vec<&str> = settings
         .custom_dns
@@ -1327,63 +1355,65 @@ fn setup_callbacks(
         let weak = ui.as_weak();
         let store = store.clone();
         let logs = logs.clone();
-        ui.on_save_settings(move |socks, http, system_proxy, custom_dns, split_mode, split_apps| {
-            let Some(ui) = weak.upgrade() else { return };
-            let socks_port: u16 = match socks.as_str().parse() {
-                Ok(port) => port,
-                Err(_) => {
-                    push_log(&ui, &logs, "invalid SOCKS port".to_string());
-                    return;
-                }
-            };
-            let http_port: u16 = match http.as_str().parse() {
-                Ok(port) => port,
-                Err(_) => {
-                    push_log(&ui, &logs, "invalid HTTP port".to_string());
-                    return;
-                }
-            };
-
-            {
-                let mut guard = store.lock().unwrap();
-                guard.settings.socks_port = socks_port;
-                guard.settings.http_port = http_port;
-                guard.settings.system_proxy = system_proxy;
-                guard.settings.custom_dns = custom_dns.trim().to_string();
-                guard.settings.split_mode = match split_mode.as_str() {
-                    "allow" | "exclude" => split_mode.to_string(),
-                    _ => "off".to_string(),
+        ui.on_save_settings(
+            move |socks, http, system_proxy, custom_dns, split_mode, split_apps| {
+                let Some(ui) = weak.upgrade() else { return };
+                let socks_port: u16 = match socks.as_str().parse() {
+                    Ok(port) => port,
+                    Err(_) => {
+                        push_log(&ui, &logs, "invalid SOCKS port".to_string());
+                        return;
+                    }
                 };
-                guard.settings.split_apps = split_apps
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .collect();
-                apply_tunnel_options(&guard.settings);
-                let _ = save_store(&guard);
-            }
+                let http_port: u16 = match http.as_str().parse() {
+                    Ok(port) => port,
+                    Err(_) => {
+                        push_log(&ui, &logs, "invalid HTTP port".to_string());
+                        return;
+                    }
+                };
 
-            let proxy = ProxySettings {
-                socks_port,
-                http_port,
-            };
-            if system_proxy && ui.get_connected() {
-                if let Err(error) = system_proxy::enable(proxy) {
-                    push_log(&ui, &logs, format!("system proxy: {error}"));
+                {
+                    let mut guard = store.lock().unwrap();
+                    guard.settings.socks_port = socks_port;
+                    guard.settings.http_port = http_port;
+                    guard.settings.system_proxy = system_proxy;
+                    guard.settings.custom_dns = custom_dns.trim().to_string();
+                    guard.settings.split_mode = match split_mode.as_str() {
+                        "allow" | "exclude" => split_mode.to_string(),
+                        _ => "off".to_string(),
+                    };
+                    guard.settings.split_apps = split_apps
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect();
+                    apply_tunnel_options(&guard.settings);
+                    let _ = save_store(&guard);
                 }
-            } else if !system_proxy {
-                let _ = system_proxy::disable();
-            }
 
-            ui.set_socks_port(socks_port.to_string().into());
-            ui.set_http_port(http_port.to_string().into());
-            push_log(
-                &ui,
-                &logs,
-                format!("settings saved (socks {socks_port}, http {http_port})"),
-            );
-        });
+                let proxy = ProxySettings {
+                    socks_port,
+                    http_port,
+                };
+                if system_proxy && ui.get_connected() {
+                    if let Err(error) = system_proxy::enable(proxy) {
+                        push_log(&ui, &logs, format!("system proxy: {error}"));
+                    }
+                } else if !system_proxy {
+                    let _ = system_proxy::disable();
+                }
+
+                ui.set_socks_port(socks_port.to_string().into());
+                ui.set_http_port(http_port.to_string().into());
+                push_log(
+                    &ui,
+                    &logs,
+                    format!("settings saved (socks {socks_port}, http {http_port})"),
+                );
+            },
+        );
     }
 
     {
@@ -1443,6 +1473,15 @@ fn setup_callbacks(
                 &ui.get_total_up_text(),
                 accent,
             );
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_pick_split_apps(move |current| {
+            if weak.upgrade().is_some() {
+                crate::pick_split_apps(current.as_str());
+            }
         });
     }
 

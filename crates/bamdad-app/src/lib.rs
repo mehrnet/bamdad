@@ -206,6 +206,14 @@ mod android {
             });
         }
 
+        extern "system" fn split_apps_selected(mut env: jni::JNIEnv, _class: JClass, csv: JString) {
+            let selected: String = env
+                .get_string(&csv)
+                .map(|value| value.into())
+                .unwrap_or_default();
+            controller::split_apps_selected(selected);
+        }
+
         extern "system" fn native_import(
             mut env: jni::JNIEnv,
             _class: JClass,
@@ -292,6 +300,11 @@ mod android {
         }
 
         let methods = [
+            NativeMethod {
+                name: "nativeSplitAppsSelected".into(),
+                sig: "(Ljava/lang/String;)V".into(),
+                fn_ptr: split_apps_selected as *mut c_void,
+            },
             NativeMethod {
                 name: "startTunnelNative".into(),
                 sig: "(II)Z".into(),
@@ -471,6 +484,10 @@ mod android {
 
     pub(super) fn configure_tunnel(json: &str) {
         string_activity_call("configureTunnel", json);
+    }
+
+    pub(super) fn pick_split_apps(current: &str) {
+        string_activity_call("pickSplitApps", current);
     }
 
     pub(super) fn open_import_file() {
@@ -654,6 +671,14 @@ pub fn configure_tunnel(json: &str) {
 
 #[cfg(not(target_os = "android"))]
 pub fn configure_tunnel(_json: &str) {}
+
+#[cfg(target_os = "android")]
+pub fn pick_split_apps(current: &str) {
+    android::pick_split_apps(current);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn pick_split_apps(_current: &str) {}
 
 #[cfg(not(target_os = "android"))]
 pub fn start_kill_switch() {}

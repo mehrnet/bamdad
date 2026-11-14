@@ -179,6 +179,7 @@ object FileImporter {
         "tls-crypt" to "tls-crypt",
         "dh" to "dh",
         "pkcs12" to "pkcs12",
+        "auth-user-pass" to "auth-user-pass",
     )
 
     /**

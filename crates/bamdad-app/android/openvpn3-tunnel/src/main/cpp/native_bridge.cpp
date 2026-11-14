@@ -360,15 +360,20 @@ static void run_connect(const std::string &profile, const std::string &username,
       return;
     }
 
-    ProvideCreds creds;
-    creds.username = username;
-    creds.password = password;
+    // Empty credentials must not override an inline <auth-user-pass> block in
+    // the profile; only call provide_creds when the user actually supplied
+    // something.
+    if (!username.empty() || !password.empty()) {
+      ProvideCreds creds;
+      creds.username = username;
+      creds.password = password;
 
-    Status status = client.provide_creds(creds);
-    if (status.error) {
-      emit_fatal("CREDENTIALS_REJECTED", status.message);
-      g_client.store(nullptr);
-      return;
+      Status status = client.provide_creds(creds);
+      if (status.error) {
+        emit_fatal("CREDENTIALS_REJECTED", status.message);
+        g_client.store(nullptr);
+        return;
+      }
     }
 
     if (!g_stop.load()) {
