@@ -52,17 +52,16 @@ build_android() {
     case "$abi" in
       arm64-v8a)
         arch=arm64
+        goos=android
         cgo=0
         ;;
       x86_64)
+        # Go's android/amd64 port requires cgo linking, which crashed on the
+        # emulator; a static linux/amd64 build runs fine on Android x86_64.
         arch=amd64
-        # Go's android/amd64 port requires external (cgo) linking.
-        cgo=1
-        cc="$toolchain/x86_64-linux-android26-clang"
-        if [[ -z "$toolchain" || ! -x "$cc" ]]; then
-          echo "NDK clang not found for android/amd64 ($cc); set ANDROID_NDK_HOME" >&2
-          exit 1
-        fi
+        goos=linux
+        cgo=0
+        cc=""
         ;;
       *)
         echo "Unsupported ABI: $abi" >&2
@@ -74,7 +73,7 @@ build_android() {
     echo "Building userspace WireGuard proxy for android/$arch ($abi)"
     (
       cd "$WP"
-      CC="${cc:-}" CGO_ENABLED="$cgo" GOOS=android GOARCH="$arch" \
+      CC="${cc:-}" CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$arch" \
         go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
         -o "$jni_dir/$abi/libbamdad_wg.so" ./cmd/wireproxy
     )

@@ -105,16 +105,22 @@ pub fn start(spec: HelperSpec) -> Result<RunningHelper> {
         .map_err(CoreError::Io)?;
 
     let failure = |message: String| -> CoreError {
-        let tail = std::fs::read_to_string(&log_path)
-            .unwrap_or_default()
+        let text = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let mut excerpt: Vec<&str> = text
             .lines()
-            .rev()
-            .take(8)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join(" | ");
+            .filter(|line| {
+                line.contains("fatal")
+                    || line.contains("panic")
+                    || line.contains("signal")
+                    || line.contains("SIG")
+                    || line.contains("error")
+            })
+            .take(6)
+            .collect();
+        if excerpt.is_empty() {
+            excerpt = text.lines().rev().take(8).collect();
+        }
+        let tail = excerpt.into_iter().rev().collect::<Vec<_>>().join(" | ");
         if tail.is_empty() {
             CoreError::Spawn(message)
         } else {
