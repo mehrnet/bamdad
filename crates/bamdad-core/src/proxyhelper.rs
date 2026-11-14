@@ -91,15 +91,36 @@ pub fn start(spec: HelperSpec) -> Result<RunningHelper> {
     };
     write_private(&config_path, &config)?;
 
+    let log_path = work_dir.join("helper.log");
+    let log_out = std::fs::File::create(&log_path).map_err(CoreError::Io)?;
+    let log_err = log_out.try_clone().map_err(CoreError::Io)?;
     let mut child = Command::new(&binary_path)
         .arg("-c")
         .arg(&config_path)
         .arg("-s")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(log_out))
+        .stderr(Stdio::from(log_err))
         .spawn()
         .map_err(CoreError::Io)?;
+
+    let failure = |message: String| -> CoreError {
+        let tail = std::fs::read_to_string(&log_path)
+            .unwrap_or_default()
+            .lines()
+            .rev()
+            .take(8)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if tail.is_empty() {
+            CoreError::Spawn(message)
+        } else {
+            CoreError::Spawn(format!("{message}: {tail}"))
+        }
+    };
 
     let address = SocketAddr::from(([127, 0, 0, 1], spec.socks_port));
     let started = Instant::now();
@@ -109,11 +130,12 @@ pub fn start(spec: HelperSpec) -> Result<RunningHelper> {
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                let _ = std::fs::remove_dir_all(&work_dir);
-                return Err(CoreError::Spawn(format!(
+                let error = failure(format!(
                     "{} exited before opening its SOCKS port ({status})",
                     binary_path.display()
-                )));
+                ));
+                let _ = std::fs::remove_dir_all(&work_dir);
+                return Err(error);
             }
             Ok(None) => {}
             Err(error) => {
@@ -124,11 +146,12 @@ pub fn start(spec: HelperSpec) -> Result<RunningHelper> {
         if started.elapsed() > Duration::from_secs(10) {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = std::fs::remove_dir_all(&work_dir);
-            return Err(CoreError::Spawn(format!(
+            let error = failure(format!(
                 "{} did not open its SOCKS port within 10s",
                 binary_path.display()
-            )));
+            ));
+            let _ = std::fs::remove_dir_all(&work_dir);
+            return Err(error);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
