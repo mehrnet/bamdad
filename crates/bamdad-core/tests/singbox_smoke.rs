@@ -45,6 +45,10 @@ async fn starts_singbox_and_reads_clash_api() {
         api_addr: "127.0.0.1".to_string(),
         theme: "system".to_string(),
         accent: "cyan".to_string(),
+        kill_switch: false,
+        custom_dns: String::new(),
+        split_mode: "off".to_string(),
+        split_apps: Vec::new(),
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profiles().remove(1);
