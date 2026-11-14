@@ -101,6 +101,18 @@ Android TunnelController
 - [ ] Add credential prompt for `auth-user-pass`.
 - [ ] Test against an OpenVPN test server.
 
+## Phase 5: client-side chains
+
+- [x] `Profile.chain`: an ordered list of proxy hops (entry first, exit last).
+- [x] Xray chain config via `streamSettings.sockopt.dialerProxy` (26.x syntax).
+- [x] sing-box chain config via outbound `detour`.
+- [x] Chain editor dialog: add/remove/reorder hops, same-core candidates only.
+- [x] Connect path validates hops (proxy, same core, unchained) and logs the plan.
+- [ ] Mixed-core chains (Xray ↔ sing-box) via local SOCKS bridges.
+- [ ] Chain-aware latency probes (probe the full path, not just the exit).
+- [ ] Routing rules: send domains/apps through different chains.
+- [ ] Native hops (`bamdad-wg` userspace SOCKS helper, then OpenVPN).
+
 ## Phase 4: unified UX
 
 - [ ] One notification across transports (profile name, totals, accent icon).

@@ -157,6 +157,7 @@ pub fn profile_from_config(name_hint: Option<&str>, text: &str) -> Option<Profil
         group_id: None,
         group_name: None,
         group_url: None,
+        chain: Vec::new(),
     })
 }
 

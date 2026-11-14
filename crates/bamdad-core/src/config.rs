@@ -101,6 +101,10 @@ pub struct Profile {
     /// Subscription source URL, if this node came from a subscription.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_url: Option<String>,
+    /// Ordered proxy hops (profile ids) that precede this profile in a chain.
+    /// The first id is the entry hop; traffic exits through this profile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<String>,
 }
 
 impl Profile {
@@ -119,6 +123,7 @@ impl Profile {
             group_id: None,
             group_name: None,
             group_url: None,
+            chain: Vec::new(),
         }
     }
 
@@ -340,6 +345,16 @@ impl Store {
 
     /// Remove every node belonging to a subscription group. The pinned
     /// Default group (`None`) cannot be removed.
+    /// Replace the ordered hop list for a profile.
+    pub fn set_profile_chain(&mut self, id: &str, chain: Vec<String>) -> bool {
+        if let Some(profile) = self.profiles.iter_mut().find(|profile| profile.id == id) {
+            profile.chain = chain;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn remove_group(&mut self, group_id: &str) -> bool {
         if group_id == "default" || group_id.is_empty() {
             return false;
@@ -391,6 +406,7 @@ pub fn default_profiles() -> Vec<Profile> {
             group_id: None,
             group_name: None,
             group_url: None,
+            chain: Vec::new(),
             config: json!({
                 "log": { "loglevel": "warning" },
                 "inbounds": [
@@ -428,6 +444,7 @@ pub fn default_profiles() -> Vec<Profile> {
             group_id: None,
             group_name: None,
             group_url: None,
+            chain: Vec::new(),
             config: json!({
                 "log": { "level": "warn", "timestamp": true },
                 "inbounds": [
@@ -804,6 +821,151 @@ pub fn prepare_config(
     Ok(config)
 }
 
+/// Pick the outbound that carries user traffic: the first non-bypass entry,
+/// falling back to the first outbound when a config only has bypass entries.
+fn primary_outbound(core: CoreKind, config: &Value) -> Option<Value> {
+    let outbounds = config.get("outbounds")?.as_array()?;
+    let bypass = |outbound: &&Value| {
+        let tag = outbound
+            .get("tag")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let protocol = outbound
+            .get(match core {
+                CoreKind::Xray => "protocol",
+                CoreKind::SingBox => "type",
+            })
+            .or_else(|| outbound.get("protocol"))
+            .or_else(|| outbound.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        matches!(
+            protocol.as_str(),
+            "freedom" | "blackhole" | "dns" | "direct" | "block"
+        ) || matches!(tag.as_str(), "direct" | "block" | "dns" | "dns-out")
+    };
+    outbounds
+        .iter()
+        .find(|outbound| !bypass(outbound))
+        .or_else(|| outbounds.first())
+        .cloned()
+}
+
+const DIRECT_ROUTE_CIDRS: &[&str] = &[
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "::1/128",
+    "fc00::/7",
+    "fe80::/10",
+];
+
+/// Build one core config for an ordered proxy chain. `profiles` is entry-first
+/// with the final hop last. Hops must share a core: Xray chains with
+/// `proxySettings`, sing-box with `detour`.
+pub fn prepare_chain_config(
+    core: CoreKind,
+    profiles: &[&Profile],
+    settings: &AppSettings,
+    api_port: u16,
+) -> Result<Value> {
+    if profiles.is_empty() {
+        return Err(crate::error::CoreError::InvalidLink(
+            "chain has no hops".into(),
+        ));
+    }
+    if profiles.iter().any(|profile| !profile.is_proxy()) {
+        return Err(crate::error::CoreError::InvalidLink(
+            "chain hops must be proxy profiles".into(),
+        ));
+    }
+    if profiles.iter().any(|profile| profile.core != core) {
+        return Err(crate::error::CoreError::InvalidLink(
+            "chain hops must use the same core".into(),
+        ));
+    }
+
+    let mut outbounds = Vec::with_capacity(profiles.len() + 2);
+    for (index, profile) in profiles.iter().enumerate() {
+        let mut outbound = primary_outbound(core, &profile.config).ok_or_else(|| {
+            crate::error::CoreError::InvalidLink(format!("{} has no outbound", profile.name))
+        })?;
+        if !outbound.is_object() {
+            return Err(crate::error::CoreError::InvalidLink(format!(
+                "{} has an invalid outbound",
+                profile.name
+            )));
+        }
+        outbound["tag"] = json!(format!("hop-{index}"));
+        if index + 1 < profiles.len() {
+            let next = format!("hop-{}", index + 1);
+            match core {
+                CoreKind::Xray => {
+                    // Xray 26.x removed outbound.proxySettings in favour of
+                    // streamSettings.sockopt.dialerProxy.
+                    let object = outbound.as_object_mut().expect("checked above");
+                    let stream = object.entry("streamSettings").or_insert_with(|| json!({}));
+                    if !stream.is_object() {
+                        *stream = json!({});
+                    }
+                    let stream = stream.as_object_mut().expect("set above");
+                    let sockopt = stream.entry("sockopt").or_insert_with(|| json!({}));
+                    if !sockopt.is_object() {
+                        *sockopt = json!({});
+                    }
+                    sockopt["dialerProxy"] = json!(next);
+                }
+                CoreKind::SingBox => {
+                    outbound["detour"] = json!(next);
+                }
+            }
+        }
+        outbounds.push(outbound);
+    }
+
+    let base = match core {
+        CoreKind::Xray => {
+            outbounds.push(json!({ "tag": "direct", "protocol": "freedom" }));
+            outbounds.push(json!({ "tag": "block", "protocol": "blackhole" }));
+            json!({
+                "log": { "loglevel": "warning" },
+                "inbounds": [],
+                "outbounds": outbounds,
+                "routing": {
+                    "domainStrategy": "IPIfNonMatch",
+                    "rules": [{
+                        "type": "field",
+                        "ip": DIRECT_ROUTE_CIDRS,
+                        "outboundTag": "direct"
+                    }]
+                }
+            })
+        }
+        CoreKind::SingBox => {
+            outbounds.push(json!({ "type": "direct", "tag": "direct" }));
+            outbounds.push(json!({ "type": "block", "tag": "block" }));
+            json!({
+                "log": { "level": "warn", "timestamp": true },
+                "inbounds": [],
+                "outbounds": outbounds,
+                "route": {
+                    "final": "hop-0",
+                    "rules": [{
+                        "ip_cidr": DIRECT_ROUTE_CIDRS,
+                        "outbound": "direct"
+                    }]
+                }
+            })
+        }
+    };
+
+    prepare_config(core, &base, settings, api_port)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -837,6 +999,131 @@ mod tests {
             "127.0.0.1:23456"
         );
         assert_eq!(config["inbounds"][0]["listen_port"], json!(10808));
+    }
+
+    fn chain_profiles(core: CoreKind) -> (Profile, Profile) {
+        let first = link::parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@entry.example:443?security=tls#Entry",
+        )
+        .unwrap();
+        let second = link::parse(
+            None,
+            "vless://11111111-2222-3333-4444-555555555555@exit.example:443?security=tls#Exit",
+        )
+        .unwrap();
+        (
+            Profile::from_spec(&first, core),
+            Profile::from_spec(&second, core),
+        )
+    }
+
+    #[test]
+    fn builds_xray_chain() {
+        let (entry, exit) = chain_profiles(CoreKind::Xray);
+        let config = prepare_chain_config(
+            CoreKind::Xray,
+            &[&entry, &exit],
+            &AppSettings::default(),
+            9999,
+        )
+        .unwrap();
+        let outbounds = config["outbounds"].as_array().unwrap();
+        let hop0 = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "hop-0")
+            .unwrap();
+        assert_eq!(hop0["streamSettings"]["sockopt"]["dialerProxy"], "hop-1");
+        let hop1 = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "hop-1")
+            .unwrap();
+        assert!(hop1["streamSettings"]["sockopt"]
+            .get("dialerProxy")
+            .is_none());
+        assert!(outbounds
+            .iter()
+            .any(|outbound| outbound["protocol"] == "freedom"));
+        assert_eq!(config["api"]["listen"], "127.0.0.1:9999");
+    }
+
+    #[test]
+    fn builds_singbox_chain() {
+        let (entry, exit) = chain_profiles(CoreKind::SingBox);
+        let config = prepare_chain_config(
+            CoreKind::SingBox,
+            &[&entry, &exit],
+            &AppSettings::default(),
+            9998,
+        )
+        .unwrap();
+        let outbounds = config["outbounds"].as_array().unwrap();
+        let hop0 = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "hop-0")
+            .unwrap();
+        assert_eq!(hop0["detour"], "hop-1");
+        let hop1 = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "hop-1")
+            .unwrap();
+        assert!(hop1.get("detour").is_none());
+        assert_eq!(config["route"]["final"], "hop-0");
+    }
+
+    #[test]
+    fn builds_chain_of_socks_outbounds() {
+        let make = |port: u16, chain: Vec<String>| Profile {
+            id: format!("p{port}"),
+            name: format!("hop {port}"),
+            core: CoreKind::Xray,
+            transport: Transport::Proxy,
+            protocol: "socks".to_string(),
+            address: "127.0.0.1".to_string(),
+            port,
+            config: json!({
+                "outbounds": [{
+                    "tag": "proxy",
+                    "protocol": "socks",
+                    "settings": { "servers": [{ "address": "127.0.0.1", "port": port }] }
+                }]
+            }),
+            raw_config: None,
+            source: None,
+            group_id: None,
+            group_name: None,
+            group_url: None,
+            chain,
+        };
+        let a = make(20001, Vec::new());
+        let b = make(20002, vec![a.id.clone()]);
+        let config =
+            prepare_chain_config(CoreKind::Xray, &[&a, &b], &AppSettings::default(), 9997).unwrap();
+        let outbounds = config["outbounds"].as_array().unwrap();
+        assert_eq!(
+            outbounds
+                .iter()
+                .find(|outbound| outbound["tag"] == "hop-0")
+                .unwrap()["streamSettings"]["sockopt"]["dialerProxy"],
+            "hop-1"
+        );
+        assert_eq!(
+            outbounds
+                .iter()
+                .find(|outbound| outbound["tag"] == "hop-1")
+                .unwrap()["protocol"],
+            "socks"
+        );
+    }
+
+    #[test]
+    fn rejects_mixed_core_chains() {
+        let (entry, _) = chain_profiles(CoreKind::Xray);
+        let (exit, _) = chain_profiles(CoreKind::SingBox);
+        assert!(
+            prepare_chain_config(CoreKind::Xray, &[&entry, &exit], &AppSettings::default(), 1)
+                .is_err()
+        );
     }
 
     #[test]
@@ -894,6 +1181,7 @@ mod tests {
                 group_id: None,
                 group_name: None,
                 group_url: None,
+                chain: Vec::new(),
             }],
             ..Default::default()
         };
@@ -921,6 +1209,7 @@ mod tests {
                 group_id: None,
                 group_name: None,
                 group_url: None,
+                chain: Vec::new(),
             }],
             ..Default::default()
         };
