@@ -81,12 +81,17 @@ build_android() {
         cgo=0
         ;;
       x86_64)
-        # Go's android/amd64 port requires cgo linking, which crashed on the
-        # emulator; a static linux/amd64 build runs fine on Android x86_64.
+        # android/amd64 requires cgo linking. The android Go port avoids the
+        # faccessat2 syscall that Android's seccomp SIGSYS-kills for
+        # GOOS=linux binaries.
         arch=amd64
-        goos=linux
-        cgo=0
-        cc=""
+        goos=android
+        cgo=1
+        cc="$toolchain/x86_64-linux-android26-clang"
+        if [[ -z "$toolchain" || ! -x "$cc" ]]; then
+          echo "NDK clang not found for android/amd64 ($cc); set ANDROID_NDK_HOME" >&2
+          exit 1
+        fi
         ;;
       *)
         echo "Unsupported ABI: $abi" >&2
