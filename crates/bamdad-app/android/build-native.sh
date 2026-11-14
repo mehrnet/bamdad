@@ -41,7 +41,6 @@ cargo ndk \
 
 "$REPO_ROOT/scripts/fetch-android-cores.sh" "$JNI_DIR" "${ABIS[@]}"
 "$REPO_ROOT/scripts/fetch-android-tun2socks.sh" "$JNI_DIR" "${ABIS[@]}"
-"$REPO_ROOT/scripts/build-wireguard-proxy.sh" --android "$JNI_DIR" "${ABIS[@]}"
 
 echo "Android native libraries:"
 find "$JNI_DIR" -type f -printf '  %P (%s bytes)\n' | sort

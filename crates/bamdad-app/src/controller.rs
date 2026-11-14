@@ -2749,7 +2749,10 @@ fn start_connection(
     // Vanilla WireGuard runs through the userspace helper so it behaves like a
     // proxy transport: no VpnService WireGuard backend and it can later be
     // used as a chain hop. AmneziaWG keeps the existing GoBackend path.
-    if profile.transport == bamdad_core::Transport::WireGuard {
+    // Android's app seccomp policy kills the Go userspace proxy helper
+    // (SIGSYS), so Android keeps the working VpnService WireGuard backend for
+    // now. Desktop uses the helper.
+    if profile.transport == bamdad_core::Transport::WireGuard && !cfg!(target_os = "android") {
         let Some(raw) = profile
             .raw_config
             .clone()

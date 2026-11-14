@@ -106,8 +106,11 @@ Android TunnelController
 - [x] Vendor wireproxy `v1.1.3` (ISC) and build `bamdad-wg` for host + Android
       (`scripts/build-wireguard-proxy.sh`, `libbamdad_wg.so`).
 - [x] Host smoke: real WireGuard server -> userspace helper -> SOCKS -> HTTPS.
-- [ ] App integration: run a WireGuard profile through `bamdad-wg` and feed the
-      existing tun2socks/system-proxy path (no VpnService WG backend).
+- [x] App integration on desktop: a vanilla WireGuard profile runs through
+      `bamdad-wg` and feeds the proxy/system-proxy path.
+- [ ] Android integration: blocked by Android's app seccomp policy killing the
+      Go helper with SIGSYS (Go runtime/landlock syscalls). Android keeps the
+      VpnService backend until this is solved.
 - [ ] Use `bamdad-wg` as a chain hop in the hop supervisor.
 - [ ] AmneziaWG variant (wireproxy-awg / amneziawg-go) and license check.
 
