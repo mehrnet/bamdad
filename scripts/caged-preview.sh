@@ -99,7 +99,7 @@ EOF
     )
     for key in BAMDAD_XRAY_BIN BAMDAD_SINGBOX_BIN BAMDAD_PREVIEW_PAGE \
         BAMDAD_PREVIEW_PING BAMDAD_PREVIEW_CONNECT BAMDAD_PREVIEW_TUNNEL \
-        BAMDAD_PREVIEW_CONNECTING BAMDAD_PREVIEW_CHAIN; do
+        BAMDAD_PREVIEW_CONNECTING; do
         if [[ -n "${!key:-}" ]]; then
             env_args+=("$key=${!key}")
         fi

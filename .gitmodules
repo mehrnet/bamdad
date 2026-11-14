@@ -4,6 +4,3 @@
 [submodule "crates/bamdad-app/android/vendor/openvpn3"]
 	path = crates/bamdad-app/android/vendor/openvpn3
 	url = https://github.com/OpenVPN/openvpn3
-[submodule "vendor/wireproxy"]
-	path = vendor/wireproxy
-	url = https://github.com/whyvl/wireproxy

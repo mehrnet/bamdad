@@ -120,50 +120,6 @@ pub fn version(binary: &std::path::Path) -> Result<String> {
     Ok(text.lines().next().unwrap_or("unknown").trim().to_string())
 }
 
-/// Resolve a userspace proxy helper by environment override, Android native
-/// library directory, or the usual sidecar locations.
-pub fn resolve_helper(env_var: &str, name: &str, android_lib: Option<&str>) -> Option<PathBuf> {
-    if let Ok(value) = std::env::var(env_var) {
-        if !value.trim().is_empty() {
-            let path = PathBuf::from(value);
-            if path.is_file() {
-                return Some(path);
-            }
-        }
-    }
-
-    #[cfg(target_os = "android")]
-    if let Some(dir) = paths::native_lib_dir() {
-        if let Some(name) = android_lib {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(dir) = executable.parent() {
-            let exe_name = if cfg!(target_os = "windows") {
-                format!("{name}.exe")
-            } else {
-                name.to_string()
-            };
-            for candidate in [dir.join(&exe_name), dir.join("bin").join(&exe_name)] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-
-    None
-}
-
 /// The directory that holds `geoip.dat` / `geosite.dat`.
 pub fn asset_dir() -> PathBuf {
     if let Ok(executable) = std::env::current_exe() {

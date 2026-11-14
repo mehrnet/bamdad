@@ -89,17 +89,6 @@ Built by `scripts/build-openvpn3-deps.sh` and linked statically into
 - Not used. Its OpenVPN 3 fork is AGPL-3.0-only; Bamdad uses upstream OpenVPN 3
   under MPL-2.0 instead.
 
-## wireproxy
-
-- Project: https://github.com/whyvl/wireproxy (module `github.com/windtf/wireproxy`)
-- Version: `v1.1.3` (git submodule at `vendor/wireproxy`)
-- License: ISC
-- Built by `scripts/build-wireguard-proxy.sh` as `bamdad-wg` (desktop) and
-  `libbamdad_wg.so` (Android). It runs a userspace WireGuard session
-  (`wireguard-go` + gVisor netstack) and exposes it as a local SOCKS5 proxy, so
-  WireGuard configs can be used as a chain hop without the Android VpnService
-  slot.
-
 ## zip4j
 
 - Project: https://github.com/srikanth-lingala/zip4j

@@ -101,31 +101,6 @@ Android TunnelController
 - [ ] Add credential prompt for `auth-user-pass`.
 - [ ] Test against an OpenVPN test server.
 
-## Phase 6: userspace native hops
-
-- [x] Vendor wireproxy `v1.1.3` (ISC) and build `bamdad-wg` for host + Android
-      (`scripts/build-wireguard-proxy.sh`, `libbamdad_wg.so`).
-- [x] Host smoke: real WireGuard server -> userspace helper -> SOCKS -> HTTPS.
-- [x] App integration on desktop: a vanilla WireGuard profile runs through
-      `bamdad-wg` and feeds the proxy/system-proxy path.
-- [ ] Android integration: blocked by Android's app seccomp policy killing the
-      Go helper with SIGSYS (Go runtime/landlock syscalls). Android keeps the
-      VpnService backend until this is solved.
-- [ ] Use `bamdad-wg` as a chain hop in the hop supervisor.
-- [ ] AmneziaWG variant (wireproxy-awg / amneziawg-go) and license check.
-
-## Phase 5: client-side chains
-
-- [x] `Profile.chain`: an ordered list of proxy hops (entry first, exit last).
-- [x] Xray chain config via `streamSettings.sockopt.dialerProxy` (26.x syntax).
-- [x] sing-box chain config via outbound `detour`.
-- [x] Chain editor dialog: add/remove/reorder hops, same-core candidates only.
-- [x] Connect path validates hops (proxy, same core, unchained) and logs the plan.
-- [ ] Mixed-core chains (Xray ↔ sing-box) via local SOCKS bridges.
-- [ ] Chain-aware latency probes (probe the full path, not just the exit).
-- [ ] Routing rules: send domains/apps through different chains.
-- [ ] Native hops (`bamdad-wg` userspace SOCKS helper, then OpenVPN).
-
 ## Phase 4: unified UX
 
 - [ ] One notification across transports (profile name, totals, accent icon).

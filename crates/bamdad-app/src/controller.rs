@@ -11,11 +11,10 @@ use bamdad_core::config::{self, load_store, save_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
 use bamdad_core::error::CoreError;
 use bamdad_core::httpprobe;
-use bamdad_core::proxyhelper;
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
-use crate::{AppWindow, ChainCandidateRow, ChainHopRow, GroupRow, NamePart, ProfileRow};
+use crate::{AppWindow, GroupRow, NamePart, ProfileRow};
 
 pub(crate) type LogBuffer = Arc<Mutex<Vec<String>>>;
 type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
@@ -31,7 +30,6 @@ static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
-static CHAIN_EDIT: Mutex<Option<(String, Vec<String>)>> = Mutex::new(None);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -176,7 +174,6 @@ fn profiles_from_text(name: &str, text: &str) -> Vec<config::Profile> {
                     group_id: None,
                     group_name: None,
                     group_url: None,
-                    chain: Vec::new(),
                 }];
             }
         }
@@ -258,14 +255,6 @@ pub fn init(
             },
         );
         std::mem::forget(timer);
-    }
-    if std::env::var("BAMDAD_PREVIEW_CHAIN").is_ok() {
-        let guard = store.lock().unwrap();
-        let id = guard.selected_id.clone().unwrap_or_default();
-        drop(guard);
-        if !id.is_empty() {
-            open_chain_dialog(&ui, &store, &id);
-        }
     }
     if std::env::var("BAMDAD_PREVIEW_CONNECTING").is_ok() {
         ui.set_connected(false);
@@ -944,20 +933,11 @@ fn node_row(
         plain_name: plain_name.as_str().into(),
         long_name: plain_name.chars().count() > 36,
         name_parts: ModelRc::new(VecModel::from(parts)),
-        detail: if profile.chain.is_empty() {
-            format!(
-                "{} · {}",
-                protocol_label(&profile.protocol),
-                profile.endpoint()
-            )
-        } else {
-            format!(
-                "{} · {} · {} hops",
-                protocol_label(&profile.protocol),
-                profile.endpoint(),
-                profile.chain.len() + 1
-            )
-        }
+        detail: format!(
+            "{} · {}",
+            protocol_label(&profile.protocol),
+            profile.endpoint()
+        )
         .into(),
         protocol: protocol_label(&profile.protocol).into(),
         core: profile.transport_label().into(),
@@ -1119,77 +1099,6 @@ fn detect_json_core(config: &serde_json::Value) -> CoreKind {
     }
 }
 
-fn refresh_chain_models(ui: &AppWindow, store: &Arc<Mutex<Store>>) {
-    let draft = CHAIN_EDIT.lock().unwrap().clone();
-    let Some((target_id, hops)) = draft else {
-        return;
-    };
-    let guard = store.lock().unwrap();
-    let Some(target) = guard.profile_by_id(&target_id) else {
-        return;
-    };
-    let hop_rows: Vec<ChainHopRow> = hops
-        .iter()
-        .filter_map(|id| guard.profile_by_id(id))
-        .map(|profile| ChainHopRow {
-            id: profile.id.as_str().into(),
-            name: profile.name.as_str().into(),
-        })
-        .collect();
-    let candidates: Vec<ChainCandidateRow> = guard
-        .profiles
-        .iter()
-        .filter(|profile| {
-            profile.id != target_id
-                && profile.is_proxy()
-                && profile.core == target.core
-                && profile.chain.is_empty()
-                && !hops.contains(&profile.id)
-        })
-        .map(|profile| ChainCandidateRow {
-            id: profile.id.as_str().into(),
-            name: profile.name.as_str().into(),
-        })
-        .collect();
-    drop(guard);
-    ui.set_chain_hops(ModelRc::new(VecModel::from(hop_rows)));
-    ui.set_chain_candidates(ModelRc::new(VecModel::from(candidates)));
-}
-
-fn open_chain_dialog(ui: &AppWindow, store: &Arc<Mutex<Store>>, id: &str) {
-    let prepared = {
-        let guard = store.lock().unwrap();
-        let Some(target) = guard.profile_by_id(id) else {
-            return;
-        };
-        if !target.is_proxy() {
-            return;
-        }
-        (target.name.clone(), target.chain.clone())
-    };
-    *CHAIN_EDIT.lock().unwrap() = Some((id.to_string(), prepared.1));
-    ui.set_chain_name(prepared.0.into());
-    refresh_chain_models(ui, store);
-    ui.set_chain_open(true);
-}
-
-fn mutate_chain(
-    weak: &Weak<AppWindow>,
-    store: &Arc<Mutex<Store>>,
-    mutate: impl FnOnce(&mut Vec<String>),
-) {
-    {
-        let mut draft = CHAIN_EDIT.lock().unwrap();
-        let Some((_, hops)) = draft.as_mut() else {
-            return;
-        };
-        mutate(hops);
-    }
-    if let Some(ui) = weak.upgrade() {
-        refresh_chain_models(&ui, store);
-    }
-}
-
 fn setup_callbacks(
     ui: &AppWindow,
     engine: EngineHandle,
@@ -1303,7 +1212,6 @@ fn setup_callbacks(
                             group_id: None,
                             group_name: None,
                             group_url: None,
-                            chain: Vec::new(),
                         };
                         {
                             let mut guard = store.lock().unwrap();
@@ -1935,16 +1843,14 @@ fn setup_callbacks(
         let store = store.clone();
         ui.on_open_config_menu(move |id| {
             let Some(ui) = weak.upgrade() else { return };
-            let (name, chainable) = {
-                let guard = store.lock().unwrap();
-                let Some(profile) = guard.profile_by_id(id.as_str()) else {
-                    return;
-                };
-                (profile.name.clone(), profile.is_proxy())
-            };
+            let name = store
+                .lock()
+                .unwrap()
+                .profile_by_id(id.as_str())
+                .map(|profile| profile.name.clone());
+            let Some(name) = name else { return };
             ui.set_config_menu_id(id.clone());
             ui.set_config_menu_name(name.into());
-            ui.set_config_menu_chainable(chainable);
             ui.set_config_menu_open(true);
         });
     }
@@ -1955,133 +1861,6 @@ fn setup_callbacks(
             if let Some(ui) = weak.upgrade() {
                 ui.set_config_menu_open(false);
             }
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_open_chain_config(move |id| {
-            let Some(ui) = weak.upgrade() else { return };
-            open_chain_dialog(&ui, &store, id.as_str());
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        ui.on_close_chain(move || {
-            if let Some(ui) = weak.upgrade() {
-                *CHAIN_EDIT.lock().unwrap() = None;
-                ui.set_chain_open(false);
-            }
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_chain_add(move |id| {
-            let id = id.to_string();
-            let valid = {
-                let guard = store.lock().unwrap();
-                let Some((target_id, hops)) = CHAIN_EDIT.lock().unwrap().clone() else {
-                    return;
-                };
-                let Some(target) = guard.profile_by_id(&target_id) else {
-                    return;
-                };
-                guard.profile_by_id(&id).is_some_and(|hop| {
-                    hop.id != target_id
-                        && hop.is_proxy()
-                        && hop.core == target.core
-                        && hop.chain.is_empty()
-                        && !hops.contains(&hop.id)
-                })
-            };
-            if !valid {
-                return;
-            }
-            mutate_chain(&weak, &store, |hops| {
-                if !hops.iter().any(|hop| hop == &id) {
-                    hops.push(id.clone());
-                }
-            });
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_chain_remove(move |id| {
-            let id = id.to_string();
-            mutate_chain(&weak, &store, |hops| hops.retain(|hop| hop != &id));
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_chain_up(move |id| {
-            let id = id.to_string();
-            mutate_chain(&weak, &store, |hops| {
-                if let Some(index) = hops.iter().position(|hop| hop == &id) {
-                    if index > 0 {
-                        hops.swap(index, index - 1);
-                    }
-                }
-            });
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        ui.on_chain_down(move |id| {
-            let id = id.to_string();
-            mutate_chain(&weak, &store, |hops| {
-                if let Some(index) = hops.iter().position(|hop| hop == &id) {
-                    if index + 1 < hops.len() {
-                        hops.swap(index, index + 1);
-                    }
-                }
-            });
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        let pings = pings.clone();
-        ui.on_chain_save(move || {
-            let Some(ui) = weak.upgrade() else { return };
-            let draft = CHAIN_EDIT.lock().unwrap().take();
-            let Some((target_id, hops)) = draft else {
-                return;
-            };
-            {
-                let mut guard = store.lock().unwrap();
-                let valid: Vec<String> = {
-                    let Some(target) = guard.profile_by_id(&target_id) else {
-                        return;
-                    };
-                    let core = target.core;
-                    hops.iter()
-                        .filter(|id| {
-                            guard.profile_by_id(id).is_some_and(|hop| {
-                                hop.id != target_id
-                                    && hop.is_proxy()
-                                    && hop.core == core
-                                    && hop.chain.is_empty()
-                            })
-                        })
-                        .cloned()
-                        .collect()
-                };
-                guard.set_profile_chain(&target_id, valid);
-                let _ = save_store(&guard);
-                ui.set_groups(group_model(&guard, &pings));
-            }
-            ui.set_chain_open(false);
         });
     }
 
@@ -2746,51 +2525,6 @@ fn start_connection(
     }
     enter_starting_state(ui, switching);
 
-    // Vanilla WireGuard runs through the userspace helper so it behaves like a
-    // proxy transport: no VpnService WireGuard backend and it can later be
-    // used as a chain hop. AmneziaWG keeps the existing GoBackend path.
-    // Android's app seccomp policy kills the Go userspace proxy helper
-    // (SIGSYS), so Android keeps the working VpnService WireGuard backend for
-    // now. Desktop uses the helper.
-    if profile.transport == bamdad_core::Transport::WireGuard && !cfg!(target_os = "android") {
-        let Some(raw) = profile
-            .raw_config
-            .clone()
-            .filter(|config| !config.trim().is_empty())
-        else {
-            push_log(ui, logs, "WireGuard profile has no raw config".to_string());
-            cancel_starting(ui, was_connected);
-            return;
-        };
-        if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
-            crate::stop_native_tunnel();
-        }
-        VPN_SOCKS_PORT.store(settings.socks_port, Ordering::Relaxed);
-        push_log(
-            ui,
-            logs,
-            format!(
-                "starting {} via userspace WireGuard proxy on port {}",
-                profile.name, settings.socks_port
-            ),
-        );
-        if settings.system_proxy && !cfg!(target_os = "android") {
-            let proxy = ProxySettings {
-                socks_port: settings.socks_port,
-                http_port: settings.http_port,
-            };
-            if let Err(error) = system_proxy::enable(proxy) {
-                push_log(ui, logs, format!("system proxy: {error}"));
-            }
-        }
-        engine.start_helper(proxyhelper::HelperSpec {
-            kind: proxyhelper::HelperKind::WireGuard,
-            config: raw,
-            socks_port: settings.socks_port,
-        });
-        return;
-    }
-
     if !profile.is_proxy() {
         #[cfg(target_os = "android")]
         {
@@ -2927,46 +2661,8 @@ fn start_connection(
         }
     };
 
-    let chain: Vec<config::Profile> = {
-        let guard = store.lock().unwrap();
-        profile
-            .chain
-            .iter()
-            .filter_map(|id| guard.profile_by_id(id).cloned())
-            .collect()
-    };
-    if !chain.is_empty() {
-        let bad_hop = chain.iter().find(|hop| {
-            !hop.is_proxy()
-                || hop.core != profile.core
-                || hop.id == profile.id
-                || !hop.chain.is_empty()
-        });
-        if let Some(hop) = bad_hop {
-            push_log(
-                ui,
-                logs,
-                format!(
-                    "chain rejected: {} must be a {} proxy hop",
-                    hop.name,
-                    profile.core.label()
-                ),
-            );
-            cancel_starting(ui, was_connected);
-            return;
-        }
-    }
-
-    let prepared = if chain.is_empty() {
-        config::prepare_config(profile.core, &profile.config, &settings, api_port)
-    } else {
-        let mut hops: Vec<&config::Profile> = chain.iter().collect();
-        hops.push(&profile);
-        let names: Vec<&str> = hops.iter().map(|hop| hop.name.as_str()).collect();
-        push_log(ui, logs, format!("chain: {}", names.join(" → ")));
-        config::prepare_chain_config(profile.core, &hops, &settings, api_port)
-    };
-    let prepared = match prepared {
+    let prepared = match config::prepare_config(profile.core, &profile.config, &settings, api_port)
+    {
         Ok(config) => config,
         Err(error) => {
             push_log(ui, logs, format!("invalid config: {error}"));
@@ -3335,10 +3031,9 @@ fn publish_logs(ui: &AppWindow, logs: &LogBuffer) {
 /// Publish the log model at a bounded rate. Rebuilding a large model on every
 /// single line makes the settings ScrollView jump while the user scrolls it.
 fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
-    let line = line.into();
     {
         let mut buffer = logs.lock().unwrap();
-        buffer.push(line);
+        buffer.push(line.into());
         if buffer.len() > 600 {
             let excess = buffer.len() - 600;
             buffer.drain(0..excess);

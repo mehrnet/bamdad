@@ -1,6 +1,6 @@
-import { ListView, ScrollView } from "std-widgets.slint";
+import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { ChainCandidateRow, ChainHopRow, GroupRow } from "models.slint";
+import { GroupRow } from "models.slint";
 import {
     Card,
     ChoicePill,
@@ -452,13 +452,11 @@ component GroupActionsMenu inherits Rectangle {
 
 component ConfigActionsMenu inherits Rectangle {
     in property <string> name;
-    in property <bool> chainable: true;
     callback rename();
-    callback chain();
     callback delete();
 
     width: 240px;
-    height: 140px;
+    height: 98px;
     background: transparent;
 
     Card {
@@ -476,11 +474,6 @@ component ConfigActionsMenu inherits Rectangle {
                 icon: @image-url("icons/pencil.svg");
                 text: "Rename config";
                 clicked => { root.rename(); }
-            }
-            if root.chainable : MenuItem {
-                icon: @image-url("icons/link.svg");
-                text: "Chain config";
-                clicked => { root.chain(); }
             }
             MenuItem {
                 icon: @image-url("icons/trash.svg");
@@ -587,7 +580,7 @@ component LogFullscreen inherits Rectangle {
             clip: true;
 
             log-list := ListView {
-                vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+                vertical-scrollbar-policy: always-off;
                 for line in root.logs : Text {
                     text: line;
                     x: 10px;
@@ -596,175 +589,6 @@ component LogFullscreen inherits Rectangle {
                     font-size: 12px;
                     font-family: "monospace";
                     wrap: word-wrap;
-                }
-            }
-        }
-    }
-}
-
-component ChainDialog inherits Rectangle {
-    in property <bool> phone;
-    in property <string> name;
-    in property <[ChainHopRow]> hops;
-    in property <[ChainCandidateRow]> candidates;
-    callback close();
-    callback add(string);
-    callback remove(string);
-    callback up(string);
-    callback down(string);
-    callback save();
-
-    width: 100%;
-    height: 100%;
-    background: Theme.scrim;
-
-    TouchArea { clicked => { root.close(); } }
-
-    Card {
-        width: root.phone ? parent.width - 32px : 500px;
-        height: root.phone ? parent.height - 120px : 500px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-
-        VerticalLayout {
-            padding: 18px;
-            spacing: 7px;
-
-            Text {
-                text: "Chain · " + root.name;
-                color: Theme.text;
-                font-size: 18px;
-                font-weight: 700;
-                overflow: elide;
-            }
-            Text {
-                text: "Traffic enters at the first hop and exits through this profile.";
-                color: Theme.muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-            Text {
-                text: "HOPS";
-                color: Theme.muted;
-                font-size: 10px;
-                font-weight: 700;
-            }
-            if root.hops.length == 0 : Text {
-                text: "Direct — no extra hops.";
-                color: Theme.text-2;
-                font-size: 12px;
-            }
-            ScrollView {
-                min-height: 76px;
-                max-height: 150px;
-                vertical-scrollbar-policy: ScrollBarPolicy.always-off;
-                content-width: self.visible-width;
-                VerticalLayout {
-                    spacing: 4px;
-                    for hop in root.hops : Rectangle {
-                        height: 34px;
-                        border-radius: 8px;
-                        background: Theme.surface-2;
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 6px;
-                            spacing: 4px;
-                            cross-axis-alignment: center;
-                            Text {
-                                text: hop.name;
-                                color: Theme.text;
-                                font-size: 13px;
-                                horizontal-stretch: 1;
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-                            up-touch := Rectangle {
-                                width: 26px;
-                                height: 28px;
-                                border-radius: 6px;
-                                background: up-touch-ta.pressed ? Theme.surface-3 : transparent;
-                                Text { text: "↑"; color: Theme.text-2; font-size: 14px; width: 100%; height: 100%; horizontal-alignment: center; vertical-alignment: center; }
-                                up-touch-ta := TouchArea { mouse-cursor: pointer; clicked => { root.up(hop.id); } }
-                            }
-                            down-touch := Rectangle {
-                                width: 26px;
-                                height: 28px;
-                                border-radius: 6px;
-                                background: down-touch-ta.pressed ? Theme.surface-3 : transparent;
-                                Text { text: "↓"; color: Theme.text-2; font-size: 14px; width: 100%; height: 100%; horizontal-alignment: center; vertical-alignment: center; }
-                                down-touch-ta := TouchArea { mouse-cursor: pointer; clicked => { root.down(hop.id); } }
-                            }
-                            remove-touch := Rectangle {
-                                width: 26px;
-                                height: 28px;
-                                border-radius: 6px;
-                                background: remove-touch-ta.pressed ? Theme.surface-3 : transparent;
-                                Text { text: "✕"; color: Theme.danger; font-size: 13px; width: 100%; height: 100%; horizontal-alignment: center; vertical-alignment: center; }
-                                remove-touch-ta := TouchArea { mouse-cursor: pointer; clicked => { root.remove(hop.id); } }
-                            }
-                        }
-                    }
-                }
-            }
-            Text {
-                text: "ADD HOP";
-                color: Theme.muted;
-                font-size: 10px;
-                font-weight: 700;
-            }
-            if root.candidates.length == 0 : Text {
-                text: "No more profiles with this core. Hops must be unchained proxy profiles on the same core.";
-                color: Theme.muted;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-            ScrollView {
-                vertical-stretch: 1;
-                vertical-scrollbar-policy: ScrollBarPolicy.always-off;
-                content-width: self.visible-width;
-                VerticalLayout {
-                    spacing: 2px;
-                    for candidate in root.candidates : Rectangle {
-                        height: 32px;
-                        border-radius: 8px;
-                        background: candidate-touch.pressed ? Theme.surface-2 : transparent;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 6px;
-                            cross-axis-alignment: center;
-                            Text {
-                                text: candidate.name;
-                                color: Theme.text-2;
-                                font-size: 13px;
-                                horizontal-stretch: 1;
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: "+ Add";
-                                color: Theme.accent;
-                                font-size: 12px;
-                                font-weight: 700;
-                                vertical-alignment: center;
-                            }
-                        }
-                        candidate-touch := TouchArea { mouse-cursor: pointer; clicked => { root.add(candidate.id); } }
-                    }
-                }
-            }
-            HorizontalLayout {
-                spacing: 7px;
-                Rectangle { horizontal-stretch: 1; }
-                SecondaryButton {
-                    width: 84px;
-                    text: "Cancel";
-                    clicked => { root.close(); }
-                }
-                PrimaryButton {
-                    width: 96px;
-                    text: "Save";
-                    clicked => { root.save(); }
                 }
             }
         }
@@ -843,11 +667,6 @@ export component AppWindow inherits Window {
     in-out property <length> config-menu-y: 0px;
     in-out property <string> config-menu-id: "";
     in-out property <string> config-menu-name: "";
-    in-out property <bool> config-menu-chainable: true;
-    in-out property <bool> chain-open: false;
-    in-out property <string> chain-name: "";
-    in-out property <[ChainHopRow]> chain-hops;
-    in-out property <[ChainCandidateRow]> chain-candidates;
     in-out property <bool> rename-open: false;
     in-out property <string> rename-target: "";
     in-out property <string> rename-title: "";
@@ -889,13 +708,6 @@ export component AppWindow inherits Window {
     callback clear-group(string);
     callback reset-config-order(string);
     callback sort-group-latency(string);
-    callback open-chain-config(string);
-    callback close-chain();
-    callback chain-add(string);
-    callback chain-remove(string);
-    callback chain-up(string);
-    callback chain-down(string);
-    callback chain-save();
     callback open-config-menu(string);
     callback close-config-menu();
     callback request-rename(string, string, string);
@@ -923,7 +735,6 @@ export component AppWindow inherits Window {
             if (event.text == Key.Back || event.text == Key.Escape) {
                 if (root.logs-full) { root.logs-full = false; return accept; }
                 if (root.rename-open) { root.close-rename(); return accept; }
-                if (root.chain-open) { root.close-chain(); return accept; }
                 if (root.config-menu-open) { root.config-menu-open = false; return accept; }
                 if (root.group-menu-open) { root.close-group-menu(); return accept; }
                 if (root.edit-open) { root.close-edit(); return accept; }
@@ -1120,9 +931,8 @@ export component AppWindow inherits Window {
         }
         if root.config-menu-open : ConfigActionsMenu {
             x: Math.max(8px, Math.min(root.config-menu-x + 28px - 240px, root.width - 248px));
-            y: Math.min(root.config-menu-y + 32px, root.height - 150px);
+            y: Math.min(root.config-menu-y + 32px, root.height - 108px);
             name: root.config-menu-name;
-            chainable: root.config-menu-chainable;
             rename => {
                 root.request-rename(
                     "config:" + root.config-menu-id,
@@ -1131,27 +941,10 @@ export component AppWindow inherits Window {
                 );
                 root.config-menu-open = false;
             }
-            chain => {
-                root.open-chain-config(root.config-menu-id);
-                root.config-menu-open = false;
-            }
             delete => {
                 root.delete-config(root.config-menu-id);
                 root.config-menu-open = false;
             }
-        }
-
-        if root.chain-open : ChainDialog {
-            phone: root.phone;
-            name: root.chain-name;
-            hops: root.chain-hops;
-            candidates: root.chain-candidates;
-            close => { root.close-chain(); }
-            add(id) => { root.chain-add(id); }
-            remove(id) => { root.chain-remove(id); }
-            up(id) => { root.chain-up(id); }
-            down(id) => { root.chain-down(id); }
-            save => { root.chain-save(); }
         }
 
         if root.rename-open : RenameDialog {
