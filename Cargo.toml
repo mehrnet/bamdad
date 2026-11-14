@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/bamdad-core", "crates/bamdad-app", "crates/bamdad-netcheck"]
 
 [workspace.package]
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/mehrnet/bamdad"

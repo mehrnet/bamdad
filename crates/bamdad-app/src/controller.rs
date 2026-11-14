@@ -10,7 +10,7 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 use bamdad_core::config::{self, load_store, save_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
 use bamdad_core::error::CoreError;
-use bamdad_core::httpprobe::{self, HttpProbe};
+use bamdad_core::httpprobe;
 use bamdad_core::system_proxy::{self, ProxySettings};
 use bamdad_core::{binary, link, paths, probe, CoreKind};
 
@@ -21,6 +21,7 @@ type PingState = Arc<Mutex<HashMap<String, (String, i32)>>>;
 
 static VPN_SOCKS_PORT: AtomicU16 = AtomicU16::new(10808);
 static SWITCHING: AtomicBool = AtomicBool::new(false);
+static STARTING: AtomicBool = AtomicBool::new(false);
 static NATIVE_TUNNEL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LAST_IPV4: Mutex<String> = Mutex::new(String::new());
 static LAST_IPV6: Mutex<String> = Mutex::new(String::new());
@@ -29,7 +30,6 @@ static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
-static PROBE_SEMAPHORE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -323,6 +323,7 @@ pub(crate) fn init_attached(
         ui.set_total_down_text(format_bytes(snapshot.total_down).into());
         match &snapshot.state {
             EngineState::Running => {
+                STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 ui.set_connected(true);
                 ui.set_busy(false);
@@ -345,7 +346,10 @@ pub(crate) fn init_attached(
                 ui.set_status_text("Core error".into());
             }
             EngineState::Stopped => {
-                if SWITCHING.load(Ordering::SeqCst) {
+                // Ignore a stale Stopped from the previous session while a new
+                // one is still coming up; otherwise it would flash the bar
+                // back to the disconnected state.
+                if SWITCHING.load(Ordering::SeqCst) || STARTING.load(Ordering::SeqCst) {
                     return;
                 }
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
@@ -1629,7 +1633,7 @@ fn setup_callbacks(
         let store = store.clone();
         let pings = pings.clone();
         ui.on_ping_profile(move |id| {
-            begin_ping(&weak, &runtime, &store, &pings, id.to_string());
+            begin_ping_batch(&weak, &runtime, &store, &pings, vec![id.to_string()]);
         });
     }
 
@@ -1664,9 +1668,7 @@ fn setup_callbacks(
                     .map(|profile| profile.id.clone())
                     .collect()
             };
-            for id in ids {
-                begin_ping(&weak, &runtime, &store, &pings, id);
-            }
+            begin_ping_batch(&weak, &runtime, &store, &pings, ids);
         });
     }
 
@@ -2153,9 +2155,7 @@ fn setup_callbacks(
                     .map(|profile| profile.id.clone())
                     .collect()
             };
-            for id in ids {
-                begin_ping(&weak, &runtime, &store, &pings, id);
-            }
+            begin_ping_batch(&weak, &runtime, &store, &pings, ids);
         });
     }
 }
@@ -2235,145 +2235,194 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
     Ok((title, nodes))
 }
 
-async fn http_ping(
-    profile: config::Profile,
-    settings: config::AppSettings,
-) -> Result<u64, CoreError> {
-    let semaphore = PROBE_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(3));
-    let _permit = semaphore
-        .acquire()
-        .await
-        .map_err(|_| CoreError::Spawn("probe scheduler is unavailable".to_string()))?;
-
-    let core = profile.core;
-    let config = profile.config.clone();
-    let joined = tokio::task::spawn_blocking(move || {
-        let Some(binary_path) = binary::resolve_kind(core) else {
-            return Err(CoreError::Spawn(format!(
-                "{} is not installed",
-                core.label()
-            )));
-        };
-        httpprobe::measure(
-            HttpProbe {
-                core,
-                binary: binary_path,
-                config,
-                settings,
-            },
-            Duration::from_secs(5),
-        )
-    })
-    .await
-    .map_err(|error| CoreError::Spawn(format!("probe task failed: {error}")))?;
-
-    joined
+#[derive(Clone, Copy)]
+enum PingMode {
+    Skip,
+    Native,
+    Proxy,
+    ActiveProxy,
+    ActiveNative,
 }
 
-fn begin_ping(
+fn ping_entry(id: String, result: Result<u64, CoreError>) -> (String, String, i32) {
+    match result {
+        Ok(ms) => {
+            let ms = ms.max(1);
+            (id, format!("{ms} ms"), latency_state(ms))
+        }
+        Err(_) => (id, "timeout".to_string(), 4),
+    }
+}
+
+/// Probe one or more profiles. Proxy profiles are merged into shared core
+/// instances (v2rayNG/radar-node style) so a subscription with hundreds of
+/// configs is measured with a handful of process starts instead of one per
+/// config.
+fn begin_ping_batch(
     weak: &Weak<AppWindow>,
     runtime: &tokio::runtime::Handle,
     store: &Arc<Mutex<Store>>,
     pings: &PingState,
-    id: String,
+    ids: Vec<String>,
 ) {
     let Some(ui) = weak.upgrade() else { return };
-    let profile = store.lock().unwrap().profile_by_id(&id).cloned();
-    let Some(profile) = profile else { return };
-
-    let native = !profile.is_proxy();
-    if profile.protocol.eq_ignore_ascii_case("direct")
-        || profile.address == "local"
-        || profile.address.is_empty()
-        || profile.port == 0
-    {
-        set_ping(&ui, store, pings, &id, "—".to_string(), 0);
+    let (profiles, settings, selected_id) = {
+        let guard = store.lock().unwrap();
+        let profiles: Vec<config::Profile> = ids
+            .iter()
+            .filter_map(|id| guard.profile_by_id(id).cloned())
+            .collect();
+        (profiles, guard.settings.clone(), guard.selected_id.clone())
+    };
+    if profiles.is_empty() {
         return;
     }
 
-    set_ping(&ui, store, pings, &id, "…".to_string(), 1);
-    let settings = store.lock().unwrap().settings.clone();
-    let is_active =
-        ui.get_connected() && store.lock().unwrap().selected_id.as_deref() == Some(id.as_str());
+    let connected = ui.get_connected();
     let native_active = NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst);
+    let mut plan: Vec<(config::Profile, PingMode)> = Vec::new();
+    let mut waiting = Vec::new();
+    let mut dashes = Vec::new();
+
+    for profile in profiles {
+        let mode = if profile.protocol.eq_ignore_ascii_case("direct")
+            || profile.address == "local"
+            || profile.address.is_empty()
+            || profile.port == 0
+        {
+            PingMode::Skip
+        } else if profile.is_proxy() {
+            if connected && selected_id.as_deref() == Some(profile.id.as_str()) && !native_active {
+                PingMode::ActiveProxy
+            } else if native_active {
+                // A probe core started now would be routed through the native
+                // tunnel; keep the measurement on the physical path.
+                PingMode::Native
+            } else {
+                PingMode::Proxy
+            }
+        } else if connected && selected_id.as_deref() == Some(profile.id.as_str()) && native_active
+        {
+            PingMode::ActiveNative
+        } else {
+            PingMode::Native
+        };
+
+        match mode {
+            PingMode::Skip => dashes.push(profile.id),
+            _ => {
+                waiting.push(profile.id.clone());
+                plan.push((profile, mode));
+            }
+        }
+    }
+
+    {
+        let mut map = pings.lock().unwrap();
+        for id in &dashes {
+            map.insert(id.clone(), ("—".to_string(), 0));
+        }
+        for id in &waiting {
+            map.insert(id.clone(), ("…".to_string(), 1));
+        }
+        drop(map);
+        let guard = store.lock().unwrap();
+        ui.set_groups(group_model(&guard, pings));
+    }
 
     let weak = weak.clone();
     let pings = pings.clone();
     let store = store.clone();
-    let runtime = runtime.clone();
     runtime.spawn(async move {
-        // Proxies expose a TCP listener, so a warm TCP handshake is the right
-        // probe. WireGuard/AmneziaWG and UDP OpenVPN do not; use an ICMP echo
-        // to the configured endpoint instead so those profiles also show a
-        // latency instead of a dash.
-        let result = if native {
-            if is_active && native_active {
-                // The app's own traffic already follows the active native
-                // tunnel, so this is a real end-to-end request.
-                tokio::task::spawn_blocking(|| httpprobe::measure_direct(Duration::from_secs(5)))
-                    .await
-                    .unwrap_or_else(|error| {
-                        Err(CoreError::Spawn(format!("probe task failed: {error}")))
-                    })
-            } else {
-                probe::best_native_latency(
-                    &profile.address,
-                    profile.port,
-                    Duration::from_millis(2_000),
-                )
-                .await
+        let mut results: Vec<(String, String, i32)> = Vec::new();
+        let limit = Arc::new(tokio::sync::Semaphore::new(16));
+        let mut handles = Vec::new();
+        let mut batch = Vec::new();
+
+        for (profile, mode) in plan {
+            match mode {
+                PingMode::Proxy => batch.push(httpprobe::BatchJob {
+                    id: profile.id.clone(),
+                    core: profile.core,
+                    config: profile.config.clone(),
+                }),
+                PingMode::ActiveProxy => {
+                    let permit = limit.clone();
+                    let port = settings.socks_port;
+                    handles.push(tokio::spawn(async move {
+                        let _permit = permit.acquire().await.ok();
+                        let result = tokio::task::spawn_blocking(move || {
+                            httpprobe::measure_through(port, Duration::from_secs(5))
+                        })
+                        .await
+                        .unwrap_or_else(|error| {
+                            Err(CoreError::Spawn(format!("probe task failed: {error}")))
+                        });
+                        ping_entry(profile.id, result)
+                    }));
+                }
+                PingMode::ActiveNative => {
+                    let permit = limit.clone();
+                    handles.push(tokio::spawn(async move {
+                        let _permit = permit.acquire().await.ok();
+                        let result = tokio::task::spawn_blocking(|| {
+                            httpprobe::measure_direct(Duration::from_secs(5))
+                        })
+                        .await
+                        .unwrap_or_else(|error| {
+                            Err(CoreError::Spawn(format!("probe task failed: {error}")))
+                        });
+                        ping_entry(profile.id, result)
+                    }));
+                }
+                PingMode::Native => {
+                    let permit = limit.clone();
+                    handles.push(tokio::spawn(async move {
+                        let _permit = permit.acquire().await.ok();
+                        let result = probe::best_native_latency(
+                            &profile.address,
+                            profile.port,
+                            Duration::from_millis(2_000),
+                        )
+                        .await;
+                        ping_entry(profile.id, result)
+                    }));
+                }
+                PingMode::Skip => {}
             }
-        } else if is_active && !native_active {
-            // Reuse the active proxy's SOCKS listener; no second core needed.
-            tokio::task::spawn_blocking(move || {
-                httpprobe::measure_through(settings.socks_port, Duration::from_secs(5))
+        }
+
+        if !batch.is_empty() {
+            let measured = tokio::task::spawn_blocking(move || {
+                httpprobe::measure_batch(batch, Duration::from_millis(3_500))
             })
-            .await
-            .unwrap_or_else(|error| Err(CoreError::Spawn(format!("probe task failed: {error}"))))
-        } else if native_active {
-            // A proxy core started now would be routed through the native
-            // tunnel, so keep the measurement on the physical path.
-            probe::best_native_latency(&profile.address, profile.port, Duration::from_millis(2_000))
-                .await
-        } else {
-            // Real minimal HTTP request through the profile's own core,
-            // radar-node style. Fall back to a TCP handshake when the core is
-            // missing or cannot be started.
-            match http_ping(profile.clone(), settings).await {
-                Ok(ms) => Ok(ms),
-                Err(_) => {
-                    probe::best_tcp_latency(
-                        &profile.address,
-                        profile.port,
-                        Duration::from_millis(2_000),
-                    )
-                    .await
+            .await;
+            if let Ok(measured) = measured {
+                for item in measured {
+                    results.push(match item.latency_ms {
+                        Some(ms) => ping_entry(item.id, Ok(ms)),
+                        None => (item.id, "timeout".to_string(), 4),
+                    });
                 }
             }
-        };
+        }
 
-        let (text, state) = match result {
-            Ok(ms) => {
-                #[cfg(target_os = "android")]
-                crate::logcat(&format!(
-                    "ping {} ({}:{}): {ms} ms",
-                    profile.name, profile.address, profile.port
-                ));
-                (format!("{ms} ms"), latency_state(ms))
+        for handle in handles {
+            if let Ok(entry) = handle.await {
+                results.push(entry);
             }
-            Err(error) => {
-                #[cfg(target_os = "android")]
-                crate::logcat(&format!(
-                    "ping {} ({}:{}): {error}",
-                    profile.name, profile.address, profile.port
-                ));
-                ("timeout".to_string(), 4)
-            }
-        };
+        }
 
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {
-                set_ping(&ui, &store, &pings, &id, text, state);
+                if let Ok(mut map) = pings.lock() {
+                    for (id, text, state) in results {
+                        map.insert(id, (text, state));
+                    }
+                }
+                if let Ok(guard) = store.lock() {
+                    ui.set_groups(group_model(&guard, &pings));
+                }
             }
         });
     });
@@ -2408,6 +2457,7 @@ fn set_ping(
 /// running tunnel untouched.
 fn cancel_starting(ui: &AppWindow, was_connected: bool) {
     SWITCHING.store(false, Ordering::SeqCst);
+    STARTING.store(false, Ordering::SeqCst);
     ui.set_busy(false);
     ui.set_connected(was_connected);
     ui.set_status_text(if was_connected {
@@ -2421,6 +2471,7 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
 /// user switches profiles, and clear the previous session's counters and
 /// addresses so no stale values stay on screen while the new core comes up.
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
+    STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
     ui.set_busy(true);
     ui.set_status_text(if switching {
@@ -2651,6 +2702,7 @@ fn stop_connection(
     logs: &LogBuffer,
 ) {
     SWITCHING.store(false, Ordering::SeqCst);
+    STARTING.store(false, Ordering::SeqCst);
     if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
         crate::stop_native_tunnel();
     }
@@ -2740,6 +2792,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 let _ = system_proxy::disable();
             }
             EngineState::Starting => {
+                STARTING.store(false, Ordering::SeqCst);
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(true);
@@ -2884,6 +2937,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 crate::stop_android_vpn();
             }
             EngineState::Error(message) => {
+                STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
                 clear_last_network();

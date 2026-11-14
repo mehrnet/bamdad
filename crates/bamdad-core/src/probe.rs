@@ -102,17 +102,11 @@ pub async fn best_tcp_latency(host: &str, port: u16, timeout: Duration) -> Resul
 }
 
 async fn connect_addrs(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
-    tcp_attempt(addrs, timeout, false).await
+    tcp_attempt(addrs, timeout).await
 }
 
-async fn tcp_attempt(
-    addrs: Arc<Vec<SocketAddr>>,
-    timeout: Duration,
-    accept_refused: bool,
-) -> Result<u64> {
-    let join = tokio::task::spawn_blocking(move || {
-        tcp_connect_blocking(addrs.as_slice(), timeout, accept_refused)
-    });
+async fn tcp_attempt(addrs: Arc<Vec<SocketAddr>>, timeout: Duration) -> Result<u64> {
+    let join = tokio::task::spawn_blocking(move || tcp_connect_blocking(addrs.as_slice(), timeout));
     match tokio::time::timeout(timeout + Duration::from_millis(500), join).await {
         Ok(Ok(result)) => result,
         Ok(Err(error)) => Err(CoreError::Spawn(format!("probe task failed: {error}"))),
@@ -123,12 +117,7 @@ async fn tcp_attempt(
     }
 }
 
-fn tcp_connect_blocking(
-    addrs: &[SocketAddr],
-    timeout: Duration,
-    accept_refused: bool,
-) -> Result<u64> {
-    use std::io::ErrorKind;
+fn tcp_connect_blocking(addrs: &[SocketAddr], timeout: Duration) -> Result<u64> {
     let addr = addrs
         .iter()
         .find(|addr| addr.is_ipv4())
@@ -150,62 +139,19 @@ fn tcp_connect_blocking(
     let start = Instant::now();
     match socket.connect(&addr.into()) {
         Ok(()) => Ok(start.elapsed().as_millis() as u64),
-        Err(error)
-            if accept_refused
-                && matches!(
-                    error.kind(),
-                    ErrorKind::ConnectionRefused
-                        | ErrorKind::ConnectionReset
-                        | ErrorKind::ConnectionAborted
-                ) =>
-        {
-            Ok(start.elapsed().as_millis() as u64)
-        }
         Err(error) => Err(CoreError::Io(error)),
     }
 }
 
-/// Endpoint latency for native transports.
-///
-/// ICMP is the direct measurement, but mobile networks and many VPN hosts
-/// filter it. In that case a TCP handshake to the same host is used: even a
-/// refused connection proves the host is reachable and yields a valid RTT.
+/// Endpoint latency for native transports. ICMP is the direct measurement;
+/// when it is filtered, a successful TCP handshake to the same host is used.
 pub async fn best_native_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
     match best_icmp_latency(host, port, Duration::from_millis(1_200)).await {
         Ok(ms) => Ok(ms),
-        Err(icmp_error) => best_tcp_rtt(host, port, timeout)
+        Err(icmp_error) => best_tcp_latency(host, port, timeout)
             .await
             .map_err(|_| icmp_error),
     }
-}
-
-/// Best-of-three TCP round trips where a refused/reset connection still
-/// counts: the SYN reached the host, so the elapsed time is the endpoint RTT.
-pub async fn best_tcp_rtt(host: &str, port: u16, timeout: Duration) -> Result<u64> {
-    if host.trim().is_empty() || port == 0 {
-        return Err(CoreError::InvalidLink(
-            "profile has no reachable endpoint".to_string(),
-        ));
-    }
-    let addrs = Arc::new(resolve_cached(host, port, Duration::from_secs(4)).await?);
-    if addrs.is_empty() {
-        return Err(CoreError::Spawn(format!("{host} did not resolve")));
-    }
-    let (first, second, third) = tokio::join!(
-        tcp_attempt(addrs.clone(), timeout, true),
-        tcp_attempt(addrs.clone(), timeout, true),
-        tcp_attempt(addrs.clone(), timeout, true),
-    );
-    [first, second, third]
-        .into_iter()
-        .filter_map(Result::ok)
-        .min()
-        .ok_or_else(|| {
-            CoreError::Spawn(format!(
-                "all TCP probes failed within {} ms",
-                timeout.as_millis()
-            ))
-        })
 }
 
 /// Latency probe for transports that do not expose a TCP listener
@@ -577,24 +523,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tcp_rtt_accepts_a_listener() {
+    async fn native_falls_back_to_a_listener() {
+        // ICMP may be unavailable; the TCP fallback must still measure.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
-            let _ = listener.accept().await;
+            for _ in 0..3 {
+                let _ = listener.accept().await;
+            }
         });
-        let latency = best_tcp_rtt("127.0.0.1", port, Duration::from_secs(1))
-            .await
-            .unwrap();
-        assert!(latency < 1_000);
-    }
-
-    #[tokio::test]
-    async fn tcp_rtt_accepts_a_refused_port() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let latency = best_tcp_rtt("127.0.0.1", port, Duration::from_secs(1))
+        let latency = best_native_latency("127.0.0.1", port, Duration::from_secs(1))
             .await
             .unwrap();
         assert!(latency < 1_000);
