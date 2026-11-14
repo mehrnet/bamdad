@@ -190,3 +190,29 @@ jobs:
         run: |
           sudo kill "$(sudo cat /tmp/bamdad-ovpn/server.pid)" 2>/dev/null || true
           sudo cat /tmp/bamdad-ovpn/server.log || true
+
+  wireguard-proxy:
+    name: Userspace WireGuard proxy smoke (host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Start WireGuard test server
+        run: bash scripts/wireguard-test-server.sh
+      - name: Build and run the userspace proxy
+        run: bash scripts/wireguard-proxy-smoke.sh
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wireguard-proxy-smoke
+          path: /tmp/bamdad-wg-proxy/*
+          if-no-files-found: warn
+      - name: Stop WireGuard test server
+        if: always()
+        run: sudo wg-quick down wg0 || true

@@ -101,6 +101,16 @@ Android TunnelController
 - [ ] Add credential prompt for `auth-user-pass`.
 - [ ] Test against an OpenVPN test server.
 
+## Phase 6: userspace native hops
+
+- [x] Vendor wireproxy `v1.1.3` (ISC) and build `bamdad-wg` for host + Android
+      (`scripts/build-wireguard-proxy.sh`, `libbamdad_wg.so`).
+- [x] Host smoke: real WireGuard server -> userspace helper -> SOCKS -> HTTPS.
+- [ ] App integration: run a WireGuard profile through `bamdad-wg` and feed the
+      existing tun2socks/system-proxy path (no VpnService WG backend).
+- [ ] Use `bamdad-wg` as a chain hop in the hop supervisor.
+- [ ] AmneziaWG variant (wireproxy-awg / amneziawg-go) and license check.
+
 ## Phase 5: client-side chains
 
 - [x] `Profile.chain`: an ordered list of proxy hops (entry first, exit last).
