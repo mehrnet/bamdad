@@ -2,6 +2,11 @@ name: Android smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      job:
+        description: "Which smoke to run: all, emulator, wireguard, openvpn, amneziawg, killswitch"
+        type: string
+        default: all
 
 permissions:
   contents: read
@@ -11,6 +16,7 @@ jobs:
   emulator:
     name: Launch + VPN smoke on emulator
     runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'emulator'
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +82,7 @@ jobs:
   wireguard:
     name: Native WireGuard smoke on emulator
     runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'wireguard'
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
@@ -139,6 +146,7 @@ jobs:
   openvpn:
     name: Native OpenVPN smoke on emulator
     runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'openvpn'
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
@@ -194,6 +202,7 @@ jobs:
   amneziawg:
     name: Native AmneziaWG smoke on emulator
     runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'amneziawg'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -262,6 +271,7 @@ jobs:
   killswitch:
     name: Kill-switch smoke on emulator
     runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'killswitch'
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7

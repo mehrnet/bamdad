@@ -476,10 +476,12 @@ mod android {
     }
 
     pub(super) fn start_kill_switch() {
+        logcat("kill switch: start requested");
         android_ping_call("startKillSwitch");
     }
 
     pub(super) fn stop_kill_switch() {
+        logcat("kill switch: stop requested");
         android_ping_call("stopKillSwitch");
     }
 

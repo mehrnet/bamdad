@@ -92,6 +92,13 @@ launch_app
 sleep 5
 accept_consent 10 || true
 
+adb exec-out screencap -p > "$OUT/after-launch.png"
+adb shell run-as com.mehrnet.bamdad cat files/profiles.json > "$OUT/store.json" 2>/dev/null || true
+adb shell dumpsys activity services com.mehrnet.bamdad > "$OUT/services-after-launch.txt" 2>&1 || true
+adb logcat -d -v threadtime | grep -aiE 'killswitch|kill switch|BamdadKill|BamdadVpn|vpndialogs' \
+    > "$OUT/killswitch-log.txt" 2>/dev/null || true
+cat "$OUT/killswitch-log.txt" || true
+
 echo '--- sinkhole while idle ---'
 if ! wait_for_address 10.255.255.2 40; then
     echo 'killswitch-tun-missing'

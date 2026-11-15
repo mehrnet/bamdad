@@ -261,9 +261,14 @@ class MainActivity : NativeActivity() {
 
         @JvmStatic
         fun startKillSwitch() {
-            val activity = instance ?: return
+            val activity = instance
+            if (activity == null) {
+                Log.w(TAG, "startKillSwitch: no activity attached")
+                return
+            }
             Handler(Looper.getMainLooper()).post {
                 val consent = VpnService.prepare(activity)
+                Log.i(TAG, "startKillSwitch: consent=${consent != null}")
                 if (consent != null) {
                     activity.startActivityForResult(consent, VPN_REQUEST_KILL)
                 } else {

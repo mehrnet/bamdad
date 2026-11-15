@@ -50,6 +50,7 @@ class KillSwitchService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "sinkhole start requested")
         startForegroundNotification()
         if (tun == null) {
             val builder = Builder()
@@ -74,6 +75,7 @@ class KillSwitchService : VpnService() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            Log.i(TAG, "sinkhole tun established")
         }
         active = true
         return START_STICKY
