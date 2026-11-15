@@ -31,7 +31,7 @@ The same profile, import, latency, lifecycle and UI code is shared by both.
 │  link          one ProxySpec for vless/vmess/trojan/ss       │
 │  config        native config generation + telemetry inject   │
 │  engine        spawn, lifecycle, logs, per-core telemetry    │
-│  probe         protocol-agnostic TCP latency                 │
+│  probe         protocol-aware latency                        │
 │  system_proxy  GNOME / KDE / macOS / Windows toggles         │
 └──────────────────────────────────┬───────────────────────────┘
                                    │ child process
@@ -104,14 +104,25 @@ removed when the session ends. Xray configs never touch disk.
 
 ## Unified latency
 
-**Ping** and **Ping all** work for every saved profile regardless of protocol or
-core. The measurement is a timed TCP handshake to the profile's endpoint, which
-is shared by VLESS, VMess, Trojan and Shadowsocks (and their TLS/REALITY/WS/gRPC
-variants). It deliberately does not send credentials, so it is safe to run
-against every profile.
+**Ping** and **Ping all** work for every saved profile, and what gets measured
+depends on the transport:
 
-Results are shown per row (green/amber/red) and updated asynchronously. A
-through-proxy "real delay" probe is a natural follow-up.
+- **Proxy profiles** are measured end to end. A temporary core is started from
+  the profile's own config, a pooled HTTPS request goes through its HTTP
+  inbound, and the best of three requests is reported. That proves the
+  protocol, credentials, and transport, not just a reachable port.
+- **WireGuard, AmneziaWG, and UDP OpenVPN** cannot answer a TCP handshake, so
+  they are measured with an ICMP echo to the endpoint address: exact round
+  trip, nothing sent to the VPN port.
+- **TCP OpenVPN** falls back to a handshake on its own port when ICMP is
+  filtered.
+- When the host answers neither, the row shows a `≈` estimate measured against
+  the same host's web ports, so an ICMP-filtered server is no longer reported as
+  down.
+
+While a native tunnel owns the VPN slot, proxy rows use the endpoint path
+measurement instead of starting a probe core that would be routed through the
+tunnel. Results are shown per row (green/amber/red) and update asynchronously.
 
 ## Repository layout
 
@@ -124,7 +135,7 @@ crates/
     src/link.rs               ProxySpec + Xray/sing-box renderers
     src/config.rs             profiles, migration, telemetry injection
     src/engine.rs             process lifecycle + per-core telemetry
-    src/probe.rs              unified TCP latency
+    src/probe.rs              protocol-aware latency probes
     src/stats.rs              Xray gRPC + sing-box Clash HTTP
     src/system_proxy.rs       OS proxy toggles
   bamdad-app/
@@ -198,8 +209,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.0
-git push origin v0.8.0
+git tag v0.8.1
+git push origin v0.8.1
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -264,7 +275,7 @@ The suite includes:
 
 - share-link parsing and both native renderers,
 - profile migration and telemetry injection for both cores,
-- protocol-agnostic TCP latency,
+- protocol-aware latency,
 - a real Xray smoke test (stdin config, SOCKS listener, gRPC stats, clean stop),
 - a real sing-box smoke test (file config, SOCKS listener, Clash API, clean stop).
 
@@ -311,8 +322,8 @@ for VPN consent on first use. Desktop keeps the system-proxy path.
    that verifies real HTTP traffic and clean teardown.
 2. **Subscriptions** — refresh, multiple profiles per subscription, latency
    sorting.
-3. **Real-delay probe** — HTTP `generate_204` through the running core, in
-   addition to the unified TCP handshake.
+3. ~~**Real-delay probe**~~ — proxied `generate_204` requests now drive the
+   proxy latency numbers.
 4. **Routing editor** — per-app split tunneling, custom DNS, and bypass
    routes already apply to the proxy, WireGuard/AmneziaWG, and OpenVPN
    tunnels; a profile-aware routing editor is next.
@@ -339,4 +350,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.0`.
+`v0.8.1`.

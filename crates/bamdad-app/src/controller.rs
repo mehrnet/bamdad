@@ -2452,6 +2452,26 @@ fn ping_entry(id: String, result: Result<u64, CoreError>) -> (String, String, i3
     }
 }
 
+/// Native transports are probed over ICMP, so a web-port fallback is a path
+/// estimate rather than the transport's own round trip. Mark it as such.
+fn native_ping_entry(
+    id: String,
+    result: Result<probe::Latency, CoreError>,
+) -> (String, String, i32) {
+    match result {
+        Ok(latency) => {
+            let ms = latency.ms.max(1);
+            let text = if latency.approximate() {
+                format!("≈ {ms} ms")
+            } else {
+                format!("{ms} ms")
+            };
+            (id, text, latency_state(ms))
+        }
+        Err(_) => (id, "timeout".to_string(), 4),
+    }
+}
+
 /// Probe one or more profiles. Proxy profiles are merged into shared core
 /// instances (v2rayNG/radar-node style) so a subscription with hundreds of
 /// configs is measured with a handful of process starts instead of one per
@@ -2583,7 +2603,7 @@ fn begin_ping_batch(
                             Duration::from_millis(2_000),
                         )
                         .await;
-                        ping_entry(profile.id, result)
+                        native_ping_entry(profile.id, result)
                     }));
                 }
                 PingMode::Skip => {}

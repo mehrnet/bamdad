@@ -34,12 +34,13 @@ fn protect_socket(socket: &Socket) {
     let _ = socket;
 }
 
-/// Transport-level latency shared by every protocol.
+/// Transport-level latency shared by the TCP-based protocols.
 ///
-/// All supported protocols (VLESS, VMess, Trojan, Shadowsocks, and their
-/// TLS/REALITY/WS/gRPC variants) use a TCP endpoint, so a timed TCP handshake
-/// is a meaningful, protocol-agnostic "ping". It intentionally does not send
-/// credentials, so it is safe to run for every saved profile.
+/// Proxy protocols (VLESS, VMess, Trojan, Shadowsocks, and their
+/// TLS/REALITY/WS/gRPC variants) and TCP OpenVPN listen on TCP, so a timed TCP
+/// handshake is a meaningful "ping". It intentionally does not send
+/// credentials, so it is safe to run for every saved profile. UDP transports
+/// are measured by [`best_native_latency`] instead.
 pub async fn tcp_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
     if host.trim().is_empty() || port == 0 {
         return Err(CoreError::InvalidLink(
@@ -143,15 +144,77 @@ fn tcp_connect_blocking(addrs: &[SocketAddr], timeout: Duration) -> Result<u64> 
     }
 }
 
-/// Endpoint latency for native transports. ICMP is the direct measurement;
-/// when it is filtered, a successful TCP handshake to the same host is used.
-pub async fn best_native_latency(host: &str, port: u16, timeout: Duration) -> Result<u64> {
-    match best_icmp_latency(host, port, Duration::from_millis(1_200)).await {
-        Ok(ms) => Ok(ms),
-        Err(icmp_error) => best_tcp_latency(host, port, timeout)
-            .await
-            .map_err(|_| icmp_error),
+/// How an endpoint latency was measured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LatencyMethod {
+    /// ICMP echo to the endpoint address: exact round trip, no port involved.
+    Icmp,
+    /// TCP handshake to the endpoint's own port (TCP OpenVPN, IPSec gateways).
+    Tcp,
+    /// TCP handshake to a web port on the same host. The real transport is UDP
+    /// and did not answer ICMP, so this measures the path, not the port.
+    TcpApproximate,
+}
+
+/// Endpoint latency plus how it was obtained.
+#[derive(Debug, Clone, Copy)]
+pub struct Latency {
+    pub ms: u64,
+    pub method: LatencyMethod,
+}
+
+impl Latency {
+    /// True when the number describes the host path rather than the transport.
+    pub fn approximate(&self) -> bool {
+        self.method == LatencyMethod::TcpApproximate
     }
+}
+
+/// Endpoint latency for native transports, measured with the protocol in mind.
+///
+/// WireGuard, AmneziaWG, and UDP OpenVPN cannot be pinged over TCP: their port
+/// does not answer a handshake. ICMP is the honest measurement there. When the
+/// host filters ICMP, the transport port is tried as TCP (covers TCP OpenVPN)
+/// and finally the host's web ports, which measure the path RTT and are
+/// reported as approximate.
+pub async fn best_native_latency(host: &str, port: u16, timeout: Duration) -> Result<Latency> {
+    if host.trim().is_empty() {
+        return Err(CoreError::InvalidLink(
+            "profile has no reachable endpoint".to_string(),
+        ));
+    }
+
+    if let Ok(ms) = best_icmp_latency(host, port, Duration::from_millis(1_200)).await {
+        return Ok(Latency {
+            ms,
+            method: LatencyMethod::Icmp,
+        });
+    }
+
+    // Run the fallbacks together so a filtered endpoint costs one timeout.
+    let (own, https, http) = tokio::join!(
+        best_tcp_latency(host, port, timeout),
+        best_tcp_latency(host, 443, timeout),
+        best_tcp_latency(host, 80, timeout),
+    );
+
+    if let Ok(ms) = own {
+        return Ok(Latency {
+            ms,
+            method: LatencyMethod::Tcp,
+        });
+    }
+    if let Ok(ms) = https.or(http) {
+        return Ok(Latency {
+            ms,
+            method: LatencyMethod::TcpApproximate,
+        });
+    }
+
+    Err(CoreError::Spawn(format!(
+        "{host} answered neither ICMP nor TCP within {} ms",
+        timeout.as_millis()
+    )))
 }
 
 /// Latency probe for transports that do not expose a TCP listener
@@ -535,11 +598,27 @@ mod tests {
         let latency = best_native_latency("127.0.0.1", port, Duration::from_secs(1))
             .await
             .unwrap();
-        assert!(latency < 1_000);
+        assert!(latency.ms < 1_000);
+        assert!(!latency.approximate());
+    }
+
+    #[test]
+    fn approximate_only_for_web_port_fallbacks() {
+        for method in [LatencyMethod::Icmp, LatencyMethod::Tcp] {
+            assert!(!Latency { ms: 10, method }.approximate());
+        }
+        assert!(Latency {
+            ms: 10,
+            method: LatencyMethod::TcpApproximate
+        }
+        .approximate());
     }
 
     #[tokio::test]
     async fn rejects_empty_endpoints() {
         assert!(tcp_latency("", 0, Duration::from_millis(50)).await.is_err());
+        assert!(best_native_latency("", 0, Duration::from_millis(50))
+            .await
+            .is_err());
     }
 }

@@ -106,7 +106,8 @@ Android TunnelController
 - [x] One notification across transports (profile name, totals, accent icon).
 - [ ] Kill-switch sinkhole when no backend owns the VPN slot.
 - [x] Per-app/DNS/bypass-CIDR patching for every native backend.
-- [ ] Protocol-aware latency display.
+- [x] Protocol-aware latency display: ICMP for UDP transports, real proxied
+      requests for proxy profiles, and `≈` for path-only estimates.
 - [ ] Failover/pool rotation across transports.
 - [x] In-app open-source licenses screen for GPL/Apache/MPL components.
 
