@@ -149,6 +149,10 @@ jobs:
       - name: Build Android network checker
         run: ./scripts/build-android-netcheck.sh "$PWD/netcheck"
       - name: Build debug APK
+        env:
+          # setup-go exports GOTOOLCHAIN=local via GITHUB_ENV; the vendored
+          # amneziawg Makefile pins Go 1.24.2 while go.mod needs 1.24.4.
+          GOTOOLCHAIN: auto
         run: gradle -p crates/bamdad-app/android --no-daemon -PbamdadAbis=x86_64 assembleX86_64Debug
       - name: Inspect APK
         run: |
