@@ -44,6 +44,7 @@ store = {
         "api_addr": "127.0.0.1",
         "accent": "pink",
         "theme": "dark",
+        "bypass_cidrs": "192.168.0.0/16",
     },
     "profiles": [{
         "id": "awg-test",
@@ -115,6 +116,32 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     exit 1
 fi
 echo 'native-tun-up'
+
+# Bypass routes: the app must cut 192.168.0.0/16 out of AllowedIPs = 0.0.0.0/0.
+BYPASS_LINE=$(grep -a -o 'BamdadAmnezia: bypass .*' "$OUT/full-logcat.txt" | tail -1)
+if [ -z "$BYPASS_LINE" ]; then
+    echo 'bypass-routes-missing'
+    exit 1
+fi
+echo "$BYPASS_LINE"
+python3 - "$BYPASS_LINE" <<'PYCHECK'
+import ipaddress
+import sys
+
+line = sys.argv[1]
+if '->' not in line:
+    print('bypass-routes-malformed')
+    sys.exit(1)
+rewritten = line.split('->', 1)[1]
+got = {ipaddress.ip_network(c.strip()) for c in rewritten.split(',') if c.strip()}
+expected = set(
+    ipaddress.ip_network('0.0.0.0/0').address_exclude(ipaddress.ip_network('192.168.0.0/16'))
+)
+if got != expected:
+    print('bypass-routes-mismatch', sorted(map(str, got)))
+    sys.exit(1)
+print('bypass-routes-ok')
+PYCHECK
 
 # The obfuscated handshake is what actually proves the AmneziaWG path; ask the
 # server side whether it ever saw the client. PersistentKeepalive in the client

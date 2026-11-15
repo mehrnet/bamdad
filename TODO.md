@@ -105,7 +105,7 @@ Android TunnelController
 
 - [ ] One notification across transports (profile name, totals, accent icon).
 - [ ] Kill-switch sinkhole when no backend owns the VPN slot.
-- [ ] Per-app/DNS/bypass-CIDR patching for every native backend.
+- [x] Per-app/DNS/bypass-CIDR patching for every native backend.
 - [ ] Protocol-aware latency display.
 - [ ] Failover/pool rotation across transports.
 - [ ] In-app open-source licenses screen for GPL/Apache/MPL components.
@@ -131,8 +131,8 @@ Android TunnelController
       cannot connect yet.
 - [ ] Unify the native notification with the existing accent/profile/totals
       notification.
-- [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile` and apply it
-      before `Config.parse`.
+- [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile`; today the
+      global settings are pushed through `TunnelOptions` instead.
 
 ## Import notes
 

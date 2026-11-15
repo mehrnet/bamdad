@@ -10,14 +10,16 @@ import java.net.InetAddress
  *  - resolve a hostname endpoint on the physical network
  *  - remove the endpoint IP from AllowedIPs so the handshake can never be
  *    routed into its own tunnel during startup
+ *  - apply app-wide DNS, per-app split tunneling, and bypass routes
  */
 object WireGuardConfig {
-    /** Apply the app-wide DNS override and per-app split tunneling. */
+    /** Apply the app-wide DNS override, per-app split tunneling, and bypass routes. */
     fun applyTunnelOptions(text: String): String {
         val dns = TunnelOptions.dns
         val mode = TunnelOptions.splitMode
         val apps = TunnelOptions.splitApps
-        if (dns.isEmpty() && mode == "off") return text
+        val bypass = TunnelOptions.bypass
+        if (dns.isEmpty() && mode == "off" && bypass.isEmpty()) return text
         val kept = text.lines().filterNot { line ->
             when (line.substringBefore('=').trim().lowercase()) {
                 "dns", "includedapplications", "excludedapplications" -> true
@@ -34,7 +36,31 @@ object WireGuardConfig {
         }
         val index = kept.indexOfFirst { it.trim().equals("[Interface]", ignoreCase = true) }
         if (index >= 0) kept.addAll(index + 1, options)
+        applyBypass(kept, bypass)
         return kept.joinToString("\n")
+    }
+
+    /** Cut the bypassed prefixes out of every AllowedIPs line. */
+    private fun applyBypass(lines: MutableList<String>, bypass: List<Cidr>) {
+        if (bypass.isEmpty()) return
+        for ((index, line) in lines.withIndex()) {
+            val trimmed = line.trim()
+            if (!trimmed.startsWith("AllowedIPs", ignoreCase = true) || !trimmed.contains('=')) {
+                continue
+            }
+            val value = trimmed.substringAfter('=').trim()
+            val cidrs = value.split(',')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            val parsed = cidrs.mapNotNull { CidrRoutes.parse(it) }
+            if (parsed.size != cidrs.size) continue
+            val rewritten = parsed.flatMap { cidr -> CidrRoutes.subtractKeeping(cidr, bypass) }
+            val text = rewritten.joinToString(", ")
+            if (text != value) {
+                lines[index] = line.substringBefore('=') + "= " + text
+                MainActivity.nativeLog("BamdadAmnezia: bypass $value -> $text")
+            }
+        }
     }
 
     fun prepare(raw: String): String {

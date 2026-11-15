@@ -178,10 +178,23 @@ class OpenVpnService : VpnService() {
                 val address = entry.optString("addr")
                 val ipv6 = entry.optBoolean("ipv6")
                 val prefix = entry.optInt("prefix", if (ipv6) 128 else 32)
-                try {
-                    builder.addRoute(InetAddress.getByName(address), prefix)
-                } catch (error: Throwable) {
-                    Log.w(TAG, "addRoute $address/$prefix failed: ${error.message}")
+                // Bypassed ranges are cut out of every pushed route, because
+                // VpnService.Builder.excludeRoute needs API 33.
+                val routed = TunnelOptions.bypassRoutes("$address/$prefix")
+                if (routed.isEmpty()) {
+                    try {
+                        builder.addRoute(InetAddress.getByName(address), prefix)
+                    } catch (error: Throwable) {
+                        Log.w(TAG, "addRoute $address/$prefix failed: ${error.message}")
+                    }
+                } else {
+                    for (route in routed) {
+                        try {
+                            builder.addRoute(InetAddress.getByName(route.address), route.prefix)
+                        } catch (error: Throwable) {
+                            Log.w(TAG, "addRoute ${route.address}/${route.prefix} failed: ${error.message}")
+                        }
+                    }
                 }
             }
 

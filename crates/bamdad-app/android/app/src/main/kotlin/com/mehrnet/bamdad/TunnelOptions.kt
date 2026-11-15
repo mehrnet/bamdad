@@ -6,10 +6,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Global tunnel options applied to every VpnService builder: custom DNS and
- * Android per-app split tunneling. Kept in a small object so both the proxy
- * VpnService and the OpenVPN/WireGuard backends can read it without threading
- * the settings through every JNI call.
+ * Global tunnel options applied to every VpnService builder: custom DNS,
+ * Android per-app split tunneling, and bypass routes. Kept in a small object so
+ * both the proxy VpnService and the OpenVPN/WireGuard backends can read it
+ * without threading the settings through every JNI call.
  */
 object TunnelOptions {
     private const val TAG = "BamdadTunnelOptions"
@@ -26,11 +26,24 @@ object TunnelOptions {
     var splitApps: List<String> = emptyList()
         private set
 
+    /** CIDR prefixes that must stay outside the tunnel. */
+    @Volatile
+    var bypass: List<Cidr> = emptyList()
+        private set
+
     fun configure(payload: String) {
         val json = runCatching { JSONObject(payload) }.getOrNull() ?: return
         dns = json.optJSONArray("dns").toStringList()
         splitMode = json.optString("split_mode", "off")
         splitApps = json.optJSONArray("split_apps").toStringList()
+        bypass = CidrRoutes.parseAll(json.optJSONArray("bypass").toStringList())
+    }
+
+    /** [base] with every bypassed range cut out of it. */
+    fun bypassRoutes(base: String): List<Cidr> {
+        val parsed = CidrRoutes.parse(base) ?: return emptyList()
+        if (bypass.isEmpty()) return listOf(parsed)
+        return CidrRoutes.subtractKeeping(parsed, bypass)
     }
 
     fun apply(builder: VpnService.Builder) {

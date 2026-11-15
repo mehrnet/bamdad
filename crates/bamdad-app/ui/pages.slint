@@ -81,12 +81,13 @@ export component SettingsPage inherits Rectangle {
     in-out property <string> custom-dns;
     in-out property <string> split-mode: "off";
     in-out property <string> split-apps-text;
+    in-out property <string> bypass-cidrs;
     in-out property <string> theme: "system";
     in-out property <string> accent: "cyan";
     in property <bool> kill-switch: false;
     callback set-kill-switch(bool);
     callback pick-split-apps(string);
-    callback save-settings(string, string, bool, string, string, string);
+    callback save-settings(string, string, bool, string, string, string, string);
     callback set-theme(string);
     callback set-accent(string);
     callback full-logs();
@@ -230,6 +231,14 @@ export component SettingsPage inherits Rectangle {
                     }
                     VerticalLayout {
                         spacing: 5px;
+                        FieldLabel { text: "BYPASS ROUTES (comma separated CIDRs)"; }
+                        TextField {
+                            text <=> root.bypass-cidrs;
+                            placeholder: "192.168.0.0/16, 10.0.0.0/8";
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 5px;
                         FieldLabel { text: "SPLIT TUNNELING"; }
                         HorizontalLayout {
                             spacing: 8px;
@@ -323,6 +332,7 @@ export component SettingsPage inherits Rectangle {
                                     root.custom-dns,
                                     root.split-mode,
                                     root.split-apps-text,
+                                    root.bypass-cidrs,
                                 );
                             }
                         }

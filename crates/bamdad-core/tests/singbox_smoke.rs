@@ -49,6 +49,7 @@ async fn starts_singbox_and_reads_clash_api() {
         custom_dns: String::new(),
         split_mode: "off".to_string(),
         split_apps: Vec::new(),
+        bypass_cidrs: String::new(),
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profiles().remove(1);

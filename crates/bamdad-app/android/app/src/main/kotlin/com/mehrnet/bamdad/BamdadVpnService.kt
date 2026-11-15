@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import java.net.InetAddress
 
 /**
  * Android has no general app-level proxy API. To route other apps through the
@@ -63,8 +64,12 @@ class BamdadVpnService : VpnService() {
             // Capture IPv6 as well. Even if the proxy has no IPv6 egress,
             // capturing it prevents apps from leaking over the physical link.
             .addAddress("fdfe:dcba:9876::1", 126)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
+        for (route in TunnelOptions.bypassRoutes("0.0.0.0/0")) {
+            builder.addRoute(InetAddress.getByName(route.address), route.prefix)
+        }
+        for (route in TunnelOptions.bypassRoutes("::/0")) {
+            builder.addRoute(InetAddress.getByName(route.address), route.prefix)
+        }
         if (TunnelOptions.dns.isEmpty()) {
             builder.addDnsServer("1.1.1.1")
             builder.addDnsServer("8.8.8.8")

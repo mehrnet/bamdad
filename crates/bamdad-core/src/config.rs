@@ -35,6 +35,9 @@ pub struct AppSettings {
     pub split_mode: String,
     #[serde(default)]
     pub split_apps: Vec<String>,
+    /// CIDRs that stay on the physical network instead of the tunnel.
+    #[serde(default)]
+    pub bypass_cidrs: String,
 }
 
 impl Default for AppSettings {
@@ -50,6 +53,7 @@ impl Default for AppSettings {
             custom_dns: String::new(),
             split_mode: default_split_mode(),
             split_apps: Vec::new(),
+            bypass_cidrs: String::new(),
         }
     }
 }
@@ -837,6 +841,21 @@ pub fn prepare_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_default_bypass_cidrs_when_missing() {
+        let legacy = json!({ "socks_port": 1080, "http_port": 1081 });
+        let settings: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(settings.bypass_cidrs.is_empty());
+        assert_eq!(settings.split_mode, "off");
+
+        let stored = serde_json::to_value(AppSettings {
+            bypass_cidrs: "192.168.0.0/16, 10.0.0.0/8".to_string(),
+            ..AppSettings::default()
+        })
+        .unwrap();
+        assert_eq!(stored["bypass_cidrs"], "192.168.0.0/16, 10.0.0.0/8");
+    }
 
     #[test]
     fn injects_xray_telemetry() {

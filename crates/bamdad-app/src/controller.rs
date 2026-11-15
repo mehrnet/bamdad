@@ -751,10 +751,17 @@ fn apply_tunnel_options(settings: &config::AppSettings) {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .collect();
+    let bypass: Vec<&str> = settings
+        .bypass_cidrs
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect();
     let json = serde_json::json!({
         "dns": dns,
         "split_mode": settings.split_mode,
         "split_apps": settings.split_apps,
+        "bypass": bypass,
     })
     .to_string();
     crate::configure_tunnel(&json);
@@ -773,6 +780,7 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_kill_switch(store.settings.kill_switch);
     ui.set_custom_dns(store.settings.custom_dns.clone().into());
+    ui.set_bypass_cidrs(store.settings.bypass_cidrs.clone().into());
     ui.set_split_mode(store.settings.split_mode.clone().into());
     ui.set_split_apps_text(store.settings.split_apps.join(", ").into());
     KILL_SWITCH.store(store.settings.kill_switch, Ordering::SeqCst);
@@ -1357,7 +1365,7 @@ fn setup_callbacks(
         let store = store.clone();
         let logs = logs.clone();
         ui.on_save_settings(
-            move |socks, http, system_proxy, custom_dns, split_mode, split_apps| {
+            move |socks, http, system_proxy, custom_dns, split_mode, split_apps, bypass_cidrs| {
                 let Some(ui) = weak.upgrade() else { return };
                 let socks_port: u16 = match socks.as_str().parse() {
                     Ok(port) => port,
@@ -1390,6 +1398,7 @@ fn setup_callbacks(
                         .filter(|value| !value.is_empty())
                         .map(ToOwned::to_owned)
                         .collect();
+                    guard.settings.bypass_cidrs = bypass_cidrs.trim().to_string();
                     apply_tunnel_options(&guard.settings);
                     let _ = save_store(&guard);
                 }
