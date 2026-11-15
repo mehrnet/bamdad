@@ -10,6 +10,10 @@ permissions:
   contents: read
 
 env:
+  # The vendored amneziawg-android Makefile pins Go 1.24.2 while its go.mod
+  # requires 1.24.4; setup-go now exports GOTOOLCHAIN=local, so allow the
+  # pinned toolchain to upgrade itself.
+  GOTOOLCHAIN: auto
   XRAY_VERSION: "26.11.9"
   SINGBOX_VERSION: "1.14.4"
 
