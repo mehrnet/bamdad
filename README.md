@@ -124,6 +124,22 @@ While a native tunnel owns the VPN slot, proxy rows use the endpoint path
 measurement instead of starting a probe core that would be routed through the
 tunnel. Results are shown per row (green/amber/red) and update asynchronously.
 
+## Failover
+
+With **Auto-switch on failure** enabled (Settings → Privacy, on by default), a
+hard failure moves the tunnel to the next profile in the same group:
+
+- The walk follows the group's display order, wraps once, and skips profiles
+  that cannot be dialled (no endpoint, empty native config) or that would need
+  a password prompt mid-switch.
+- An attempt ledger stops the rotation once every profile in the group has been
+  tried, so a group of dead servers cannot keep restarting cores.
+- The ledger resets as soon as the tunnel is proven: a successful proxied
+  request, real traffic counters, or a fresh manual connect. Starting a core is
+  not proof — a bad config exits right after "running".
+- The switch is logged (`failover: <name> failed (<reason>); trying <name>`) and
+  the selected profile, accent, and UI selection move with it.
+
 ## Repository layout
 
 ```
@@ -209,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.1
-git push origin v0.8.1
+git tag v0.8.2
+git push origin v0.8.2
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -261,6 +277,10 @@ Useful options:
 - `BAMDAD_CAGE_BIN=/path/to/bamdad` — use a release build.
 - `BAMDAD_PREVIEW_PAGE=0..1` — open Profiles or Settings.
 - `BAMDAD_PREVIEW_PING=1` — run "Ping all" at startup.
+- `BAMDAD_PREVIEW_LOGS=1` — open the fullscreen log view at startup.
+- `BAMDAD_PREVIEW_LOG_FILE=1` — mirror app log lines to `preview.log` in the
+  data directory (caged runs cannot scroll the log view).
+- `BAMDAD_PREVIEW_LICENSES=1` — open the open-source licenses screen.
 - `BAMDAD_PREVIEW_CONNECT=1` — connect the selected profile at startup.
 
 The preview hooks are development-only environment variables.
@@ -350,4 +370,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.1`.
+`v0.8.2`.

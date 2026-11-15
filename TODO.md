@@ -108,7 +108,8 @@ Android TunnelController
 - [x] Per-app/DNS/bypass-CIDR patching for every native backend.
 - [x] Protocol-aware latency display: ICMP for UDP transports, real proxied
       requests for proxy profiles, and `≈` for path-only estimates.
-- [ ] Failover/pool rotation across transports.
+- [x] Failover/pool rotation across transports: hard failures move to the
+      next profile in the group, with an attempt ledger so a dead group stops.
 - [x] In-app open-source licenses screen for GPL/Apache/MPL components.
 
 ## Notes

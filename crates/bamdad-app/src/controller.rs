@@ -33,6 +33,8 @@ static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
 static CREDENTIALS_TARGET: Mutex<String> = Mutex::new(String::new());
 static KILL_SWITCH: AtomicBool = AtomicBool::new(false);
 static PENDING_CONNECT: Mutex<Option<String>> = Mutex::new(None);
+/// Profiles already tried by the current failover chain, in order.
+static FAILOVER: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -229,14 +231,23 @@ pub fn init(
     prefetch_dns(&store, &runtime);
     setup_callbacks(
         ui,
-        engine,
+        engine.clone(),
         runtime,
         store.clone(),
         logs.clone(),
         pings.clone(),
     );
     start_size_watch(ui);
-    start_bridge(ui.as_weak(), events, logs);
+    start_bridge(
+        ui.as_weak(),
+        events,
+        logs,
+        EventContext {
+            store: store.clone(),
+            engine: engine.clone(),
+            pings: pings.clone(),
+        },
+    );
     if KILL_SWITCH.load(Ordering::SeqCst) {
         crate::start_kill_switch();
     }
@@ -246,6 +257,9 @@ pub fn init(
         if let Ok(page) = page.parse::<i32>() {
             ui.set_page(page);
         }
+    }
+    if std::env::var("BAMDAD_PREVIEW_LOGS").is_ok() {
+        ui.set_logs_full(true);
     }
     if std::env::var("BAMDAD_PREVIEW_LICENSES").is_ok() {
         ui.set_licenses_open(true);
@@ -374,9 +388,14 @@ pub(crate) fn init_attached(
         }
     }
 
+    let context = EventContext {
+        store: store.clone(),
+        engine: engine.clone(),
+        pings: pings.clone(),
+    };
     setup_callbacks(ui, engine, runtime, store, logs.clone(), pings.clone());
     start_size_watch(ui);
-    start_bridge(ui.as_weak(), events, logs);
+    start_bridge(ui.as_weak(), events, logs, context);
 }
 
 fn set_last_network(ipv4: Option<&str>, ipv6: Option<&str>, country: Option<&str>) {
@@ -782,6 +801,7 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_kill_switch(store.settings.kill_switch);
+    ui.set_failover(store.settings.failover);
     ui.set_custom_dns(store.settings.custom_dns.clone().into());
     ui.set_bypass_cidrs(store.settings.bypass_cidrs.clone().into());
     ui.set_split_mode(store.settings.split_mode.clone().into());
@@ -1198,6 +1218,7 @@ fn setup_callbacks(
             if ui.get_connected() || ui.get_busy() {
                 stop_connection(&ui, &store, &engine, &logs);
             } else {
+                FAILOVER.lock().unwrap().clear();
                 start_connection(&ui, &store, &engine, &logs, false);
             }
         });
@@ -1229,6 +1250,7 @@ fn setup_callbacks(
             ui.set_selected_id(selected.id.as_str().into());
 
             if ui.get_connected() && !ui.get_busy() {
+                FAILOVER.lock().unwrap().clear();
                 let message = format!(
                     "switching to {} ({}) without dropping the tunnel",
                     selected.name,
@@ -1524,6 +1546,37 @@ fn setup_callbacks(
                 } else if !ui.get_connected() && !ui.get_busy() {
                     crate::start_kill_switch();
                 }
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let logs = logs.clone();
+        ui.on_set_failover(move |enabled| {
+            {
+                let mut guard = store.lock().unwrap();
+                guard.settings.failover = enabled;
+                let _ = save_store(&guard);
+            }
+            if !enabled {
+                FAILOVER.lock().unwrap().clear();
+            }
+            if let Some(ui) = weak.upgrade() {
+                ui.set_failover(enabled);
+                push_log(
+                    &ui,
+                    &logs,
+                    format!(
+                        "failover {}",
+                        if enabled {
+                            "enabled: failures move to the next profile in the group"
+                        } else {
+                            "disabled"
+                        }
+                    ),
+                );
             }
         });
     }
@@ -2045,6 +2098,7 @@ fn setup_callbacks(
                     .map(|profile| !openvpn_needs_auth(profile))
                     .unwrap_or(false);
                 if ready {
+                    FAILOVER.lock().unwrap().clear();
                     start_connection(&ui, &store, &engine, &logs, false);
                 }
             }
@@ -2986,18 +3040,97 @@ fn stop_connection(
     }
 }
 
-fn start_bridge(weak: Weak<AppWindow>, events: Receiver<EngineEvent>, logs: LogBuffer) {
+/// Handles the events need to start a replacement tunnel when one fails.
+#[derive(Clone)]
+struct EventContext {
+    store: Arc<Mutex<Store>>,
+    engine: EngineHandle,
+    pings: PingState,
+}
+
+fn start_bridge(
+    weak: Weak<AppWindow>,
+    events: Receiver<EngineEvent>,
+    logs: LogBuffer,
+    context: EventContext,
+) {
     std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let weak = weak.clone();
             let logs = logs.clone();
+            let context = context.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = weak.upgrade() {
-                    apply_event(&ui, &logs, event);
+                    apply_event(&ui, &logs, &context, event);
                 }
             });
         }
     });
+}
+
+/// When a profile fails, move to the next one in the same group. The chain
+/// records what was tried so a group full of dead servers stops instead of
+/// looping, and resets as soon as something connects.
+fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason: &str) {
+    let (enabled, failed_id) = {
+        let guard = context.store.lock().unwrap();
+        (guard.settings.failover, guard.selected_id.clone())
+    };
+    if !enabled {
+        return;
+    }
+    let Some(failed_id) = failed_id else { return };
+    let failed_name = context
+        .store
+        .lock()
+        .unwrap()
+        .profile_by_id(&failed_id)
+        .map(|profile| profile.name.clone())
+        .unwrap_or_else(|| failed_id.clone());
+
+    let next = {
+        let guard = context.store.lock().unwrap();
+        let mut attempted = FAILOVER.lock().unwrap();
+        if !attempted.iter().any(|id| id == &failed_id) {
+            attempted.push(failed_id.clone());
+        }
+        let next = guard
+            .failover_after(&failed_id, &attempted, |profile| {
+                !openvpn_needs_auth(profile)
+            })
+            .map(|profile| (profile.id.clone(), profile.name.clone()));
+        if let Some((id, _)) = &next {
+            attempted.push(id.clone());
+        }
+        next
+    };
+
+    let Some((next_id, next_name)) = next else {
+        FAILOVER.lock().unwrap().clear();
+        push_log(
+            ui,
+            logs,
+            format!(
+                "failover: {failed_name} failed ({reason}); no untried profile left in this group"
+            ),
+        );
+        return;
+    };
+
+    {
+        let mut guard = context.store.lock().unwrap();
+        guard.selected_id = Some(next_id.clone());
+        guard.selected = Some(next_name.clone());
+        let _ = save_store(&guard);
+        ui.set_groups(group_model(&guard, &context.pings));
+    }
+    ui.set_selected_id(next_id.clone().into());
+    push_log(
+        ui,
+        logs,
+        format!("failover: {failed_name} failed ({reason}); trying {next_name}"),
+    );
+    start_connection(ui, &context.store, &context.engine, logs, true);
 }
 
 enum ProxyProbe {
@@ -3039,7 +3172,7 @@ fn proxy_probe(port: u16) -> ProxyProbe {
     }
 }
 
-fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
+fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: EngineEvent) {
     match event {
         EngineEvent::State(state) => match state {
             EngineState::Stopped => {
@@ -3175,7 +3308,12 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                             )
                         } else {
                             match proxy_probe(port) {
-                                ProxyProbe::Ok(message) => (message, None),
+                                ProxyProbe::Ok(message) => {
+                                    // The tunnel works end to end; a later
+                                    // failure starts a fresh failover chain.
+                                    FAILOVER.lock().unwrap().clear();
+                                    (message, None)
+                                }
                                 ProxyProbe::Dns(message) => (message, Some("Proxy DNS issue")),
                                 ProxyProbe::Failed(message) => (message, Some("Proxy unreachable")),
                             }
@@ -3220,7 +3358,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
                 let _ = system_proxy::disable();
                 // Android: keep the TUN up as a blackhole so apps cannot fall
                 // back to the physical network. The user disconnects explicitly.
-                push_log(ui, logs, message);
+                push_log(ui, logs, message.clone());
+                try_failover(ui, logs, context, &message);
             }
         },
         EngineEvent::Log { stream, line } => {
@@ -3236,6 +3375,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, event: EngineEvent) {
             total_down,
             ..
         } => {
+            if total_up + total_down > 0 {
+                FAILOVER.lock().unwrap().clear();
+            }
             set_traffic_totals(ui, total_up, total_down);
         }
         EngineEvent::TunnelInfo { local_address } => {
@@ -3290,9 +3432,22 @@ fn publish_logs(ui: &AppWindow, logs: &LogBuffer) {
 /// Publish the log model at a bounded rate. Rebuilding a large model on every
 /// single line makes the settings ScrollView jump while the user scrolls it.
 fn push_log(ui: &AppWindow, logs: &LogBuffer, line: impl Into<String>) {
+    let line = line.into();
+    // Caged runs cannot scroll the log view, so mirror every line to a file
+    // when the preview flag is set.
+    if std::env::var("BAMDAD_PREVIEW_LOG_FILE").is_ok() {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(paths::data_dir().join("preview.log"))
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "{line}");
+        }
+    }
     {
         let mut buffer = logs.lock().unwrap();
-        buffer.push(line.into());
+        buffer.push(line);
         if buffer.len() > 600 {
             let excess = buffer.len() - 600;
             buffer.drain(0..excess);

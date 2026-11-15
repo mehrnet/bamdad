@@ -38,6 +38,9 @@ pub struct AppSettings {
     /// CIDRs that stay on the physical network instead of the tunnel.
     #[serde(default)]
     pub bypass_cidrs: String,
+    /// Move to the next profile in the group when the active one fails.
+    #[serde(default = "default_failover")]
+    pub failover: bool,
 }
 
 impl Default for AppSettings {
@@ -54,6 +57,7 @@ impl Default for AppSettings {
             split_mode: default_split_mode(),
             split_apps: Vec::new(),
             bypass_cidrs: String::new(),
+            failover: default_failover(),
         }
     }
 }
@@ -78,6 +82,25 @@ fn default_accent() -> String {
 
 fn default_split_mode() -> String {
     "off".to_string()
+}
+
+fn default_failover() -> bool {
+    true
+}
+
+/// A failover candidate needs an endpoint it can actually dial.
+fn candidate_can_connect(profile: &Profile) -> bool {
+    if profile.protocol.eq_ignore_ascii_case("direct") {
+        return false;
+    }
+    if profile.is_proxy() {
+        return !profile.address.trim().is_empty() && profile.port != 0;
+    }
+    profile
+        .raw_config
+        .as_deref()
+        .map(|raw| !raw.trim().is_empty())
+        .unwrap_or(false)
 }
 
 fn default_group_name() -> String {
@@ -334,6 +357,62 @@ impl Store {
             .as_ref()
             .and_then(|id| self.profile_by_id(id))
             .map(|profile| profile.name.clone());
+    }
+
+    /// Profiles of the same group, in the order the UI lists them.
+    pub fn group_sequence(&self, id: &str) -> Vec<&Profile> {
+        let Some(profile) = self.profile_by_id(id) else {
+            return Vec::new();
+        };
+        let key = profile.group_key();
+        let mut group: Vec<&Profile> = self
+            .profiles
+            .iter()
+            .filter(|candidate| candidate.group_key() == key)
+            .collect();
+        if let Some(order) = self.group_order.get(&key) {
+            let positions: HashMap<&str, usize> = order
+                .iter()
+                .enumerate()
+                .map(|(position, entry)| (entry.as_str(), position))
+                .collect();
+            group.sort_by_key(|candidate| {
+                positions
+                    .get(candidate.id.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        }
+        group
+    }
+
+    /// Next profile to try after [failed_id] loses its connection: the next
+    /// entry in the same group, wrapping once, skipping ids already attempted
+    /// and profiles that cannot be started without user input.
+    pub fn failover_after(
+        &self,
+        failed_id: &str,
+        attempted: &[String],
+        usable: impl Fn(&Profile) -> bool,
+    ) -> Option<&Profile> {
+        let group = self.group_sequence(failed_id);
+        let start = group
+            .iter()
+            .position(|candidate| candidate.id == failed_id)?;
+        for step in 1..=group.len() {
+            let candidate = group[(start + step) % group.len()];
+            if candidate.id == failed_id {
+                continue;
+            }
+            if attempted.iter().any(|id| id == &candidate.id) {
+                continue;
+            }
+            if !candidate_can_connect(candidate) || !usable(candidate) {
+                continue;
+            }
+            return Some(candidate);
+        }
+        None
     }
 
     pub fn profile_by_id(&self, id: &str) -> Option<&Profile> {
@@ -841,6 +920,86 @@ pub fn prepare_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn failover_store(ids: &[(&str, u16)]) -> Store {
+        let mut store = Store::default();
+        store.profiles = ids
+            .iter()
+            .map(|(name, port)| Profile {
+                id: (*name).to_string(),
+                name: (*name).to_string(),
+                core: CoreKind::Xray,
+                transport: Transport::Proxy,
+                protocol: "vless".to_string(),
+                address: "203.0.113.10".to_string(),
+                port: *port,
+                config: json!({}),
+                raw_config: None,
+                source: None,
+                group_id: None,
+                group_name: None,
+                group_url: None,
+                auth_user: None,
+                auth_pass: None,
+            })
+            .collect();
+        store.selected_id = Some(ids[0].0.to_string());
+        store
+    }
+
+    #[test]
+    fn failover_walks_the_group_and_skips_attempted() {
+        let store = failover_store(&[("a", 443), ("b", 443), ("c", 443)]);
+        let attempted = vec!["a".to_string()];
+
+        let next = store
+            .failover_after("a", &attempted, |_| true)
+            .map(|profile| profile.id.clone());
+        assert_eq!(next.as_deref(), Some("b"));
+
+        let attempted = vec!["a".to_string(), "b".to_string()];
+        let next = store
+            .failover_after("a", &attempted, |_| true)
+            .map(|profile| profile.id.clone());
+        assert_eq!(next.as_deref(), Some("c"));
+
+        let attempted = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert!(store.failover_after("a", &attempted, |_| true).is_none());
+    }
+
+    #[test]
+    fn failover_skips_unusable_and_wraps() {
+        let mut store = failover_store(&[("a", 443), ("b", 0), ("c", 443)]);
+        // b has no dialable port, so the walk continues to c and wraps to a.
+        let attempted = vec!["c".to_string()];
+        let next = store
+            .failover_after("c", &attempted, |_| true)
+            .map(|profile| profile.id.clone());
+        assert_eq!(next.as_deref(), Some("a"));
+
+        // The caller's predicate can rule profiles out without stopping the walk.
+        store.profiles[2].port = 8443;
+        let attempted = vec!["a".to_string()];
+        let next = store
+            .failover_after("a", &attempted, |profile| profile.id != "c")
+            .map(|profile| profile.id.clone());
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn group_sequence_follows_custom_order() {
+        let mut store = failover_store(&[("a", 443), ("b", 443), ("c", 443)]);
+        store.group_order.insert(
+            "default".to_string(),
+            vec!["c".to_string(), "a".to_string(), "b".to_string()],
+        );
+        let ids: Vec<&str> = store
+            .group_sequence("a")
+            .iter()
+            .map(|profile| profile.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["c", "a", "b"]);
+    }
 
     #[test]
     fn settings_default_bypass_cidrs_when_missing() {
