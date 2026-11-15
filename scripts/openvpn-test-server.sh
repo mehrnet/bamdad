@@ -37,6 +37,15 @@ if ! openvpn --genkey secret "$WORK/ta.key" 2>/dev/null; then
 fi
 
 PKI="$WORK/easy-rsa/pki"
+
+cat > "$WORK/check-auth.sh" <<'SCRIPT'
+#!/bin/sh
+user=$(sed -n '1p' "$1")
+pass=$(sed -n '2p' "$1")
+[ "$user" = "bamdad" ] && [ "$pass" = "ovpn-secret" ]
+SCRIPT
+chmod 755 "$WORK/check-auth.sh"
+
 cat > "$WORK/server.conf" <<EOF
 port $PORT
 proto udp
@@ -48,6 +57,8 @@ key $PKI/private/server.key
 dh none
 ecdh-curve prime256v1
 tls-crypt $WORK/ta.key
+script-security 3
+auth-user-pass-verify $WORK/check-auth.sh via-file
 server 10.8.0.0 255.255.255.0
 push "redirect-gateway def1 bypass-dhcp"
 push "dhcp-option DNS 1.1.1.1"
@@ -68,6 +79,7 @@ nobind
 persist-key
 persist-tun
 remote-cert-tls server
+auth-user-pass
 verb 3
 data-ciphers AES-256-GCM:AES-128-GCM
 <ca>

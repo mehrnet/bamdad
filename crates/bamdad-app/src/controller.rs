@@ -32,6 +32,7 @@ static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
 static CREDENTIALS_TARGET: Mutex<String> = Mutex::new(String::new());
 static KILL_SWITCH: AtomicBool = AtomicBool::new(false);
+static PENDING_CONNECT: Mutex<Option<String>> = Mutex::new(None);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -1980,29 +1981,14 @@ fn setup_callbacks(
         let store = store.clone();
         ui.on_open_credentials(move |id| {
             let Some(ui) = weak.upgrade() else { return };
-            let prepared = {
-                let guard = store.lock().unwrap();
-                let Some(profile) = guard.profile_by_id(id.as_str()) else {
-                    return;
-                };
-                (
-                    profile.id.clone(),
-                    profile.name.clone(),
-                    profile.auth_user.clone().unwrap_or_default(),
-                    profile.auth_pass.clone().unwrap_or_default(),
-                )
-            };
-            *CREDENTIALS_TARGET.lock().unwrap() = prepared.0;
-            ui.set_credentials_name(prepared.1.into());
-            ui.set_credentials_user(prepared.2.into());
-            ui.set_credentials_pass(prepared.3.into());
-            ui.set_credentials_open(true);
+            open_credentials_dialog(&ui, &store, id.as_str());
         });
     }
 
     {
         let weak = ui.as_weak();
         ui.on_close_credentials(move || {
+            *PENDING_CONNECT.lock().unwrap() = None;
             if let Some(ui) = weak.upgrade() {
                 ui.set_credentials_open(false);
             }
@@ -2013,6 +1999,8 @@ fn setup_callbacks(
         let weak = ui.as_weak();
         let store = store.clone();
         let pings = pings.clone();
+        let engine = engine.clone();
+        let logs = logs.clone();
         ui.on_save_credentials(move |user, pass| {
             let Some(ui) = weak.upgrade() else { return };
             let target = CREDENTIALS_TARGET.lock().unwrap().clone();
@@ -2028,6 +2016,17 @@ fn setup_callbacks(
                 ui.set_groups(group_model(&guard, &pings));
             }
             ui.set_credentials_open(false);
+            if PENDING_CONNECT.lock().unwrap().take().as_deref() == Some(target.as_str()) {
+                let ready = store
+                    .lock()
+                    .unwrap()
+                    .profile_by_id(&target)
+                    .map(|profile| !openvpn_needs_auth(profile))
+                    .unwrap_or(false);
+                if ready {
+                    start_connection(&ui, &store, &engine, &logs, false);
+                }
+            }
         });
     }
 
@@ -2666,6 +2665,46 @@ fn enter_starting_state(ui: &AppWindow, switching: bool) {
     clear_last_network();
 }
 
+fn openvpn_needs_auth(profile: &config::Profile) -> bool {
+    if profile.transport != bamdad_core::Transport::OpenVpn {
+        return false;
+    }
+    let Some(raw) = profile.raw_config.as_deref() else {
+        return false;
+    };
+    if raw.contains("<auth-user-pass>") {
+        return false;
+    }
+    let has_directive = raw
+        .lines()
+        .any(|line| line.trim_start().starts_with("auth-user-pass"));
+    if !has_directive {
+        return false;
+    }
+    let empty = |value: Option<&String>| value.map(|value| value.trim().is_empty()).unwrap_or(true);
+    empty(profile.auth_user.as_ref()) || empty(profile.auth_pass.as_ref())
+}
+
+fn open_credentials_dialog(ui: &AppWindow, store: &Arc<Mutex<Store>>, id: &str) {
+    let prepared = {
+        let guard = store.lock().unwrap();
+        let Some(profile) = guard.profile_by_id(id) else {
+            return;
+        };
+        (
+            profile.id.clone(),
+            profile.name.clone(),
+            profile.auth_user.clone().unwrap_or_default(),
+            profile.auth_pass.clone().unwrap_or_default(),
+        )
+    };
+    *CREDENTIALS_TARGET.lock().unwrap() = prepared.0;
+    ui.set_credentials_name(prepared.1.into());
+    ui.set_credentials_user(prepared.2.into());
+    ui.set_credentials_pass(prepared.3.into());
+    ui.set_credentials_open(true);
+}
+
 fn start_connection(
     ui: &AppWindow,
     store: &Arc<Mutex<Store>>,
@@ -2684,6 +2723,14 @@ fn start_connection(
     };
     ui.set_active_profile(profile.name.clone().into());
     set_active_profile_name(&profile.name);
+
+    // OpenVPN profiles that need auth-user-pass but have neither an inline
+    // block nor saved credentials ask before anything starts.
+    if openvpn_needs_auth(&profile) {
+        *PENDING_CONNECT.lock().unwrap() = Some(profile.id.clone());
+        open_credentials_dialog(ui, store, &profile.id);
+        return;
+    }
 
     // Flip the bar into the yellow connecting state before any validation or
     // engine work, so the click is acknowledged on the next frame.

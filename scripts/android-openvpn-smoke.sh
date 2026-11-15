@@ -54,6 +54,8 @@ store = {
         "address": "10.0.2.2",
         "port": 1194,
         "raw_config": config,
+        "auth_user": "bamdad",
+        "auth_pass": "ovpn-secret",
         "source": None,
     }],
     "selected": "Test \u00b7 OpenVPN",
