@@ -97,7 +97,7 @@ object CidrRoutes {
 
     private fun range(cidr: Cidr, bits: Int): Pair<BigInteger, BigInteger>? {
         val address = numericAddress(cidr.address, cidr.ipv6) ?: return null
-        val value = BigInteger(1, address)
+        val value = BigInteger(1, address.address)
         val hostBits = bits - cidr.prefix
         val size = BigInteger.ONE.shiftLeft(hostBits)
         val start = value - value.mod(size)
