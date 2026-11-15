@@ -28,12 +28,19 @@ launch_app() {
 }
 
 # The kill switch holds 10.255.255.2/32; the proxy tunnel holds 172.19.0.1/30.
-# The address on tun0 therefore tells the two apart without parsing logs.
+# The address identifies which one owns the slot. The interface name is not
+# stable: the handover may briefly leave the sinkhole on tun0 while the tunnel
+# comes up as tun1, so match the address on any interface.
+iface_with_address() {
+    adb shell ip -o addr show 2>/dev/null | tr -d '\r' \
+        | awk -v needle="$1" '$0 ~ needle { print $2; exit }'
+}
+
 wait_for_address() {
     local needle=$1 timeout=$2
     local deadline=$((SECONDS + timeout))
     while [ $SECONDS -lt $deadline ]; do
-        if adb shell ip addr show tun0 2>/dev/null | grep -q "$needle"; then
+        if [ -n "$(iface_with_address "$needle")" ]; then
             return 0
         fi
         sleep 1
@@ -44,7 +51,7 @@ wait_for_address() {
 dump_failure() {
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     adb shell dumpsys notification --noredact > "$OUT/notification.txt" 2>&1 || true
-    adb shell ip addr show tun0 > "$OUT/tun0.txt" 2>&1 || true
+    adb shell ip -o addr show > "$OUT/interfaces.txt" 2>&1 || true
 }
 
 # Create the data dir, then seed the same two local test nodes the launch smoke
@@ -125,7 +132,7 @@ if ! wait_for_address 172.19.0.1 40; then
     exit 1
 fi
 echo 'tunnel-tun-up'
-if adb shell ip addr show tun0 2>/dev/null | grep -q '10.255.255.2'; then
+if [ -n "$(iface_with_address 10.255.255.2)" ]; then
     echo 'killswitch-held-the-slot'
     dump_failure
     exit 1
