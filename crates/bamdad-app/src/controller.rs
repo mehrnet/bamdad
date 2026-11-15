@@ -342,10 +342,11 @@ pub(crate) fn init_attached(
             .collect();
         ui.set_logs(ModelRc::new(VecModel::from(items)));
     }
-    {
+    let idle = {
         let snapshot = snapshot.lock().unwrap();
         ui.set_total_up_text(format_bytes(snapshot.total_up).into());
         ui.set_total_down_text(format_bytes(snapshot.total_down).into());
+        let mut idle = false;
         match &snapshot.state {
             EngineState::Running => {
                 STARTING.store(false, Ordering::SeqCst);
@@ -369,9 +370,7 @@ pub(crate) fn init_attached(
                 ui.set_busy(false);
                 ui.set_tunnel_ip("".into());
                 ui.set_status_text("Core error".into());
-                if KILL_SWITCH.load(Ordering::SeqCst) {
-                    crate::start_kill_switch();
-                }
+                idle = true;
             }
             EngineState::Stopped => {
                 // Ignore a stale Stopped from the previous session while a new
@@ -384,8 +383,15 @@ pub(crate) fn init_attached(
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_status_text("Disconnected".into());
+                idle = true;
             }
         }
+        idle
+    };
+    if idle && KILL_SWITCH.load(Ordering::SeqCst) {
+        // No tunnel owns the VPN slot; hold it with the blackhole so apps
+        // cannot fall back to the physical network.
+        crate::start_kill_switch();
     }
 
     let context = EventContext {
