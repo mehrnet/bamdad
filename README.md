@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.2
-git push origin v0.8.2
+git tag v0.8.3
+git push origin v0.8.3
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -312,9 +312,13 @@ installed.
 | Trojan (TLS/WS/gRPC) | supported |
 | Shadowsocks SIP002 / legacy links | supported |
 | Custom Xray or sing-box JSON | paste it into the Import box (must contain an `outbounds` array) |
-| Subscriptions | not yet |
+| Subscriptions | supported (import, refresh, reorder) |
+| Libre `node.conf` | imported from a file or ZIP |
+| `.ovpn` (inline or external CA/cert/key/tls-auth/tls-crypt/dh/pkcs12) | supported on Android |
+| WireGuard / AmneziaWG `.conf` | supported on Android |
 | SSR, SIP003 plugins (`obfs`, `v2ray-plugin`) | not yet |
-| Hysteria2, TUIC, WireGuard, OpenVPN | roadmap |
+| Hysteria2, TUIC | not yet |
+| IPSec/IKEv2 `.sswan` | recognized, not connectable yet |
 
 XHTTP is Xray-only; imports that select sing-box are switched to Xray
 automatically. Link-based profiles are regenerated from their stored share link
@@ -334,14 +338,20 @@ the physical network.
 The VPN is started automatically when the core reaches `Running`; Android asks
 for VPN consent on first use. Desktop keeps the system-proxy path.
 
+Native protocols take the same slot instead of tun2socks: WireGuard and
+AmneziaWG through `amneziawg-android`, OpenVPN through the pinned OpenVPN 3
+core with a Bamdad-owned `VpnService`. Global settings apply to all of them:
+custom DNS, per-app split tunneling, bypass CIDRs, and the kill-switch sinkhole
+that holds the slot whenever no tunnel is connected. An emulator smoke test
+verifies that lifecycle: sinkhole → tunnel → sinkhole.
+
 ## Current limits / roadmap
 
 1. **Desktop TUN** — Android now uses `VpnService` + `tun2socks`; the
    desktop still uses the system proxy. Next: a privileged desktop TUN helper
-   with the same core abstraction. The Android VPN has an emulator smoke test
-   that verifies real HTTP traffic and clean teardown.
-2. **Subscriptions** — refresh, multiple profiles per subscription, latency
-   sorting.
+   with the same core abstraction.
+2. ~~**Subscriptions**~~ — imports, refresh, reordering, and latency sorting
+   are in place.
 3. ~~**Real-delay probe**~~ — proxied `generate_204` requests now drive the
    proxy latency numbers.
 4. **Routing editor** — per-app split tunneling, custom DNS, and bypass
@@ -370,4 +380,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.2`.
+`v0.8.3`.

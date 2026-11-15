@@ -96,10 +96,11 @@ Android TunnelController
       arm64-v8a and x86_64 (`scripts/build-openvpn3-deps.sh`).
 - [x] Add the `AndroidTunBuilder` JNI adapter and `OpenVpnBackend` that supplies
       the VpnService TUN directly.
-- [ ] Import `.ovpn` with inline CA/cert/key/tls-auth/tls-crypt. (recognition
-      and inline profiles work; external file references are not merged yet)
-- [ ] Add credential prompt for `auth-user-pass`.
-- [ ] Test against an OpenVPN test server.
+- [x] Import `.ovpn` with inline CA/cert/key/tls-auth/tls-crypt, including
+      ZIP imports that inline external file references.
+- [x] Add credential prompt for `auth-user-pass`, with auto-prompt when a
+      profile has neither inline nor saved credentials.
+- [x] Test against an OpenVPN test server with enforced `auth-user-pass`.
 
 ## Phase 4: unified UX
 

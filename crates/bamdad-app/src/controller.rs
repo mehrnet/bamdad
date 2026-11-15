@@ -3528,8 +3528,9 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{display_name, group_model, mask_ipv4, mask_ipv6};
+    use super::{display_name, group_model, mask_ipv4, mask_ipv6, openvpn_needs_auth};
     use bamdad_core::config::{self, Store};
+    use bamdad_core::CoreKind;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
@@ -3561,6 +3562,70 @@ mod tests {
         let nodes = groups.row_data(0).unwrap().nodes;
         assert_eq!(nodes.row_data(0).unwrap().id.as_str(), "second");
         assert_eq!(nodes.row_data(1).unwrap().id.as_str(), "first");
+    }
+
+    fn openvpn_profile(raw: &str, user: Option<&str>, pass: Option<&str>) -> config::Profile {
+        config::Profile {
+            id: "ovpn".into(),
+            name: "OpenVPN test".into(),
+            core: CoreKind::Xray,
+            transport: bamdad_core::Transport::OpenVpn,
+            protocol: "openvpn".into(),
+            address: "198.51.100.7".into(),
+            port: 1194,
+            config: serde_json::json!({}),
+            raw_config: Some(raw.to_string()),
+            source: None,
+            group_id: None,
+            group_name: None,
+            group_url: None,
+            auth_user: user.map(str::to_string),
+            auth_pass: pass.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn asks_for_credentials_only_when_nothing_is_available() {
+        let directive = "client\nauth-user-pass\nremote 198.51.100.7 1194\n";
+
+        // Saved credentials mean the dialog is not needed.
+        assert!(!openvpn_needs_auth(&openvpn_profile(
+            directive,
+            Some("bamdad"),
+            Some("secret")
+        )));
+
+        // A missing half still needs the prompt.
+        assert!(openvpn_needs_auth(&openvpn_profile(
+            directive,
+            Some("bamdad"),
+            None
+        )));
+        assert!(openvpn_needs_auth(&openvpn_profile(
+            directive,
+            None,
+            Some("secret")
+        )));
+        assert!(openvpn_needs_auth(&openvpn_profile(directive, None, None)));
+
+        // An inline block already carries them.
+        assert!(!openvpn_needs_auth(&openvpn_profile(
+            "<auth-user-pass>\nbamdad\nsecret\n</auth-user-pass>",
+            None,
+            None
+        )));
+
+        // No directive at all: nothing to prompt for.
+        assert!(!openvpn_needs_auth(&openvpn_profile(
+            "client\nremote 198.51.100.7 1194\n",
+            None,
+            None
+        )));
+
+        // The prompt only applies to OpenVPN profiles.
+        let mut proxy = openvpn_profile(directive, None, None);
+        proxy.transport = bamdad_core::Transport::Proxy;
+        assert!(!openvpn_needs_auth(&proxy));
     }
 
     #[test]

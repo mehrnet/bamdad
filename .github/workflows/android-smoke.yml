@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download the x86_64 debug APK
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-android-debug
@@ -26,7 +26,7 @@ jobs:
           branch: main
 
       - name: Download the Android network checker
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-netcheck-android
@@ -52,7 +52,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run app, connect, accept VPN consent
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 30
           target: default
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-vpn-smoke
           path: |
@@ -78,9 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download the x86_64 debug APK
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-android-debug
@@ -89,7 +89,7 @@ jobs:
           workflow_conclusion: success
           branch: main
       - name: Download the Android network checker
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-netcheck-android
@@ -113,7 +113,7 @@ jobs:
       - name: Start WireGuard test server
         run: bash scripts/wireguard-test-server.sh
       - name: Run native WireGuard tunnel
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 30
           target: default
@@ -126,7 +126,7 @@ jobs:
           script: bash scripts/android-wireguard-smoke.sh
       - name: Upload smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-wireguard-smoke
           path: |
@@ -141,9 +141,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download the x86_64 debug APK
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-android-debug
@@ -166,7 +166,7 @@ jobs:
       - name: Start OpenVPN test server
         run: bash scripts/openvpn-test-server.sh
       - name: Run native OpenVPN tunnel
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 30
           target: default
@@ -179,7 +179,7 @@ jobs:
           script: bash scripts/android-openvpn-smoke.sh
       - name: Upload smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-openvpn-smoke
           path: |
@@ -196,12 +196,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
       - name: Download the x86_64 debug APK
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-android-debug
@@ -210,7 +210,7 @@ jobs:
           workflow_conclusion: success
           branch: main
       - name: Download the Android network checker
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: native.yml
           name: bamdad-netcheck-android
@@ -233,7 +233,7 @@ jobs:
       - name: Start AmneziaWG test server
         run: bash scripts/amneziawg-test-server.sh
       - name: Run native AmneziaWG tunnel
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 30
           target: default
@@ -246,7 +246,7 @@ jobs:
           script: bash scripts/android-amneziawg-smoke.sh
       - name: Upload smoke artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-amneziawg-smoke
           path: |
@@ -258,3 +258,61 @@ jobs:
           sudo env PATH=/tmp/bamdad-awg/bin:$PATH \
             WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go \
             awg-quick down /tmp/bamdad-awg/awg0.conf || true
+
+  killswitch:
+    name: Kill-switch smoke on emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the x86_64 debug APK
+        uses: dawidd6/action-download-artifact@v28
+        with:
+          workflow: native.yml
+          name: bamdad-android-debug
+          path: apk
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+      - name: Download the Android network checker
+        uses: dawidd6/action-download-artifact@v28
+        with:
+          workflow: native.yml
+          name: bamdad-netcheck-android
+          path: netcheck
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+      - name: Locate APK
+        run: |
+          APK=$(find apk -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
+          find netcheck -type f -print
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run kill-switch lifecycle
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: bash scripts/android-killswitch-smoke.sh
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-killswitch-smoke
+          path: |
+            /tmp/bamdad-killswitch-smoke/*
+          if-no-files-found: warn
