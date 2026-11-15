@@ -57,6 +57,13 @@ executables; include their licenses and data notices in release artifacts.
 - License: Apache-2.0
 - Used on Android for the WireGuard and AmneziaWG userspace backend.
 
+## amneziawg-go
+
+- Project: https://github.com/amnezia-vpn/amneziawg-go
+- License: MIT (WireGuard is a registered trademark of Jason A. Donenfeld)
+- Userspace tunnelling core embedded in `amneziawg-android`; the Go backend
+  ships it as `libwg-go.so`.
+
 ## strongSwan
 
 - Project: https://github.com/strongswan/strongswan

@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("BAMDAD_VERSION_CODE") ?: "4").toInt()
-        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.7.9"
+        versionName = System.getenv("BAMDAD_VERSION_NAME") ?: "0.8.0"
     }
 
     compileOptions {

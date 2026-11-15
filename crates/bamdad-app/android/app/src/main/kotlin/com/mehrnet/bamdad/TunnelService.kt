@@ -1,13 +1,7 @@
 package com.mehrnet.bamdad
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -27,8 +21,6 @@ import kotlinx.coroutines.launch
 class TunnelService : Service() {
     companion object {
         private const val TAG = "BamdadTunnel"
-        private const val CHANNEL_ID = "bamdad_tunnel"
-        private const val NOTIFICATION_ID = 43
 
         const val ACTION_START = "com.mehrnet.bamdad.tunnel.START"
         const val ACTION_STOP = "com.mehrnet.bamdad.tunnel.STOP"
@@ -50,13 +42,7 @@ class TunnelService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "VPN tunnel",
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "Native WireGuard/AmneziaWG tunnel" }
-        manager.createNotificationChannel(channel)
+        BamdadNotification.ensureChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -77,10 +63,8 @@ class TunnelService : Service() {
                         log("invalid native profile payload")
                         runCatching {
                             startForegroundCompat(
-                                buildNotification(
-                                    TunnelProfile("", "Bamdad", TunnelTransport.PROXY, ""),
-                                    "Invalid profile",
-                                ),
+                                TunnelProfile("", "Bamdad", TunnelTransport.PROXY, ""),
+                                "Invalid profile",
                             )
                         }
                         MainActivity.nativeTunnelEvent(
@@ -92,7 +76,7 @@ class TunnelService : Service() {
                 profile = parsed
                 log("service start ${parsed.name} (${parsed.transport})")
                 try {
-                    startForegroundCompat(buildNotification(parsed, "Connecting…"))
+                    startForegroundCompat(parsed, "Connecting…")
                 } catch (error: Throwable) {
                     log("startForeground failed: ${error.message}")
                     MainActivity.nativeTunnelEvent(
@@ -135,8 +119,14 @@ class TunnelService : Service() {
                 else -> Unit
             }
         }
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, buildNotification(profile, statusText(status)))
+        BamdadNotification.update(
+            this,
+            BamdadNotification.TUNNEL_ID,
+            profile.name,
+            statusText(status),
+            transportLabel(profile),
+            profile.accent,
+        )
         MainActivity.nativeTunnelEvent(status.toJson())
     }
 
@@ -193,37 +183,24 @@ class TunnelService : Service() {
         return "↓ ${formatBytes(status.rxBytes)}   ↑ ${formatBytes(status.txBytes)}"
     }
 
-    private fun buildNotification(profile: TunnelProfile, text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pending = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val accent = accentColor(profile.accent)
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_moon)
-            .setColor(accent)
-            .setContentTitle(profile.name)
-            .setContentText(text)
-            .setContentIntent(pending)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .build()
+    /** Short transport label shown under the profile name. */
+    private fun transportLabel(profile: TunnelProfile): String = when (profile.transport) {
+        TunnelTransport.WIREGUARD -> "WireGuard"
+        TunnelTransport.AMNEZIAWG -> "AmneziaWG"
+        TunnelTransport.OPENVPN -> "OpenVPN"
+        TunnelTransport.IPSEC -> "IPSec"
+        TunnelTransport.PROXY -> "Proxy"
     }
 
-    private fun startForegroundCompat(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+    private fun startForegroundCompat(profile: TunnelProfile, text: String) {
+        BamdadNotification.startForeground(
+            this,
+            BamdadNotification.TUNNEL_ID,
+            profile.name,
+            text,
+            transportLabel(profile),
+            profile.accent,
+        )
     }
 
     private fun stopForegroundCompat() {
@@ -239,17 +216,6 @@ class TunnelService : Service() {
         pollingJob?.cancel()
         scope.cancel()
         super.onDestroy()
-    }
-
-    private fun accentColor(name: String): Int = when (name.lowercase()) {
-        "blue" -> Color.parseColor("#60A5FA")
-        "red" -> Color.parseColor("#F87171")
-        "green" -> Color.parseColor("#4ADE80")
-        "purple" -> Color.parseColor("#A78BFA")
-        "orange" -> Color.parseColor("#FB923C")
-        "pink" -> Color.parseColor("#F472B6")
-        "gray" -> Color.parseColor("#94A3B8")
-        else -> Color.parseColor("#06B6D4")
     }
 
     private fun formatBytes(bytes: Long): String {

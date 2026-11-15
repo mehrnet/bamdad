@@ -87,6 +87,7 @@ export component SettingsPage inherits Rectangle {
     in property <bool> kill-switch: false;
     callback set-kill-switch(bool);
     callback pick-split-apps(string);
+    callback open-licenses();
     callback save-settings(string, string, bool, string, string, string, string);
     callback set-theme(string);
     callback set-accent(string);
@@ -554,6 +555,15 @@ export component SettingsPage inherits Rectangle {
                         color: Theme.muted;
                         font-size: 12px;
                         wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SecondaryButton {
+                            text: "Open-source licenses";
+                            width: 200px;
+                            horizontal-stretch: root.phone ? 1 : 0;
+                            clicked => { root.open-licenses(); }
+                        }
                     }
                 }
             }

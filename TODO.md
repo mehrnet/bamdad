@@ -103,12 +103,12 @@ Android TunnelController
 
 ## Phase 4: unified UX
 
-- [ ] One notification across transports (profile name, totals, accent icon).
+- [x] One notification across transports (profile name, totals, accent icon).
 - [ ] Kill-switch sinkhole when no backend owns the VPN slot.
 - [x] Per-app/DNS/bypass-CIDR patching for every native backend.
 - [ ] Protocol-aware latency display.
 - [ ] Failover/pool rotation across transports.
-- [ ] In-app open-source licenses screen for GPL/Apache/MPL components.
+- [x] In-app open-source licenses screen for GPL/Apache/MPL components.
 
 ## Notes
 

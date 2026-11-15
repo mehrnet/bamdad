@@ -1,15 +1,7 @@
 package com.mehrnet.bamdad
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.PorterDuff
-import android.graphics.drawable.Icon
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -30,7 +22,7 @@ class BamdadVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        createChannel()
+        BamdadNotification.ensureChannel(this)
         Log.i(TAG, "service created")
     }
 
@@ -153,80 +145,32 @@ class BamdadVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun createChannel() {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "VPN",
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "Bamdad VPN status" }
-        manager.createNotificationChannel(channel)
-    }
-
-    private fun buildNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pending = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val title = activeProfile.ifBlank { "Bamdad VPN" }
-        val traffic = "↓ $downText   ↑ $upText"
-        val accent = accentColor(activeAccent)
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(Icon.createWithBitmap(accentIcon(accent)))
-            .setColor(accent)
-            .setContentTitle(title)
-            .setContentText(traffic)
-            .setContentIntent(pending)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .build()
-    }
+    private fun notificationText(): String = "↓ $downText   ↑ $upText"
 
     private fun startForegroundNotification() {
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-    }
-
-    private fun accentIcon(color: Int): Bitmap {
-        val density = resources.displayMetrics.density
-        val size = (24 * density).toInt().coerceAtLeast(24)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val drawable = getDrawable(R.drawable.ic_moon)
-        if (drawable != null) {
-            drawable.setBounds(0, 0, size, size)
-            drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN)
-            drawable.draw(canvas)
-            drawable.setColorFilter(null)
-        }
-        return bitmap
+        BamdadNotification.startForeground(
+            this,
+            BamdadNotification.TUNNEL_ID,
+            activeProfile,
+            notificationText(),
+            "Proxy",
+            activeAccent,
+        )
     }
 
     private fun refreshNotification() {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        try {
-            manager.notify(NOTIFICATION_ID, buildNotification())
-        } catch (error: Throwable) {
-            Log.w(TAG, "notification update failed: ${error.message}")
-        }
+        BamdadNotification.update(
+            this,
+            BamdadNotification.TUNNEL_ID,
+            activeProfile,
+            notificationText(),
+            "Proxy",
+            activeAccent,
+        )
     }
 
     companion object {
         private const val TAG = "BamdadVpn"
-        private const val CHANNEL_ID = "bamdad_vpn"
-        private const val NOTIFICATION_ID = 2001
         private const val MTU = 1400
 
         const val ACTION_STOP = "com.mehrnet.bamdad.VPN_STOP"
@@ -252,17 +196,6 @@ class BamdadVpnService : VpnService() {
             upText = up
             activeAccent = accent
             instance?.refreshNotification()
-        }
-
-        private fun accentColor(name: String): Int = when (name) {
-            "blue" -> 0xFF60A5FA.toInt()
-            "red" -> 0xFFF87171.toInt()
-            "green" -> 0xFF4ADE80.toInt()
-            "purple" -> 0xFFA78BFA.toInt()
-            "orange" -> 0xFFFB923C.toInt()
-            "pink" -> 0xFFF472B6.toInt()
-            "gray" -> 0xFF94A3B8.toInt()
-            else -> 0xFF38BDF8.toInt()
         }
 
         fun start(context: Context, socksPort: Int) {

@@ -1,7 +1,8 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { GroupRow } from "models.slint";
+import { GroupRow, LicenseRow } from "models.slint";
 import {
+    Badge,
     Card,
     ChoicePill,
     ConnectSquare,
@@ -659,6 +660,97 @@ component LogFullscreen inherits Rectangle {
     }
 }
 
+component LicensesFullscreen inherits Rectangle {
+    in property <bool> phone;
+    in property <[LicenseRow]> licenses;
+    callback close();
+
+    width: 100%;
+    height: 100%;
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: root.phone ? 12px : 20px;
+        spacing: 10px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            cross-axis-alignment: center;
+            Text {
+                text: "Open-source licenses";
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 700;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            HeaderButton {
+                icon: @image-url("icons/close.svg");
+                clicked => { root.close(); }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.surface;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+
+            license-list := ListView {
+                vertical-scrollbar-policy: always-off;
+                for row in root.licenses : Rectangle {
+                    height: 72px;
+                    width: license-list.visible-width;
+                    background: transparent;
+
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 4px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            cross-axis-alignment: center;
+                            Text {
+                                text: row.name;
+                                color: Theme.text;
+                                font-size: 13px;
+                                font-weight: 600;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: row.version;
+                                color: Theme.muted;
+                                font-size: 11px;
+                            }
+                            Badge {
+                                label: row.license;
+                                badge-width: 104px;
+                                tint: Theme.accent;
+                            }
+                        }
+                        Text {
+                            text: row.note;
+                            color: Theme.muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: "Full license texts ship with every release in THIRD_PARTY_NOTICES.md.";
+            color: Theme.muted;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Bamdad";
     preferred-width: 1120px;
@@ -746,6 +838,8 @@ export component AppWindow inherits Window {
     in-out property <string> rename-title: "";
     in-out property <string> rename-name: "";
     in-out property <bool> logs-full: false;
+    in-out property <bool> licenses-open: false;
+    in-out property <[LicenseRow]> licenses;
 
     callback toggle-connect();
     callback select-profile(string);
@@ -812,6 +906,7 @@ export component AppWindow inherits Window {
 
         key-pressed(event) => {
             if (event.text == Key.Back || event.text == Key.Escape) {
+                if (root.licenses-open) { root.licenses-open = false; return accept; }
                 if (root.logs-full) { root.logs-full = false; return accept; }
                 if (root.credentials-open) { root.close-credentials(); return accept; }
                 if (root.rename-open) { root.close-rename(); return accept; }
@@ -906,6 +1001,7 @@ export component AppWindow inherits Window {
                     test-proxy => { root.test-proxy(); }
                     copy-logs => { root.copy-logs(); }
                     share-logs => { root.share-logs(); }
+                    open-licenses => { root.licenses-open = true; }
                 }
             }
 
@@ -1060,6 +1156,12 @@ export component AppWindow inherits Window {
             phone: root.phone;
             logs: root.logs;
             close => { root.logs-full = false; }
+        }
+
+        if root.licenses-open : LicensesFullscreen {
+            phone: root.phone;
+            licenses: root.licenses;
+            close => { root.licenses-open = false; }
         }
     }
 }

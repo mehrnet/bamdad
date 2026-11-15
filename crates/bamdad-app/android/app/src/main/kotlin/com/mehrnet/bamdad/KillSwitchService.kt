@@ -1,9 +1,5 @@
 package com.mehrnet.bamdad
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
@@ -19,8 +15,6 @@ import android.util.Log
 class KillSwitchService : VpnService() {
     companion object {
         private const val TAG = "BamdadKillSwitch"
-        private const val CHANNEL_ID = "bamdad_killswitch"
-        private const val NOTIFICATION_ID = 44
 
         @Volatile
         private var active = false
@@ -52,14 +46,7 @@ class KillSwitchService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Kill switch",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply { description = "Blocks traffic while no tunnel is active" },
-        )
+        BamdadNotification.ensureChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,31 +80,14 @@ class KillSwitchService : VpnService() {
     }
 
     private fun startForegroundNotification() {
-        val pending = PendingIntent.getActivity(
+        BamdadNotification.startForeground(
             this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            BamdadNotification.KILL_SWITCH_ID,
+            "Bamdad",
+            "Traffic blocked",
+            "Kill switch",
+            "orange",
         )
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_moon)
-            .setColor(android.graphics.Color.parseColor("#06B6D4"))
-            .setContentTitle("Bamdad")
-            .setContentText("Kill switch · traffic blocked")
-            .setContentIntent(pending)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
     }
 
     override fun onRevoke() {

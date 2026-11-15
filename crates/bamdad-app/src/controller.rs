@@ -247,6 +247,9 @@ pub fn init(
             ui.set_page(page);
         }
     }
+    if std::env::var("BAMDAD_PREVIEW_LICENSES").is_ok() {
+        ui.set_licenses_open(true);
+    }
     if std::env::var("BAMDAD_PREVIEW_PING").is_ok() {
         ui.invoke_ping_all();
     }
@@ -798,6 +801,15 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_data_dir(paths::data_dir().display().to_string().into());
     ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     ui.set_xray_version(core_version_name(CoreKind::Xray).into());
+    {
+        let xray = core_version_name(CoreKind::Xray);
+        let singbox = core_version_name(CoreKind::SingBox);
+        ui.set_licenses(ModelRc::new(VecModel::from(crate::licenses::rows(
+            env!("CARGO_PKG_VERSION"),
+            &xray,
+            &singbox,
+        ))));
+    }
     ui.set_singbox_version(core_version_name(CoreKind::SingBox).into());
     #[cfg(target_os = "android")]
     {
