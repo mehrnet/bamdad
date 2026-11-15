@@ -75,9 +75,9 @@ Android TunnelController
 - [x] Smoke-test WireGuard end to end against a real WireGuard server:
       handshake succeeds, HTTP traffic passes through the native TUN, and the
       TUN is released on disconnect.
-- [ ] Smoke-test an explicit AmneziaWG config. The backend is the same
-      `amneziawg-android` implementation, but the test server needs AWG
-      obfuscation options.
+- [x] Smoke-test an explicit AmneziaWG config against a userspace
+      `amneziawg-go` server with matching obfuscation options, asserting the
+      obfuscated handshake, the VpnService TUN, and release on disconnect.
 
 ## Phase 2: IPSec
 
@@ -125,9 +125,10 @@ Android TunnelController
 
 - [x] Test against a real WireGuard server (handshake + HTTP traffic), using
       a quick-style config with `MTU = 1300` and a split `AllowedIPs` list.
-- [ ] Test against a real AmneziaWG server.
-- [ ] OpenVPN/strongSwan backends; `.ovpn`/`.sswan` are recognized during
-      import but cannot connect yet.
+- [x] Test against a real AmneziaWG server (`amneziawg-go` + `awg-quick` in
+      CI, handshake verified from the server side).
+- [ ] strongSwan/IPSec backend; `.sswan` is recognized during import but
+      cannot connect yet.
 - [ ] Unify the native notification with the existing accent/profile/totals
       notification.
 - [ ] Move per-app/DNS/bypass-CIDR patching into `TunnelProfile` and apply it

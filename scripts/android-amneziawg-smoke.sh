@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Android smoke test for the native AmneziaWG backend.
+# Starts the GoBackend from a seeded .conf and verifies the VpnService TUN.
+set -euo pipefail
+
+OUT=/tmp/bamdad-awg-smoke
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+APK=$(find /home/runner/work -type f -name 'app-debug.apk' -print -quit)
+test -f "$APK"
+adb install -r "$APK"
+
+launcher_component() {
+    adb shell cmd package resolve-activity --brief \
+        -a android.intent.action.MAIN \
+        -c android.intent.category.LAUNCHER com.mehrnet.bamdad 2>/dev/null \
+        | tr -d '\r' | tail -1
+}
+
+launch_app() {
+    local component
+    component=$(launcher_component)
+    test -n "$component"
+    adb shell am start -W -n "$component"
+}
+
+# Create the data dir first, then seed a native AmneziaWG profile.
+launch_app >/dev/null 2>&1 || true
+sleep 3
+adb shell am force-stop com.mehrnet.bamdad || true
+DATA_DIR=/data/user/0/com.mehrnet.bamdad/files
+adb shell run-as com.mehrnet.bamdad mkdir -p "$DATA_DIR"
+AWG_CLIENT=${BAMDAD_AWG_CLIENT_CONF:-/tmp/bamdad-awg/client.conf}
+test -f "$AWG_CLIENT"
+python3 - "$AWG_CLIENT" > "$OUT/profiles.json" <<'PY'
+import json, sys
+conf = open(sys.argv[1]).read()
+store = {
+    "settings": {
+        "socks_port": 10808,
+        "http_port": 10809,
+        "system_proxy": False,
+        "api_addr": "127.0.0.1",
+        "accent": "pink",
+        "theme": "dark",
+    },
+    "profiles": [{
+        "id": "awg-test",
+        "name": "Test \u00b7 AmneziaWG",
+        "core": "sing-box",
+        "transport": "amneziawg",
+        "protocol": "amneziawg",
+        "address": "10.0.2.2",
+        "port": 51821,
+        "raw_config": conf,
+        "source": None,
+    }],
+    "selected": "Test \u00b7 AmneziaWG",
+    "selected_id": "awg-test",
+    "default_group_name": "Default",
+    "group_order": {},
+}
+print(json.dumps(store))
+PY
+adb shell "run-as com.mehrnet.bamdad sh -c 'cat > $DATA_DIR/profiles.json'" \
+    < "$OUT/profiles.json"
+adb shell pm grant com.mehrnet.bamdad android.permission.POST_NOTIFICATIONS || true
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
+adb logcat -c
+
+launch_app
+sleep 8
+adb exec-out screencap -p > "$OUT/before.png"
+
+SIZE=$(adb shell wm size | tr -d '\r' | awk -F' ' '{print $NF}')
+W=$(echo "$SIZE" | cut -dx -f1)
+H=$(echo "$SIZE" | cut -dx -f2)
+echo "screen ${W}x${H}"
+
+CONSENT=$(find /home/runner/work -type f -name 'android-consent.py' -print -quit)
+consented=false
+for offset in 225 195 255; do
+    adb shell input tap $((W * 86 / 100)) $((H - offset))
+    sleep 3
+    for _ in 1 2 3 4 5 6; do
+        adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+        adb pull /sdcard/window.xml "$OUT/window.xml" >/dev/null 2>&1 || true
+        if python3 "$CONSENT" "$OUT/window.xml" | tee "$OUT/consent.txt" | grep -q 'tapping'; then
+            consented=true
+            break
+        fi
+        sleep 2
+    done
+    if $consented; then
+        break
+    fi
+done
+adb exec-out screencap -p > "$OUT/connect-tap.png"
+
+sleep 8
+adb exec-out screencap -p > "$OUT/after.png"
+adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+
+echo '--- interfaces ---'
+adb shell ip addr show tun0 || true
+echo '--- logcat ---'
+grep -Ei 'BamdadTunnel|BamdadAmnezia|GoBackend|AmneziaWG|Amnezia|FATAL EXCEPTION|AndroidRuntime' "$OUT/full-logcat.txt" | tail -80 || true
+
+test -n "$(adb shell pidof com.mehrnet.bamdad | tr -d '\r')"
+! grep -q 'FATAL EXCEPTION' "$OUT/full-logcat.txt"
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'native-tun-missing'
+    exit 1
+fi
+echo 'native-tun-up'
+
+# The obfuscated handshake is what actually proves the AmneziaWG path; ask the
+# server side whether it ever saw the client. PersistentKeepalive in the client
+# config drives the handshake without extra traffic.
+AWG_BIN=${BAMDAD_AWG_DIR:-/tmp/bamdad-awg}/bin
+if [ -x "$AWG_BIN/awg" ]; then
+    handshake=false
+    for _ in $(seq 1 12); do
+        if sudo env PATH="$AWG_BIN:$PATH" awg show awg0 2>/dev/null \
+            | grep -Eq 'latest handshake: (Now|[0-9])'; then
+            handshake=true
+            break
+        fi
+        sleep 5
+    done
+    sudo env PATH="$AWG_BIN:$PATH" awg show awg0 > "$OUT/awg-show.txt" 2>&1 || true
+    grep -Ei 'handshake|transfer' "$OUT/awg-show.txt" || true
+    if ! $handshake; then
+        echo 'amneziawg-handshake-missing'
+        exit 1
+    fi
+    echo 'amneziawg-handshake-ok'
+else
+    echo 'awg CLI not found; skipping handshake assertion'
+fi
+
+NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
+if [ -n "$NETCHECK" ]; then
+    adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
+    adb shell chmod 755 /data/local/tmp/bamdad-netcheck
+    if adb shell /data/local/tmp/bamdad-netcheck example.com 80 2>&1 | tee "$OUT/netcheck.txt" | grep -q 'HTTP/1'; then
+        echo 'native-traffic-ok'
+    else
+        echo 'native-traffic-failed'
+        exit 1
+    fi
+else
+    echo 'bamdad-netcheck not found; skipping native traffic assertion'
+fi
+
+# Disconnect and verify the TUN is gone.
+adb shell input tap $((W * 86 / 100)) $((H - 180))
+sleep 5
+adb exec-out screencap -p > "$OUT/disconnected.png"
+adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
+if adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'native-tun-still-up'
+    exit 1
+fi
+echo 'native-disconnect-ok'
