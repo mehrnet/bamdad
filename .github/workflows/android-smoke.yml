@@ -264,7 +264,7 @@ jobs:
       - name: Stop AmneziaWG test server
         if: always()
         run: |
-          sudo env PATH=/tmp/bamdad-awg/bin:$PATH \
+          sudo env "PATH=/tmp/bamdad-awg/bin:$PATH" \
             WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go \
             awg-quick down /tmp/bamdad-awg/awg0.conf || true
 

@@ -149,7 +149,6 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
           BAMDAD_VERSION_CODE: ${{ github.run_number }}
-        env:
           # setup-go exports GOTOOLCHAIN=local via GITHUB_ENV; the vendored
           # amneziawg Makefile pins Go 1.24.2 while go.mod needs 1.24.4.
           GOTOOLCHAIN: auto
