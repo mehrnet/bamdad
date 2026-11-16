@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.7
-git push origin v0.8.7
+git tag v0.8.8
+git push origin v0.8.8
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -374,11 +374,29 @@ An emulator smoke runs a strongSwan responder with a throwaway CA, connects,
 checks that the CHILD_SA is ESTABLISHED on both ends, that charon built the tun
 device, and that disconnecting releases it again.
 
+## Desktop TUN (first stage)
+
+`bamdad-tun-helper` is the privileged half of the desktop tunnel on Linux. It
+opens `/dev/net/tun`, assigns the address and MTU, keeps the endpoint reachable
+over the physical link (host routes for the profile's bypass ranges), points the
+default route at the tunnel, and holds the descriptor open until it is asked to
+stop — closing it destroys the interface, so the helper restores the previous
+default route and removes its routes on SIGINT/SIGTERM. A state file lets
+`bamdad-tun-helper down` recover routing after an interrupted run.
+
+`scripts/test-tun-helper.sh` drives it inside a throwaway network namespace:
+start, assert the default route and bypass host route, stop, assert the original
+routing is back and the device is gone. That runs in CI on every push.
+
+Still missing: the app does not start it yet. The remaining work is the
+unprivileged side — a tun2socks sidecar for desktop, a supervisor that launches
+the helper through `pkexec`, and the UI states for tunnel mode.
+
 ## Current limits / roadmap
 
-1. **Desktop TUN** — Android now uses `VpnService` + `tun2socks`; the
-   desktop still uses the system proxy. Next: a privileged desktop TUN helper
-   with the same core abstraction.
+1. **Desktop TUN** — the privileged Linux helper exists and is tested, but the
+   desktop app still uses the system proxy until the tun2socks sidecar and
+   supervisor land.
 2. ~~**Subscriptions**~~ — imports, refresh, reordering, and latency sorting
    are in place.
 3. ~~**Real-delay probe**~~ — proxied `generate_204` requests now drive the
@@ -409,4 +427,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.7`.
+`v0.8.8`.

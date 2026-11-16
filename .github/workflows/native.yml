@@ -216,3 +216,18 @@ jobs:
           path: |
             build/strongswan-android/arm64-v8a/
             build/strongswan-android/x86_64/
+
+  tun-helper:
+    name: Desktop TUN helper (linux-x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: tun-helper
+      - name: Build the helper
+        run: cargo build -p bamdad-tun-helper
+      - name: Exercise it in a throwaway network namespace
+        run: bash scripts/test-tun-helper.sh

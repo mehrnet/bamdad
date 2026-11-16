@@ -106,6 +106,16 @@ Android TunnelController
       profile has neither inline nor saved credentials.
 - [x] Test against an OpenVPN test server with enforced `auth-user-pass`.
 
+## Desktop tunnel
+
+- [x] Privileged Linux helper: TUN device, default route, endpoint bypass
+      routes, state file, restore on stop (`crates/bamdad-tun-helper`).
+- [x] Network-namespace integration test in CI.
+- [ ] tun2socks sidecar for desktop platforms.
+- [ ] Supervisor + `pkexec` prompt, wired into the connection state machine.
+- [ ] DNS handling while the tunnel is up.
+- [ ] Windows (Wintun) and macOS (utun) helpers.
+
 ## Phase 4: unified UX
 
 - [x] One notification across transports (profile name, totals, accent icon).

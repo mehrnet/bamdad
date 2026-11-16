@@ -1,9 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/bamdad-core", "crates/bamdad-app", "crates/bamdad-netcheck"]
+members = [
+    "crates/bamdad-core",
+    "crates/bamdad-app",
+    "crates/bamdad-netcheck",
+    "crates/bamdad-tun-helper",
+]
 
 [workspace.package]
-version = "0.8.7"
+version = "0.8.8"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/mehrnet/bamdad"
