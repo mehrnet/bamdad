@@ -124,7 +124,6 @@ xml = f"""<?xml version="1.0" encoding="utf-8"?>
     <server>10.0.2.2</server>
     <port>500</port>
     <remote_id>10.0.2.2</remote_id>
-    <local_id>bamdad</local_id>
     <mtu>1400</mtu>
     <ca>
 {ca}

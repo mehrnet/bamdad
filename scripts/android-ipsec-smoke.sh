@@ -65,6 +65,7 @@ dump_failure() {
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     adb shell ip -o addr show > "$OUT/interfaces.txt" 2>&1 || true
     sudo swanctl --list-sas > "$OUT/swanctl-sas.txt" 2>&1 || true
+    sudo journalctl -u strongswan -n 120 --no-pager > "$OUT/swanctl-journal.txt" 2>&1 || true
     sudo cat /tmp/bamdad-ipsec/charon.log > "$OUT/charon.log" 2>/dev/null || true
 }
 
