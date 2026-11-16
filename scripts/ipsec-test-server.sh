@@ -65,22 +65,25 @@ connections {
                 start_action = none
             }
         }
-        pools {
-            bamdad_pool {
-                addrs = 10.99.0.0/24
-            }
-        }
+        pools = bamdad_pool
+    }
+}
+pools {
+    bamdad_pool {
+        addrs = 10.99.0.0/24
     }
 }
 secrets {
     private {
-        file = server.key
+        bamdad {
+            file = server.key
+        }
     }
 }
 EOF
 
 echo "=== starting strongSwan ==="
-strongswan version 2>&1 | tee "$WORK/version.txt" || true
+swanctl --version 2>&1 | tee "$WORK/version.txt" || true
 sudo systemctl restart strongswan 2>&1 | tee "$WORK/systemctl.txt" || true
 for _ in $(seq 1 20); do
     sudo swanctl --stats >/dev/null 2>&1 && break
