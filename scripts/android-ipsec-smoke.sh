@@ -117,16 +117,18 @@ NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -pri
 if [ -n "$NETCHECK" ]; then
     # Traffic from `adb shell` bypasses the VPN, so run the checker as the app
     # UID instead: its traffic is what the tunnel routes.
-    adb shell "run-as com.mehrnet.bamdad sh -c 'cat > files/netcheck'" < "$NETCHECK"
+    timeout 30 adb shell "run-as com.mehrnet.bamdad sh -c 'cat > files/netcheck'" < "$NETCHECK"
     adb shell run-as com.mehrnet.bamdad chmod 755 files/netcheck
     ok=false
     for _ in 1 2 3; do
-        if adb shell run-as com.mehrnet.bamdad files/netcheck example.com 80 2>&1 \
+        # Probe by IP: the tunnel carries no DNS server, and a hanging resolver
+        # would otherwise block the job.
+        if timeout 25 adb shell run-as com.mehrnet.bamdad files/netcheck 1.1.1.1 80 2>&1 \
             | tee "$OUT/netcheck.txt" | grep -q 'HTTP/1'; then
             ok=true
             break
         fi
-        sleep 3
+        sleep 2
     done
     if ! $ok; then
         echo 'ipsec-traffic-failed'
