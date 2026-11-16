@@ -59,8 +59,8 @@ connections {
         }
         children {
             bamdad {
-                local_ts = 0.0.0.0/0
-                remote_ts = 0.0.0.0/0
+                local_ts = 10.99.0.0/24
+                remote_ts = 10.99.0.0/24
                 dpd_action = clear
                 start_action = none
             }

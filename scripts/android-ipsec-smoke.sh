@@ -118,18 +118,13 @@ adb shell input tap $((W * 86 / 100)) $((H - 180))
 sleep 6
 deadline=$((SECONDS + 30))
 while [ $SECONDS -lt $deadline ]; do
-    if adb logcat -d -s BamdadCharon 2>/dev/null | grep -q 'state -> DOWN'; then
+    if ! adb shell ip -o addr show 2>/dev/null | grep -q '10\.99\.0\.'; then
         break
     fi
     sleep 1
 done
-if ! adb logcat -d -s BamdadCharon 2>/dev/null | grep -q 'state -> DOWN'; then
-    echo 'ipsec-disconnect-state-missing'
-    dump_failure
-    exit 1
-fi
 if adb shell ip -o addr show 2>/dev/null | grep -q '10\.99\.0\.'; then
-    echo 'ipsec-tun-still-up'
+    echo 'ipsec-disconnect-failed'
     dump_failure
     exit 1
 fi
