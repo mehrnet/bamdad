@@ -93,7 +93,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check out native dependencies
         run: |
-          git submodule update --init --depth 1 \
+          git submodule update --init --recursive --depth 1 \
             crates/bamdad-app/android/vendor/amneziawg-android \
             crates/bamdad-app/android/vendor/openvpn3
       - uses: dtolnay/rust-toolchain@stable

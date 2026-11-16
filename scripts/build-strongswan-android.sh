@@ -40,7 +40,9 @@ die() {
 [ -n "$OPENSSL_SRC" ] && [ -d "$OPENSSL_SRC" ] || die "set OPENSSL_SRC to an OpenSSL 3 tree"
 [ -d "$SRC/src/frontends/android/app/src/main/jni" ] || die "no Android frontend in $SRC"
 
+# ndk-build wants a comma list, the OpenSSL helper a space-separated one.
 abis_csv=$(printf '%s\n' "${ABIS[@]}" | paste -sd, -)
+abis_space="${ABIS[*]}"
 echo "strongSwan: $SRC"
 echo "NDK:        $NDK"
 echo "OpenSSL:    $OPENSSL_SRC"
@@ -90,11 +92,11 @@ JNI="$STAGE/src/src/frontends/android/app/src/main/jni"
 
 # libstrongswan links a static libcrypto; the upstream helper builds it for
 # every requested ABI and writes an Android.mk next to it.
-echo "=== building OpenSSL for $abis_csv ==="
+echo "=== building OpenSSL for $abis_space ==="
 NO_DOCKER=1 \
     ANDROID_NDK_ROOT="$NDK" \
     OPENSSL_SRC="$OPENSSL_SRC" \
-    ABIS="$abis_csv" \
+    ABIS="$abis_space" \
     OUT="$JNI/openssl" \
     "$STAGE/src/src/frontends/android/openssl/build.sh"
 
