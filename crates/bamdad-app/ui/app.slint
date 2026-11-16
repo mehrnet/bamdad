@@ -785,6 +785,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-ip: false;
     in-out property <bool> kill-switch: false;
     in-out property <bool> failover: false;
+    in-out property <bool> tunnel-mode: false;
     in-out property <string> custom-dns: "";
     in-out property <string> split-mode: "off";
     in-out property <string> split-apps-text: "";
@@ -851,6 +852,7 @@ export component AppWindow inherits Window {
     callback set-accent-mode(string);
     callback set-kill-switch(bool);
     callback set-failover(bool);
+    callback set-tunnel-mode(bool);
     callback pick-split-apps(string);
     callback reload-profiles();
     callback clear-logs();
@@ -976,6 +978,7 @@ export component AppWindow inherits Window {
                     mobile: root.mobile;
                     kill-switch: root.kill-switch;
                     failover: root.failover;
+                    tunnel-mode: root.tunnel-mode;
                     custom-dns: root.custom-dns;
                     split-mode: root.split-mode;
                     split-apps-text: root.split-apps-text;
@@ -999,6 +1002,7 @@ export component AppWindow inherits Window {
                     set-accent(name) => { root.set-accent-mode(name); }
                     set-kill-switch(enabled) => { root.set-kill-switch(enabled); }
                     set-failover(enabled) => { root.set-failover(enabled); }
+                    set-tunnel-mode(enabled) => { root.set-tunnel-mode(enabled); }
                     pick-split-apps(current) => { root.pick-split-apps(current); }
                     full-logs => { root.logs-full = true; }
                     clear-logs => { root.clear-logs(); }

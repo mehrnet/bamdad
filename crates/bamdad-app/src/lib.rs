@@ -11,6 +11,8 @@ mod android_session;
 pub mod controller;
 pub(crate) mod country;
 pub(crate) mod country_names;
+#[cfg(not(target_os = "android"))]
+mod desktop_tun;
 mod licenses;
 #[cfg(target_os = "android")]
 mod tunnel;

@@ -52,6 +52,7 @@ async fn starts_core_and_queries_stats() {
         split_apps: Vec::new(),
         bypass_cidrs: String::new(),
         failover: true,
+        tunnel_mode: false,
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profile();

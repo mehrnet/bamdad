@@ -41,6 +41,9 @@ pub struct AppSettings {
     /// Move to the next profile in the group when the active one fails.
     #[serde(default = "default_failover")]
     pub failover: bool,
+    /// Route all desktop traffic through the tunnel (privileged helper).
+    #[serde(default)]
+    pub tunnel_mode: bool,
 }
 
 impl Default for AppSettings {
@@ -58,6 +61,7 @@ impl Default for AppSettings {
             split_apps: Vec::new(),
             bypass_cidrs: String::new(),
             failover: default_failover(),
+            tunnel_mode: false,
         }
     }
 }

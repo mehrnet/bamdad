@@ -1560,6 +1560,36 @@ fn setup_callbacks(
         let weak = ui.as_weak();
         let store = store.clone();
         let logs = logs.clone();
+        ui.on_set_tunnel_mode(move |enabled| {
+            {
+                let mut guard = store.lock().unwrap();
+                guard.settings.tunnel_mode = enabled;
+                let _ = save_store(&guard);
+            }
+            #[cfg(not(target_os = "android"))]
+            if !enabled {
+                stop_desktop_tunnel();
+            }
+            if let Some(ui) = weak.upgrade() {
+                ui.set_tunnel_mode(enabled);
+                push_log(
+                    &ui,
+                    &logs,
+                    if enabled {
+                        "tunnel mode enabled; the desktop tunnel starts on the next connect"
+                            .to_string()
+                    } else {
+                        "tunnel mode disabled".to_string()
+                    },
+                );
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let logs = logs.clone();
         ui.on_set_failover(move |enabled| {
             {
                 let mut guard = store.lock().unwrap();
@@ -2748,6 +2778,33 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
 /// Enter the yellow "busy" state immediately when a connection starts or the
 /// user switches profiles, and clear the previous session's counters and
 /// addresses so no stale values stay on screen while the new core comes up.
+/// Starts the privileged desktop tunnel once the proxy accepts on [port].
+#[cfg(not(target_os = "android"))]
+fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Store>>, port: u16) {
+    let (enabled, bypass) = {
+        let guard = store.lock().unwrap();
+        let enabled = guard.settings.tunnel_mode;
+        let bypass = guard
+            .selected_profile()
+            .map(|profile| crate::desktop_tun::bypass_for(&profile.address, profile.port))
+            .unwrap_or_default();
+        (enabled, bypass)
+    };
+    if !enabled {
+        return;
+    }
+    match crate::desktop_tun::start(port, &bypass) {
+        Ok(message) => push_log(ui, logs, message),
+        Err(error) => push_log(ui, logs, format!("tunnel mode: {error}")),
+    }
+}
+
+/// Restores desktop routing when the tunnel is no longer wanted.
+#[cfg(not(target_os = "android"))]
+fn stop_desktop_tunnel() {
+    crate::desktop_tun::stop();
+}
+
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
     crate::stop_kill_switch();
     STARTING.store(true, Ordering::SeqCst);
@@ -3035,6 +3092,8 @@ fn stop_connection(
     }
     engine.stop();
     crate::stop_android_vpn();
+    #[cfg(not(target_os = "android"))]
+    stop_desktop_tunnel();
     ui.set_busy(true);
     ui.set_status_text("Stopping…".into());
 
@@ -3195,6 +3254,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
+                #[cfg(not(target_os = "android"))]
+                stop_desktop_tunnel();
                 if KILL_SWITCH.load(Ordering::SeqCst) {
                     crate::start_kill_switch();
                 }
@@ -3236,6 +3297,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 if !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
                     let weak = ui.as_weak();
                     let logs = logs.clone();
+                    let store = context.store.clone();
                     std::thread::spawn(move || {
                         use std::net::{SocketAddr, TcpStream};
                         let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
@@ -3253,6 +3315,18 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                         #[cfg(target_os = "android")]
                         if ready {
                             crate::start_android_vpn(port);
+                        }
+
+                        #[cfg(not(target_os = "android"))]
+                        if ready {
+                            let store = store.clone();
+                            let weak = weak.clone();
+                            let logs = logs.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = weak.upgrade() {
+                                    start_desktop_tunnel(&ui, &logs, &store, port);
+                                }
+                            });
                         }
 
                         // Resolve the exit address before the slower
@@ -3349,6 +3423,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 ui.set_busy(true);
                 ui.set_status_text("Stopping…".into());
                 crate::stop_android_vpn();
+                #[cfg(not(target_os = "android"))]
+                stop_desktop_tunnel();
             }
             EngineState::Error(message) => {
                 STARTING.store(false, Ordering::SeqCst);

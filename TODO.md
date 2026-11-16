@@ -111,8 +111,9 @@ Android TunnelController
 - [x] Privileged Linux helper: TUN device, default route, endpoint bypass
       routes, state file, restore on stop (`crates/bamdad-tun-helper`).
 - [x] Network-namespace integration test in CI.
-- [ ] tun2socks sidecar for desktop platforms.
-- [ ] Supervisor + `pkexec` prompt, wired into the connection state machine.
+- [x] tun2socks sidecar for desktop platforms (`fetch-desktop-tun2socks.sh`).
+- [x] Supervisor + `pkexec` prompt, wired into the connection state machine.
+- [x] End-to-end network-namespace test in CI.
 - [ ] DNS handling while the tunnel is up.
 - [ ] Windows (Wintun) and macOS (utun) helpers.
 

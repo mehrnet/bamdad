@@ -51,6 +51,7 @@ async fn starts_singbox_and_reads_clash_api() {
         split_apps: Vec::new(),
         bypass_cidrs: String::new(),
         failover: true,
+        tunnel_mode: false,
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profiles().remove(1);

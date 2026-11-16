@@ -231,3 +231,29 @@ jobs:
         run: cargo build -p bamdad-tun-helper
       - name: Exercise it in a throwaway network namespace
         run: bash scripts/test-tun-helper.sh
+
+  desktop-tunnel:
+    name: Desktop tunnel end-to-end (linux-x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: desktop-tunnel
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+      - name: Build the privileged helper
+        run: cargo build -p bamdad-tun-helper
+      - name: Build the tun2socks sidecar
+        run: bash scripts/fetch-desktop-tun2socks.sh target/debug
+      - name: Install sing-box for the fake internet
+        run: |
+          XDG_DATA_HOME="$PWD/.ci-data" bash scripts/fetch-singbox.sh
+          test -x "$PWD/.ci-data/bamdad/bin/sing-box"
+      - name: Run the tunnel end to end in a network namespace
+        run: |
+          SINGBOX="$PWD/.ci-data/bamdad/bin/sing-box" \
+            bash scripts/test-desktop-tunnel.sh

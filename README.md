@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.8
-git push origin v0.8.8
+git tag v0.8.9
+git push origin v0.8.9
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -374,29 +374,40 @@ An emulator smoke runs a strongSwan responder with a throwaway CA, connects,
 checks that the CHILD_SA is ESTABLISHED on both ends, that charon built the tun
 device, and that disconnecting releases it again.
 
-## Desktop TUN (first stage)
+## Desktop TUN
 
-`bamdad-tun-helper` is the privileged half of the desktop tunnel on Linux. It
-opens `/dev/net/tun`, assigns the address and MTU, keeps the endpoint reachable
-over the physical link (host routes for the profile's bypass ranges), points the
-default route at the tunnel, and holds the descriptor open until it is asked to
-stop — closing it destroys the interface, so the helper restores the previous
-default route and removes its routes on SIGINT/SIGTERM. A state file lets
-`bamdad-tun-helper down` recover routing after an interrupted run.
+Desktop traffic can leave through a real TUN device instead of the system
+proxy (Settings → Local listeners → **Tunnel mode**). The chain is:
 
-`scripts/test-tun-helper.sh` drives it inside a throwaway network namespace:
-start, assert the default route and bypass host route, stop, assert the original
-routing is back and the device is gone. That runs in CI on every push.
+```
+bamdad (user) -> pkexec -> bamdad-tun-helper (root) -> tun2socks (user) -> core SOCKS
+```
 
-Still missing: the app does not start it yet. The remaining work is the
-unprivileged side — a tun2socks sidecar for desktop, a supervisor that launches
-the helper through `pkexec`, and the UI states for tunnel mode.
+- `bamdad-tun-helper` opens `/dev/net/tun`, assigns `10.255.0.1/24`, points the
+  default route at it, keeps the profile endpoint on the physical link with
+  host routes, and holds the descriptor open. It drops privileges for the
+  sidecar, and on SIGINT/SIGTERM restores the previous default route and
+  removes its routes. A state file lets `down --state FILE` recover after an
+  interrupted run.
+- `bamdad-tun2socks` is xjasonlyu/tun2socks built for the host by
+  `scripts/fetch-desktop-tun2socks.sh`; the helper hands it the tun descriptor
+  as fd 3 and it forwards into the core's SOCKS listener.
+- The app starts both once the core's SOCKS port answers, and stops the helper
+  on disconnect or error, which restores routing.
+
+Linux only for now; the binaries ship inside the Linux release tarballs. macOS
+(utun) and Windows (Wintun) helpers are still to come, and DNS is not rewritten
+while the tunnel is up.
+
+`scripts/test-desktop-tunnel.sh` proves the whole chain in CI: a network
+namespace with a veth "internet", a real sing-box SOCKS core, the helper and
+tun2socks, then `curl` must reach a host HTTP server through the tunnel and the
+original routing must be back after the helper stops.
 
 ## Current limits / roadmap
 
-1. **Desktop TUN** — the privileged Linux helper exists and is tested, but the
-   desktop app still uses the system proxy until the tun2socks sidecar and
-   supervisor land.
+1. **Desktop TUN** — Linux only: tunnel mode, helper, sidecar, and an
+   end-to-end CI test. macOS/Windows helpers and DNS handling are next.
 2. ~~**Subscriptions**~~ — imports, refresh, reordering, and latency sorting
    are in place.
 3. ~~**Real-delay probe**~~ — proxied `generate_204` requests now drive the
@@ -427,4 +438,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.8`.
+`v0.8.9`.

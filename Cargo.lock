@@ -526,13 +526,14 @@ dependencies = [
 
 [[package]]
 name = "bamdad-app"
-version = "0.8.8"
+version = "0.8.9"
 dependencies = [
  "anyhow",
  "bamdad-core",
  "base64 0.22.1",
  "emojis",
  "jni 0.21.1",
+ "libc",
  "serde_json",
  "slint",
  "slint-build",
@@ -546,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-core"
-version = "0.8.8"
+version = "0.8.9"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -568,11 +569,11 @@ dependencies = [
 
 [[package]]
 name = "bamdad-netcheck"
-version = "0.8.8"
+version = "0.8.9"
 
 [[package]]
 name = "bamdad-tun-helper"
-version = "0.8.8"
+version = "0.8.9"
 dependencies = [
  "libc",
 ]
