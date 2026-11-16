@@ -372,7 +372,8 @@ PKCS#8 key directly in the XML, so a profile is self-contained; strongSwan's
 Android frontend itself does not support PSK, so neither does Bamdad yet.
 
 An emulator smoke runs a strongSwan responder with a throwaway CA, connects,
-checks the CHILD_SA on both ends, passes HTTP traffic, and disconnects.
+checks that the CHILD_SA is ESTABLISHED on both ends, that charon built the tun
+device, and that disconnecting releases it again.
 
 ## Current limits / roadmap
 
