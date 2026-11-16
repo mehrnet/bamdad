@@ -81,7 +81,8 @@ Android TunnelController
 
 ## Phase 2: IPSec
 
-- [ ] Vendor strongSwan and build `libcharon.so` per ABI.
+- [x] Vendor strongSwan 6.0.4 and build `libcharon.so` per ABI
+      (`scripts/build-strongswan-android.sh`, artifact from `native.yml`).
 - [ ] Add `IpSecBackend` around `CharonVpnService` / `VpnStateService`.
 - [ ] Import `.sswan` and/or expose manual IKEv2 fields.
 - [ ] Normalize state and byte counters.

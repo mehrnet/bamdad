@@ -67,8 +67,12 @@ executables; include their licenses and data notices in release artifacts.
 ## strongSwan
 
 - Project: https://github.com/strongswan/strongswan
-- License: GPL-2.0-or-later
-- Will be used on Android for the IPSec/IKEv2 backend.
+- Version: `6.0.4` (git submodule at `crates/bamdad-app/android/vendor/strongswan`)
+- License: GPL-2.0-or-later, compatible with Bamdad's GPL-3.0-only
+- Vendored for the IPSec/IKEv2 backend. `scripts/build-strongswan-android.sh`
+  builds `libcharon.so`, `libandroidbridge.so`, `libstrongswan.so`, `libipsec.so`
+  and the plugin libraries for arm64-v8a and x86_64. They are not packaged into
+  the APK yet: the Kotlin `IpSecBackend` will load them in a later step.
 
 ## OpenVPN 3 Core Library
 
