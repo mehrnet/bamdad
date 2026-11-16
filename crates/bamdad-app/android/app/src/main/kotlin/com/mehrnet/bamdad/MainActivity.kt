@@ -7,6 +7,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.ConnectivityManager
@@ -29,6 +30,16 @@ class MainActivity : NativeActivity() {
         instance = this
         Log.i(TAG, "onCreate")
         super.onCreate(savedInstanceState)
+        // Debug builds boot the strongSwan daemon once so the emulator smoke can
+        // prove the packaged native libraries load. Release builds skip it until
+        // the IpSec backend drives charon for real.
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            runCatching {
+                startService(
+                    Intent(this, org.strongswan.android.logic.CharonVpnService::class.java),
+                )
+            }.onFailure { Log.w(TAG, "ipsec self-test could not start: ${it.message}") }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

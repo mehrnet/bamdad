@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "Which smoke to run: all, emulator, wireguard, openvpn, amneziawg, killswitch"
+        description: "Which smoke to run: all, emulator, wireguard, openvpn, amneziawg, killswitch, ipsec"
         type: string
         default: all
 
@@ -325,4 +325,54 @@ jobs:
           name: android-killswitch-smoke
           path: |
             /tmp/bamdad-killswitch-smoke/*
+          if-no-files-found: warn
+
+  ipsec:
+    name: IPSec libraries smoke on emulator
+    runs-on: ubuntu-latest
+    if: inputs.job == 'all' || inputs.job == 'ipsec'
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the x86_64 debug APK
+        uses: dawidd6/action-download-artifact@v28
+        with:
+          workflow: native.yml
+          name: bamdad-android-debug
+          path: apk
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
+      - name: Locate APK
+        run: |
+          APK=$(find apk -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
+          unzip -l "$GITHUB_WORKSPACE/app-debug.apk" | grep 'lib/x86_64/lib' | sort
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run charon boot self-test
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -camera-back none -camera-front none
+          script: bash scripts/android-ipsec-smoke.sh
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-ipsec-smoke
+          path: |
+            /tmp/bamdad-ipsec-smoke/*
           if-no-files-found: warn
