@@ -343,6 +343,15 @@ jobs:
           search_artifacts: true
           workflow_conclusion: success
           branch: main
+      - name: Download the Android network checker
+        uses: dawidd6/action-download-artifact@v28
+        with:
+          workflow: native.yml
+          name: bamdad-netcheck-android
+          path: netcheck
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
       - name: Locate APK
         run: |
           APK=$(find apk -type f -name '*.apk' -print -quit)
@@ -350,6 +359,7 @@ jobs:
           cp "$APK" "$GITHUB_WORKSPACE/app-debug.apk"
           ls -lh "$GITHUB_WORKSPACE/app-debug.apk"
           unzip -l "$GITHUB_WORKSPACE/app-debug.apk" | grep 'lib/x86_64/lib' | sort
+          find netcheck -type f -print
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \

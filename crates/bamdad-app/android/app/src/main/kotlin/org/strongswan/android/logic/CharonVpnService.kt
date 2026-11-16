@@ -322,6 +322,7 @@ class CharonVpnService : VpnService() {
     private fun publish(newState: TunnelState, message: String? = null) {
         state = newState
         error = message
+        Log.i(TAG, "state -> ${newState.name}" + (message?.let { " ($it)" } ?: ""))
     }
 
     private fun fail(message: String) {

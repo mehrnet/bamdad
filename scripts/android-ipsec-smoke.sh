@@ -115,11 +115,13 @@ echo 'ipsec-server-sa-ok'
 
 NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
 if [ -n "$NETCHECK" ]; then
-    adb push "$NETCHECK" /data/local/tmp/bamdad-netcheck >/dev/null
-    adb shell chmod 755 /data/local/tmp/bamdad-netcheck
+    # Traffic from `adb shell` bypasses the VPN, so run the checker as the app
+    # UID instead: its traffic is what the tunnel routes.
+    adb shell "run-as com.mehrnet.bamdad sh -c 'cat > files/netcheck'" < "$NETCHECK"
+    adb shell run-as com.mehrnet.bamdad chmod 755 files/netcheck
     ok=false
     for _ in 1 2 3; do
-        if adb shell /data/local/tmp/bamdad-netcheck example.com 80 2>&1 \
+        if adb shell run-as com.mehrnet.bamdad files/netcheck example.com 80 2>&1 \
             | tee "$OUT/netcheck.txt" | grep -q 'HTTP/1'; then
             ok=true
             break
@@ -139,8 +141,20 @@ fi
 echo '--- disconnect ---'
 adb shell input tap $((W * 86 / 100)) $((H - 180))
 sleep 6
-if ! wait_for_state 2 30; then
+deadline=$((SECONDS + 30))
+while [ $SECONDS -lt $deadline ]; do
+    if adb logcat -d -s BamdadCharon 2>/dev/null | grep -q 'state -> DOWN'; then
+        break
+    fi
+    sleep 1
+done
+if ! adb logcat -d -s BamdadCharon 2>/dev/null | grep -q 'state -> DOWN'; then
     echo 'ipsec-disconnect-state-missing'
+    dump_failure
+    exit 1
+fi
+if adb shell ip -o addr show 2>/dev/null | grep -q '10\.99\.0\.'; then
+    echo 'ipsec-tun-still-up'
     dump_failure
     exit 1
 fi
