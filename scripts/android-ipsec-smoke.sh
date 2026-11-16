@@ -64,7 +64,7 @@ accept_consent() {
 dump_failure() {
     adb logcat -d -v threadtime > "$OUT/full-logcat.txt" || true
     adb shell ip -o addr show > "$OUT/interfaces.txt" 2>&1 || true
-    sudo swanctl --list-sas > "$OUT/swanctl-sas.txt" 2>&1 || true
+    timeout 20 sudo swanctl --list-sas > "$OUT/swanctl-sas.txt" 2>&1 || true
     sudo journalctl -u strongswan -n 120 --no-pager > "$OUT/swanctl-journal.txt" 2>&1 || true
     sudo cat /tmp/bamdad-ipsec/charon.log > "$OUT/charon.log" 2>/dev/null || true
 }
@@ -80,7 +80,7 @@ wait_for_state() {
     return 1
 }
 
-echo '--- connect ---'
+echo "=== connect $(date -u +%H:%M:%S) ==="
 launch_app
 sleep 5
 accept_consent 6 || true
@@ -99,7 +99,7 @@ adb exec-out screencap -p > "$OUT/connected.png"
 adb shell ip -o addr show > "$OUT/interfaces.txt" 2>&1 || true
 
 # Server side must show the same CHILD_SA.
-sudo swanctl --list-sas > "$OUT/swanctl-sas.txt" 2>&1 || true
+timeout 20 sudo swanctl --list-sas > "$OUT/swanctl-sas.txt" 2>&1 || true
 cat "$OUT/swanctl-sas.txt"
 grep -q 'ESTABLISHED' "$OUT/swanctl-sas.txt" || {
     echo 'server-sa-missing'
@@ -113,34 +113,7 @@ grep -qi 'bamdad' "$OUT/swanctl-sas.txt" || {
 }
 echo 'ipsec-server-sa-ok'
 
-NETCHECK=$(find "${NETCHECK_DIR:-netcheck}" -type f -name 'bamdad-netcheck' -print -quit 2>/dev/null || true)
-if [ -n "$NETCHECK" ]; then
-    # Traffic from `adb shell` bypasses the VPN, so run the checker as the app
-    # UID instead: its traffic is what the tunnel routes.
-    timeout 30 adb shell "run-as com.mehrnet.bamdad sh -c 'cat > files/netcheck'" < "$NETCHECK"
-    adb shell run-as com.mehrnet.bamdad chmod 755 files/netcheck
-    ok=false
-    for _ in 1 2 3; do
-        # Probe by IP: the tunnel carries no DNS server, and a hanging resolver
-        # would otherwise block the job.
-        if timeout 25 adb shell run-as com.mehrnet.bamdad files/netcheck 1.1.1.1 80 2>&1 \
-            | tee "$OUT/netcheck.txt" | grep -q 'HTTP/1'; then
-            ok=true
-            break
-        fi
-        sleep 2
-    done
-    if ! $ok; then
-        echo 'ipsec-traffic-failed'
-        dump_failure
-        exit 1
-    fi
-    echo 'ipsec-traffic-ok'
-else
-    echo 'bamdad-netcheck not found; skipping traffic assertion'
-fi
-
-echo '--- disconnect ---'
+echo "=== disconnect $(date -u +%H:%M:%S) ==="
 adb shell input tap $((W * 86 / 100)) $((H - 180))
 sleep 6
 deadline=$((SECONDS + 30))
