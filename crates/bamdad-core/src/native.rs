@@ -20,6 +20,17 @@ pub fn detect(text: &str) -> Option<NativeConfig> {
     let trimmed = text
         .trim_start_matches(['\u{feff}', '\u{200b}'])
         .trim_start();
+    if looks_like_sswan(trimmed) {
+        let address = xml_value(trimmed, "server").unwrap_or_default();
+        let port = xml_value(trimmed, "port")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(500);
+        return Some(NativeConfig {
+            transport: Transport::IpSec,
+            address,
+            port,
+        });
+    }
     if !trimmed.starts_with("[Interface]") {
         let lower = trimmed.to_ascii_lowercase();
         if lower.contains("client")
@@ -75,6 +86,29 @@ pub fn detect(text: &str) -> Option<NativeConfig> {
         address,
         port,
     })
+}
+
+/// strongSwan `.sswan` profiles are XML; Bamdad also accepts the same XML with
+/// embedded `<ca>`/`<cert>`/`<key>` blocks so a profile can be self-contained.
+fn looks_like_sswan(text: &str) -> bool {
+    text.contains("<vpnprofile")
+        || xml_value(text, "type").is_some_and(|value| value.starts_with("ikev2"))
+}
+
+/// Reads the first `<tag>value</tag>` pair. Good enough for the flat
+/// `.sswan` document; no XML dependency needed.
+fn xml_value(text: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let rest = &text[start..];
+    let end = rest.find(&close)?;
+    let value = rest[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 fn parse_openvpn_remote(text: &str) -> (String, u16) {

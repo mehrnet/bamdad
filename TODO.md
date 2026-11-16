@@ -85,10 +85,11 @@ Android TunnelController
       (`scripts/build-strongswan-android.sh`, artifact from `native.yml`).
 - [x] Package the libraries in debug builds and boot charon on the emulator
       (`CharonVpnService` + `IPSec libraries smoke`).
-- [ ] Add `IpSecBackend` around `CharonVpnService` / `VpnStateService`.
-- [ ] Import `.sswan` and/or expose manual IKEv2 fields.
-- [ ] Normalize state and byte counters.
-- [ ] Test against a strongSwan test server.
+- [x] Add `IpSecBackend` around `CharonVpnService`.
+- [x] Import `.sswan` profiles, with embedded CA/cert/key material.
+- [x] Normalize state into the existing tunnel events.
+- [ ] Byte counters for IPSec (charon does not report them yet).
+- [x] Test against a strongSwan test server (emulator smoke).
 
 ## Phase 3: OpenVPN
 

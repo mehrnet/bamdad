@@ -356,7 +356,9 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run charon boot self-test
+      - name: Start the IPSec test server
+        run: bash scripts/ipsec-test-server.sh
+      - name: Run the IPSec tunnel
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 30
@@ -376,3 +378,8 @@ jobs:
           path: |
             /tmp/bamdad-ipsec-smoke/*
           if-no-files-found: warn
+      - name: Stop the IPSec test server
+        if: always()
+        run: |
+          sudo swanctl --list-sas || true
+          sudo pkill -f '/usr/lib/ipsec/charon' || true

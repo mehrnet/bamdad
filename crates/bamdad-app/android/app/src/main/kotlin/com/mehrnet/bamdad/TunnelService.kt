@@ -137,7 +137,9 @@ class TunnelService : Service() {
             while (isActive) {
                 delay(1_000)
                 val status = TunnelController.status() ?: break
-                if (profile.transport == TunnelTransport.OPENVPN) {
+                if (profile.transport == TunnelTransport.OPENVPN ||
+                    profile.transport == TunnelTransport.IPSEC
+                ) {
                     publish(profile, status)
                     if (status.state == TunnelState.DOWN || status.state == TunnelState.ERROR) break
                     continue

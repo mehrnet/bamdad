@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.5
-git push origin v0.8.5
+git tag v0.8.6
+git push origin v0.8.6
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -318,7 +318,7 @@ installed.
 | WireGuard / AmneziaWG `.conf` | supported on Android |
 | SSR, SIP003 plugins (`obfs`, `v2ray-plugin`) | not yet |
 | Hysteria2, TUIC | not yet |
-| IPSec/IKEv2 `.sswan` | recognized; strongSwan libraries build in CI, backend pending |
+| IPSec/IKEv2 `.sswan` | supported on Android for certificate-based profiles (PSK, EAP-TLS pending) |
 
 XHTTP is Xray-only; imports that select sing-box are switched to Xray
 automatically. Link-based profiles are regenerated from their stored share link
@@ -364,9 +364,15 @@ bind to), then shut it down again; the `IPSec libraries smoke` job asserts that
 boot on the emulator. Release builds skip both until the backend can actually
 connect, so no dead native code ships to users.
 
-What remains: IKEv2 `.sswan` profile import, the `initiate()` call with a
-generated connection config, state mapping into Bamdad's tunnel events, and a
-strongSwan responder in CI.
+The backend is now wired: `.sswan` profiles are detected on import, the Kotlin
+`IpSecBackend` starts `CharonVpnService`, charon negotiates IKEv2 with a
+generated connection config, and its state codes map onto Bamdad's tunnel
+events. Certificate-based profiles can embed their CA, client certificate, and
+PKCS#8 key directly in the XML, so a profile is self-contained; strongSwan's
+Android frontend itself does not support PSK, so neither does Bamdad yet.
+
+An emulator smoke runs a strongSwan responder with a throwaway CA, connects,
+checks the CHILD_SA on both ends, passes HTTP traffic, and disconnects.
 
 ## Current limits / roadmap
 
@@ -403,4 +409,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.5`.
+`v0.8.6`.
