@@ -46,7 +46,6 @@ sudo cp client.pem "$SWANCTL_DIR/x509/"
 sudo tee "$SWANCTL_CONF" >/dev/null <<EOF
 connections {
     bamdad {
-        local_addrs = 0.0.0.0
         version = 2
         proposals = aes256-sha256-modp2048
         local {
@@ -81,15 +80,18 @@ secrets {
 EOF
 
 echo "=== starting strongSwan ==="
-if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q 'strongswan'; then
-    sudo systemctl restart strongswan || true
-    sleep 2
-fi
+strongswan version 2>&1 | tee "$WORK/version.txt" || true
+sudo systemctl restart strongswan 2>&1 | tee "$WORK/systemctl.txt" || true
+for _ in $(seq 1 20); do
+    sudo swanctl --stats >/dev/null 2>&1 && break
+    sleep 1
+done
 if ! sudo swanctl --stats >/dev/null 2>&1; then
-    # No systemd unit (or it failed): run charon directly.
-    sudo pkill -f '/usr/lib/ipsec/charon' 2>/dev/null || true
-    sudo /usr/lib/ipsec/charon >"$WORK/charon.log" 2>&1 &
-    sleep 3
+    echo "charon/vici is not reachable; diagnostics follow"
+    sudo systemctl status strongswan --no-pager -l 2>&1 | tail -40 || true
+    sudo journalctl -u strongswan -n 80 --no-pager 2>&1 | tail -80 || true
+    sudo ls -l /usr/lib/ipsec/plugins 2>&1 | head -20 || true
+    exit 1
 fi
 sudo swanctl --load-all 2>&1 | tee "$WORK/swanctl-load.txt"
 sudo swanctl --list-conns | tee "$WORK/swanctl-conns.txt"
