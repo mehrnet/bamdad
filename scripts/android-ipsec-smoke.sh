@@ -114,7 +114,8 @@ grep -qi 'bamdad' "$OUT/swanctl-sas.txt" || {
 echo 'ipsec-server-sa-ok'
 
 echo "=== disconnect $(date -u +%H:%M:%S) ==="
-adb shell input tap $((W * 86 / 100)) $((H - 180))
+sleep 6
+adb shell input tap $((W * 86 / 100)) $((H - 190))
 sleep 6
 deadline=$((SECONDS + 30))
 while [ $SECONDS -lt $deadline ]; do

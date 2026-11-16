@@ -334,8 +334,15 @@ class CharonVpnService : VpnService() {
 
     private fun shutdown() {
         if (initialized) {
-            runCatching { deinitializeCharon() }
             initialized = false
+            Log.i(TAG, "deinit: start")
+            // charon's teardown can block while it winds down its threads.
+            // Never let that hold up the caller: the VpnService is stopped
+            // right after this, which is what actually removes the tun.
+            Thread {
+                runCatching { deinitializeCharon() }
+                Log.i(TAG, "deinit: done")
+            }.apply { isDaemon = true }.start()
         }
     }
 
