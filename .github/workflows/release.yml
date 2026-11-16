@@ -145,6 +145,15 @@ jobs:
         run: echo "BAMDAD_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Build Android native libraries
         run: ./crates/bamdad-app/android/build-native.sh arm64-v8a x86_64
+      - name: Download the strongSwan libraries
+        uses: dawidd6/action-download-artifact@v28
+        with:
+          workflow: native.yml
+          name: bamdad-strongswan-android
+          path: crates/bamdad-app/android/app/src/main/jniLibs
+          search_artifacts: true
+          workflow_conclusion: success
+          branch: main
       - name: Build signed APKs
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android/bamdad-release.jks

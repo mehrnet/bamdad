@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.8.6
-git push origin v0.8.6
+git tag v0.8.7
+git push origin v0.8.7
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -358,11 +358,10 @@ The result is one set of libraries per ABI — `libcharon.so`,
 `libstrongswan.so`, `libipsec.so`, and the plugins — uploaded from CI as
 `bamdad-strongswan-android`.
 
-Debug APKs package those libraries and boot charon once at startup through
-`org.strongswan.android.logic.CharonVpnService` (the class name the JNI symbols
-bind to), then shut it down again; the `IPSec libraries smoke` job asserts that
-boot on the emulator. Release builds skip both until the backend can actually
-connect, so no dead native code ships to users.
+APKs package those libraries (debug builds from the same workflow, release
+builds from the last CI artifact) and the IpSec backend drives
+`org.strongswan.android.logic.CharonVpnService`, the class name the JNI symbols
+bind to.
 
 The backend is now wired: `.sswan` profiles are detected on import, the Kotlin
 `IpSecBackend` starts `CharonVpnService`, charon negotiates IKEv2 with a
@@ -410,4 +409,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.8.6`.
+`v0.8.7`.

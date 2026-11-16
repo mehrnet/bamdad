@@ -71,9 +71,8 @@ executables; include their licenses and data notices in release artifacts.
 - License: GPL-2.0-or-later, compatible with Bamdad's GPL-3.0-only
 - Vendored for the IPSec/IKEv2 backend. `scripts/build-strongswan-android.sh`
   builds `libcharon.so`, `libandroidbridge.so`, `libstrongswan.so`, `libipsec.so`
-  and the plugin libraries for arm64-v8a and x86_64. Debug builds package them
-  and boot charon once at startup; release builds will include them once the
-  `IpSecBackend` can connect.
+  and the plugin libraries for arm64-v8a and x86_64. They are packaged in the
+  APKs and drive the IPSec/IKEv2 tunnel.
 
 ## OpenVPN 3 Core Library
 
