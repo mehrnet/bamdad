@@ -215,11 +215,7 @@ fn up(options: Options) -> Result<(), String> {
     }
 
     if let Some(path) = &options.state {
-        let mut text = format!(
-            "device={}\npid={}\n",
-            options.name,
-            std::process::id()
-        );
+        let mut text = format!("device={}\npid={}\n", options.name, std::process::id());
         for entry in &added {
             text.push_str(&format!("route={entry}\n"));
         }

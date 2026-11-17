@@ -14,6 +14,7 @@ set -euo pipefail
 NS=bamdad-tun-e2e
 HOST_IP=10.200.0.1
 NS_IP=10.200.0.2
+SERVICE_IP=192.0.2.1
 PORT=18080
 SOCKS_PORT=11080
 WORK=/tmp/bamdad-desktop-tunnel
@@ -48,16 +49,19 @@ echo '--- wiring the fake internet ---'
 sudo ip link add veth-host type veth peer name veth-ns
 sudo ip link set veth-ns netns "$NS"
 sudo ip addr add "$HOST_IP/24" dev veth-host
+# The HTTP server lives on an address that is *not* on the namespace's
+# connected subnet, so reaching it requires the tunnel.
+sudo ip addr add "$SERVICE_IP/32" dev veth-host
 sudo ip link set veth-host up
 sudo ip -n "$NS" link set lo up
 sudo ip -n "$NS" addr add "$NS_IP/24" dev veth-ns
 sudo ip -n "$NS" link set veth-ns up
 sudo ip -n "$NS" route add default via "$HOST_IP" dev veth-ns
 
-(cd "$WORK" && python3 -m http.server "$PORT" --bind "$HOST_IP" >"$WORK/http.log" 2>&1) &
+(cd "$WORK" && python3 -m http.server "$PORT" --bind "$SERVICE_IP" >"$WORK/http.log" 2>&1) &
 HTTP_PID=$!
 sleep 1
-curl --noproxy "*" -fsS "http://$HOST_IP:$PORT/index.html" | grep -q "$MARKER" || {
+curl --noproxy "*" -fsS "http://$SERVICE_IP:$PORT/index.html" | grep -q "$MARKER" || {
     echo 'http-server-not-reachable'
     exit 1
 }
@@ -85,8 +89,9 @@ printf 'nameserver 10.200.0.1\n' > "$WORK/resolv.conf"
 chmod 644 "$WORK/resolv.conf"
 sudo bash -c "ip netns exec '$NS' '$HELPER' up --name bamdad0 --address 10.255.0.1/24 \
     --mtu 1400 --state '$WORK/tun.state' --dns 1.1.1.1 --dns-method file \
-    --resolv-conf '$WORK/resolv.conf' --exec '$TUN2SOCKS' \
-    -device fd://3 -proxy socks5://127.0.0.1:$SOCKS_PORT -loglevel warn \
+    --resolv-conf '$WORK/resolv.conf' --default --bypass '$SERVICE_IP/32' \
+    --exec '$TUN2SOCKS' \
+    -device fd://3 -proxy socks5://127.0.0.1:$SOCKS_PORT --loglevel warn \
     >'$WORK/helper.log' 2>&1 & echo \$! > '$WORK/helper.pid'"
 for _ in $(seq 1 100); do
     grep -q '^ready' "$WORK/helper.log" 2>/dev/null && break
@@ -127,7 +132,7 @@ echo '--- traffic through the tunnel ---'
 ok=false
 for _ in $(seq 1 20); do
     if sudo ip netns exec "$NS" curl --noproxy "*" -fsS --max-time 5 \
-        "http://$HOST_IP:$PORT/index.html" >"$WORK/curl.txt" 2>"$WORK/curl.err"; then
+        "http://$SERVICE_IP:$PORT/index.html" >"$WORK/curl.txt" 2>"$WORK/curl.err"; then
         ok=true
         break
     fi

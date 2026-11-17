@@ -103,6 +103,9 @@ impl Options {
                 "--address6" => options.address6 = Some(value(&mut rest)?),
                 "--no-ipv6" => options.address6 = None,
                 "--mtu" => options.mtu = value(&mut rest)?.parse().map_err(|_| "bad --mtu")?,
+                // Linux always routes the default through the tunnel; accept
+                // the flag so every platform takes the same arguments.
+                "--default" => {}
                 "--bypass" => options.bypass.push(value(&mut rest)?),
                 "--dns" => options.dns.push(value(&mut rest)?),
                 "--dns-method" => options.dns_method = value(&mut rest)?,

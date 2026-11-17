@@ -172,10 +172,7 @@ fn up(options: Options) -> Result<(), String> {
     if let Some(path) = &options.state {
         // The pid lets a privileged `kill` stop us after a crash; the app
         // cannot signal a root process on its own.
-        let mut text = format!(
-            "device={device}\npid={}\n",
-            unsafe { libc::getpid() }
-        );
+        let mut text = format!("device={device}\npid={}\n", unsafe { libc::getpid() });
         for entry in &added {
             text.push_str(&format!("route={entry}\n"));
         }
@@ -387,10 +384,7 @@ struct SockaddrCtl {
 fn start_header_adapter(utun: i32) -> Result<i32, String> {
     let mut pair = [0i32; 2];
     if unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, pair.as_mut_ptr()) } != 0 {
-        return Err(format!(
-            "socketpair: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("socketpair: {}", std::io::Error::last_os_error()));
     }
     let ours = pair[0];
     let payload = pair[1];
@@ -408,7 +402,9 @@ fn start_header_adapter(utun: i32) -> Result<i32, String> {
                 continue;
             }
             let frame = &buffer[..read as usize];
-            let Some(payload) = strip_af(frame) else { continue };
+            let Some(payload) = strip_af(frame) else {
+                continue;
+            };
             unsafe { libc::write(ours, payload.as_ptr().cast(), payload.len()) };
         }
     });

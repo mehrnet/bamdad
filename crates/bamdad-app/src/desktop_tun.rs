@@ -118,7 +118,7 @@ mod imp {
             "fd://3",
             "-proxy",
             &format!("socks5://127.0.0.1:{socks_port}"),
-            "-loglevel",
+            "--loglevel",
             "warn",
         ]);
         command.stdout(Stdio::null()).stderr(Stdio::null());
