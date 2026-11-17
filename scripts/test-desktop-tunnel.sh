@@ -81,8 +81,11 @@ sudo kill -0 "$(cat "$WORK/singbox.pid")" 2>/dev/null || {
 }
 
 echo '--- starting the helper with tun2socks ---'
+printf 'nameserver 10.200.0.1\n' > "$WORK/resolv.conf"
+chmod 644 "$WORK/resolv.conf"
 sudo bash -c "ip netns exec '$NS' '$HELPER' up --name bamdad0 --address 10.255.0.1/24 \
-    --mtu 1400 --state '$WORK/tun.state' --exec '$TUN2SOCKS' \
+    --mtu 1400 --state '$WORK/tun.state' --dns 1.1.1.1 --dns-method file \
+    --resolv-conf '$WORK/resolv.conf' --exec '$TUN2SOCKS' \
     -device fd://3 -proxy socks5://127.0.0.1:$SOCKS_PORT -loglevel warn \
     >'$WORK/helper.log' 2>&1 & echo \$! > '$WORK/helper.pid'"
 for _ in $(seq 1 100); do
@@ -94,6 +97,18 @@ grep -q '^ready' "$WORK/helper.log" || {
     sudo cat "$WORK/helper.log" || true
     exit 1
 }
+
+echo '--- DNS points at the tunnel ---'
+grep -q 'nameserver 1.1.1.1' "$WORK/resolv.conf" || {
+    echo 'resolv-conf-not-updated'
+    cat "$WORK/resolv.conf" || true
+    exit 1
+}
+[ -f "$WORK/resolv.conf.bamdad-backup" ] || {
+    echo 'resolv-conf-backup-missing'
+    exit 1
+}
+echo 'desktop-tunnel-dns-ok'
 
 echo '--- traffic through the tunnel ---'
 ok=false
@@ -134,5 +149,15 @@ sudo ip -n "$NS" link show bamdad0 >/dev/null 2>&1 && {
     echo 'tun-device-still-present'
     exit 1
 }
+grep -q 'nameserver 10.200.0.1' "$WORK/resolv.conf" || {
+    echo 'resolv-conf-not-restored'
+    cat "$WORK/resolv.conf" || true
+    exit 1
+}
+[ -f "$WORK/resolv.conf.bamdad-backup" ] && {
+    echo 'resolv-conf-backup-left-behind'
+    exit 1
+}
+echo 'desktop-tunnel-dns-restored' 
 echo 'desktop-tunnel-restored'
 echo 'desktop-tunnel-ok'

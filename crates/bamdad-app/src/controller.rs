@@ -2781,19 +2781,30 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
 /// Starts the privileged desktop tunnel once the proxy accepts on [port].
 #[cfg(not(target_os = "android"))]
 fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Store>>, port: u16) {
-    let (enabled, bypass) = {
+    let (enabled, bypass, dns) = {
         let guard = store.lock().unwrap();
         let enabled = guard.settings.tunnel_mode;
         let bypass = guard
             .selected_profile()
             .map(|profile| crate::desktop_tun::bypass_for(&profile.address, profile.port))
             .unwrap_or_default();
-        (enabled, bypass)
+        let mut dns: Vec<String> = guard
+            .settings
+            .custom_dns
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        if dns.is_empty() {
+            dns = vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()];
+        }
+        (enabled, bypass, dns)
     };
     if !enabled {
         return;
     }
-    match crate::desktop_tun::start(port, &bypass) {
+    match crate::desktop_tun::start(port, &bypass, &dns) {
         Ok(message) => push_log(ui, logs, message),
         Err(error) => push_log(ui, logs, format!("tunnel mode: {error}")),
     }

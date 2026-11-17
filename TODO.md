@@ -114,7 +114,8 @@ Android TunnelController
 - [x] tun2socks sidecar for desktop platforms (`fetch-desktop-tun2socks.sh`).
 - [x] Supervisor + `pkexec` prompt, wired into the connection state machine.
 - [x] End-to-end network-namespace test in CI.
-- [ ] DNS handling while the tunnel is up.
+- [x] DNS handling while the tunnel is up (systemd-resolved or
+      `/etc/resolv.conf`, reverted on stop).
 - [ ] Windows (Wintun) and macOS (utun) helpers.
 
 ## Phase 4: unified UX

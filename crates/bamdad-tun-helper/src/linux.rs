@@ -56,7 +56,9 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "usage: bamdad-tun-helper up --name IFACE --address ADDR/PREFIX [--mtu N] \\
-        [--bypass CIDR]... [--state FILE] [--exec PROGRAM [ARGS...]]
+        [--bypass CIDR]... [--dns ADDR]... [--dns-method auto|resolved|file] \
+        [--resolv-conf FILE] \
+        [--state FILE] [--exec PROGRAM [ARGS...]]
    bamdad-tun-helper down --state FILE
 
 'up' configures a TUN device, routes the default through it, keeps the
@@ -70,6 +72,9 @@ struct Options {
     address: String,
     mtu: u16,
     bypass: Vec<String>,
+    dns: Vec<String>,
+    dns_method: String,
+    resolv: PathBuf,
     state: Option<PathBuf>,
     exec: Vec<String>,
 }
@@ -78,6 +83,8 @@ impl Options {
     fn parse(args: Vec<String>) -> Result<Self, String> {
         let mut options = Options {
             mtu: 1400,
+            dns_method: "auto".to_string(),
+            resolv: PathBuf::from("/etc/resolv.conf"),
             ..Default::default()
         };
         let mut rest = args.into_iter();
@@ -91,6 +98,9 @@ impl Options {
                 "--address" => options.address = value(&mut rest)?,
                 "--mtu" => options.mtu = value(&mut rest)?.parse().map_err(|_| "bad --mtu")?,
                 "--bypass" => options.bypass.push(value(&mut rest)?),
+                "--dns" => options.dns.push(value(&mut rest)?),
+                "--dns-method" => options.dns_method = value(&mut rest)?,
+                "--resolv-conf" => options.resolv = PathBuf::from(value(&mut rest)?),
                 "--state" => options.state = Some(PathBuf::from(value(&mut rest)?)),
                 "--exec" => {
                     options.exec = rest.collect();
@@ -147,8 +157,27 @@ fn up(options: Options) -> Result<(), String> {
     // the snapshot only; it is restored on the way down.
     run_ip(&["route", "replace", "default", "dev", &options.name])?;
 
+    let dns = apply_dns(
+        &options.name,
+        &options.dns,
+        &options.dns_method,
+        &options.resolv,
+    );
+    match &dns {
+        DnsMethod::Resolved => println!("dns: systemd-resolved"),
+        DnsMethod::File { .. } => println!("dns: {} (backup kept)", options.resolv.display()),
+        DnsMethod::None => println!("dns: not configured"),
+    }
+
     if let Some(path) = &options.state {
-        write_state(path, snapshot_default.as_deref(), &added)?;
+        write_state(
+            path,
+            snapshot_default.as_deref(),
+            &added,
+            &dns,
+            &options.resolv,
+            &options.name,
+        )?;
     }
 
     println!("ready {}", options.name);
@@ -176,6 +205,7 @@ fn up(options: Options) -> Result<(), String> {
         let _ = child.wait();
     }
 
+    restore_dns(&options.name, &dns, &options.resolv);
     restore(snapshot_default.as_deref(), &added);
     if let Some(path) = &options.state {
         let _ = fs::remove_file(path);
@@ -195,12 +225,30 @@ fn down(options: Options) -> Result<(), String> {
     let text = fs::read_to_string(&path).map_err(|error| format!("{error}"))?;
     let mut default = None;
     let mut added = Vec::new();
+    let mut dns = DnsMethod::None;
+    let mut resolv = PathBuf::from("/etc/resolv.conf");
+    let mut iface = String::new();
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("default=") {
             default = Some(value.to_string()).filter(|value| !value.is_empty());
         } else if let Some(value) = line.strip_prefix("bypass=") {
             added.push(value.to_string());
+        } else if let Some(value) = line.strip_prefix("dns=") {
+            dns = match value {
+                "resolved" => DnsMethod::Resolved,
+                "file" => DnsMethod::File {
+                    backup: PathBuf::from(format!("{}.bamdad-backup", resolv.display())),
+                },
+                _ => DnsMethod::None,
+            };
+        } else if let Some(value) = line.strip_prefix("resolv=") {
+            resolv = PathBuf::from(value);
+        } else if let Some(value) = line.strip_prefix("iface=") {
+            iface = value.to_string();
         }
+    }
+    if !iface.is_empty() {
+        restore_dns(&iface, &dns, &resolv);
     }
     restore(default.as_deref(), &added);
     let _ = fs::remove_file(&path);
@@ -222,6 +270,100 @@ fn restore(default: Option<&str>, added: &[String]) {
     }
 }
 
+/// How DNS was pointed at the tunnel.
+enum DnsMethod {
+    /// systemd-resolved: per-link servers plus a routing domain.
+    Resolved,
+    /// Plain `/etc/resolv.conf` rewrite with the original kept next to it.
+    File { backup: PathBuf },
+    /// No DNS configured (empty server list, or both paths failed).
+    None,
+}
+
+fn resolvectl_binary() -> Option<&'static str> {
+    ["/usr/bin/resolvectl", "/bin/resolvectl"]
+        .into_iter()
+        .find(|candidate| std::path::Path::new(candidate).exists())
+}
+
+fn apply_dns(iface: &str, servers: &[String], method: &str, resolv: &std::path::Path) -> DnsMethod {
+    if servers.is_empty() {
+        return DnsMethod::None;
+    }
+
+    if method != "file" {
+        if let Some(method) = apply_dns_resolved(iface, servers) {
+            return method;
+        }
+        if method == "resolved" {
+            eprintln!("bamdad-tun-helper: systemd-resolved is not usable here");
+            return DnsMethod::None;
+        }
+    }
+
+    apply_dns_file(servers, resolv)
+}
+
+fn apply_dns_resolved(iface: &str, servers: &[String]) -> Option<DnsMethod> {
+    if let Some(resolvectl) = resolvectl_binary() {
+        let ok = Command::new(resolvectl)
+            .arg("dns")
+            .arg(iface)
+            .args(servers)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        let routed = Command::new(resolvectl)
+            .args(["domain", iface, "~."])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        if ok && routed {
+            return Some(DnsMethod::Resolved);
+        }
+    }
+    None
+}
+
+fn apply_dns_file(servers: &[String], resolv: &std::path::Path) -> DnsMethod {
+    let backup = PathBuf::from(format!("{}.bamdad-backup", resolv.display()));
+    if let Ok(existing) = fs::read(resolv) {
+        let _ = fs::write(&backup, existing);
+    }
+    let body = format!(
+        "# generated by bamdad-tun-helper\n{}\n",
+        servers
+            .iter()
+            .map(|server| format!("nameserver {server}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    match fs::write(resolv, body) {
+        Ok(()) => DnsMethod::File { backup },
+        Err(error) => {
+            eprintln!(
+                "bamdad-tun-helper: could not update {}: {error}",
+                resolv.display()
+            );
+            DnsMethod::None
+        }
+    }
+}
+
+fn restore_dns(iface: &str, method: &DnsMethod, resolv: &std::path::Path) {
+    match method {
+        DnsMethod::Resolved => {
+            if let Some(resolvectl) = resolvectl_binary() {
+                let _ = Command::new(resolvectl).args(["revert", iface]).output();
+            }
+        }
+        DnsMethod::File { backup } => {
+            let _ = fs::rename(backup, resolv);
+        }
+        DnsMethod::None => {}
+    }
+}
+
 fn parse_default(line: &str) -> Option<(String, String)> {
     let mut via = None;
     let mut dev = None;
@@ -236,12 +378,29 @@ fn parse_default(line: &str) -> Option<(String, String)> {
     Some((via?, dev?))
 }
 
-fn write_state(path: &PathBuf, default: Option<&str>, added: &[String]) -> Result<(), String> {
+fn write_state(
+    path: &PathBuf,
+    default: Option<&str>,
+    added: &[String],
+    dns: &DnsMethod,
+    resolv: &std::path::Path,
+    iface: &str,
+) -> Result<(), String> {
     let mut text = String::new();
     text.push_str(&format!("default={}\n", default.unwrap_or("")));
     for cidr in added {
         text.push_str(&format!("bypass={cidr}\n"));
     }
+    text.push_str(&format!("iface={iface}\n"));
+    text.push_str(&format!("resolv={}\n", resolv.display()));
+    text.push_str(&format!(
+        "dns={}\n",
+        match dns {
+            DnsMethod::Resolved => "resolved",
+            DnsMethod::File { .. } => "file",
+            DnsMethod::None => "none",
+        }
+    ));
     fs::write(path, text).map_err(|error| format!("state file: {error}"))
 }
 
