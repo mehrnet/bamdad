@@ -119,7 +119,12 @@ fn up(options: Options) -> Result<(), String> {
     // The sidecar creates the adapter; wait for it before configuring.
     if !wait_for_adapter(&options.name, Duration::from_secs(15)) {
         if let Some(child) = child.as_mut() {
+            let status = child.try_wait().ok().flatten();
             let _ = child.kill();
+            return Err(format!(
+                "adapter {} never appeared (sidecar status: {status:?})",
+                options.name
+            ));
         }
         return Err(format!("adapter {} never appeared", options.name));
     }
@@ -362,8 +367,10 @@ fn spawn_payload(argv: &[String]) -> Result<Child, String> {
     Command::new(&argv[0])
         .args(&argv[1..])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        // Keep the sidecar's output visible: its adapter errors are the most
+        // useful diagnostic when the tunnel fails to come up.
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| format!("spawn {}: {error}", argv[0]))
 }
