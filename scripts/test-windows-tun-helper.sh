@@ -45,6 +45,10 @@ done
 if ! grep -q '^ready' "$LOG"; then
     echo 'helper-did-not-start'
     cat "$LOG" || true
+    echo '--- adapters ---'
+    netsh interface show interface || true
+    netsh interface ipv4 show interfaces || true
+    powershell -NoProfile -Command "Get-NetAdapter | Format-Table -AutoSize" || true
     exit 1
 fi
 

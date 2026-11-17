@@ -374,16 +374,25 @@ fn spawn_payload(argv: &[String]) -> Result<Child, String> {
 fn wait_for_adapter(name: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        // The adapter exists before it has an address, so list every interface
-        // instead of asking netsh about this one by name.
-        if let Ok(output) = netsh(&["interface", "ipv4", "show", "interfaces"]) {
-            if output.split_whitespace().any(|token| token == name) {
-                return true;
-            }
+        if adapter_exists(name) {
+            return true;
         }
         std::thread::sleep(Duration::from_millis(250));
     }
     false
+}
+
+fn adapter_exists(name: &str) -> bool {
+    // Get-NetAdapter sees the adapter as soon as Wintun creates it, whereas the
+    // netsh IPv4 listings only show it once an address is assigned.
+    let script = format!(
+        "if (Get-NetAdapter -Name '{name}' -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
+    );
+    Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn netsh(args: &[&str]) -> Result<String, String> {
