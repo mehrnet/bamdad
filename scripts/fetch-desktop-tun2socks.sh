@@ -13,11 +13,17 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 VERSION="${TUN2SOCKS_VERSION:-v2.7.0}"
 
+ext=""
 case "$(uname -s)-$(uname -m)" in
     Linux-x86_64) goos=linux; goarch=amd64 ;;
     Linux-aarch64 | Linux-arm64) goos=linux; goarch=arm64 ;;
     Darwin-x86_64) goos=darwin; goarch=amd64 ;;
     Darwin-arm64) goos=darwin; goarch=arm64 ;;
+    MINGW* | MSYS* | CYGWIN*)
+        goos=windows
+        goarch=amd64
+        ext=".exe"
+        ;;
     *)
         echo "unsupported host: $(uname -s)-$(uname -m)" >&2
         exit 1
@@ -34,7 +40,7 @@ mkdir -p "$OUT"
 (
     cd "$tmp/tun2socks"
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-        go build -trimpath -ldflags "-s -w" -o "$OUT/bamdad-tun2socks" .
+        go build -trimpath -ldflags "-s -w" -o "$OUT/bamdad-tun2socks$ext" .
 )
-chmod +x "$OUT/bamdad-tun2socks"
-ls -lh "$OUT/bamdad-tun2socks"
+chmod +x "$OUT/bamdad-tun2socks$ext"
+ls -lh "$OUT/bamdad-tun2socks$ext"
