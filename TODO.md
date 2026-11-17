@@ -118,7 +118,10 @@ Android TunnelController
       `/etc/resolv.conf`, reverted on stop).
 - [x] IPv6 routed into the tunnel (no v6 leak in tunnel mode).
 - [x] Parent-death watchdog: the helper cleans up if the app disappears.
-- [ ] Windows (Wintun) and macOS (utun) helpers.
+- [x] macOS utun helper: device, route list or split default, endpoint host
+      routes, parent watchdog, CI test on a macOS runner.
+- [ ] macOS wiring: tun2socks fd handshake for utun, admin prompt, DNS.
+- [ ] Windows (Wintun) helper.
 
 ## Phase 4: unified UX
 

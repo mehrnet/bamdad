@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.1
-git push origin v0.9.1
+git tag v0.9.2
+git push origin v0.9.2
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -406,8 +406,22 @@ bamdad (user) -> pkexec -> bamdad-tun-helper (root) -> tun2socks (user) -> core 
   on disconnect or error, which restores routing.
 
 The DNS servers come from Settings → Custom DNS (falling back to 1.1.1.1 and
-8.8.8.8). Linux only for now; the binaries ship inside the Linux release
-tarballs. macOS (utun) and Windows (Wintun) helpers are still to come.
+8.8.8.8). The binaries ship inside the Linux release tarballs.
+
+### macOS
+
+`bamdad-tun-helper` also builds for macOS: it opens a `utun` device through
+`PF_SYSTEM`, assigns the address/MTU, routes either a list of prefixes
+(`--route`) or everything (`--default`, via the `0.0.0.0/1` + `128.0.0.0/1`
+split so the original default is untouched) with the endpoint kept on the
+physical gateway, and removes everything on stop or when the parent process
+disappears. `scripts/test-macos-tun-helper.sh` runs that on a macOS runner
+using only a TEST-NET prefix, so the runner's default route is never at risk.
+
+Not wired yet: the app still uses the proxy path on macOS. The remaining work
+is the tun2socks handshake for utun (which carries a 4-byte address-family
+header), the `osascript ... with administrator privileges` prompt, and DNS via
+`scutil`. Windows (Wintun) is next after that.
 
 `scripts/test-desktop-tunnel.sh` proves the whole chain in CI: a network
 namespace with a veth "internet", a real sing-box SOCKS core, the helper and
@@ -448,4 +462,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.1`.
+`v0.9.2`.
