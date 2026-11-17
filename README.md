@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.3
-git push origin v0.9.3
+git tag v0.9.4
+git push origin v0.9.4
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -431,7 +431,20 @@ Not wired yet: the app still uses the proxy path on macOS, because the
 `osascript ... with administrator privileges` prompt needs validation on a real
 desktop session (CI runners have no GUI authorisation). The helper and sidecar
 now ship inside the macOS tarball, and the frame adapter has unit tests.
-Windows (Wintun) is next after that.
+
+### Windows
+
+`bamdad-tun-helper` compiles for Windows and drives the chain in the same way:
+the sidecar creates a Wintun adapter (`-device tun://bamdad0`), and the helper
+waits for it, assigns the address/MTU, installs routes (`--route`, or the same
+`/1` split for `--default` with endpoint host routes) and per-interface DNS, and
+tears everything down on exit.
+
+It is **not** shipped or wired yet: on GitHub's Windows runners the Wintun
+adapter created by the sidecar never shows up in `netsh interface` or
+`Get-NetAdapter`, so the routing step cannot be validated there (`scripts/test-windows-tun-helper.sh`
+reproduces it). That needs a real Windows desktop before users get a Windows
+tunnel.
 
 `scripts/test-desktop-tunnel.sh` proves the whole chain in CI: a network
 namespace with a veth "internet", a real sing-box SOCKS core, the helper and
@@ -472,4 +485,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.3`.
+`v0.9.4`.
