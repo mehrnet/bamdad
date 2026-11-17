@@ -103,6 +103,9 @@ mod imp {
             "--state",
         ]);
         command.arg(&state);
+        command
+            .arg("--parent-pid")
+            .arg(std::process::id().to_string());
         for cidr in bypass {
             command.arg("--bypass").arg(cidr);
         }

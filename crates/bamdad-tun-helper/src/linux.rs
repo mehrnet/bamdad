@@ -56,9 +56,10 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "usage: bamdad-tun-helper up --name IFACE --address ADDR/PREFIX [--mtu N] \\
-        [--bypass CIDR]... [--dns ADDR]... [--dns-method auto|resolved|file] \
+        [--address6 ADDR/PREFIX] [--no-ipv6] [--bypass CIDR]... [--dns ADDR]... \
+        [--dns-method auto|resolved|file] \
         [--resolv-conf FILE] \
-        [--state FILE] [--exec PROGRAM [ARGS...]]
+        [--state FILE] [--parent-pid PID] [--exec PROGRAM [ARGS...]]
    bamdad-tun-helper down --state FILE
 
 'up' configures a TUN device, routes the default through it, keeps the
@@ -70,12 +71,14 @@ descriptor open until SIGINT/SIGTERM, then restores the original routing."
 struct Options {
     name: String,
     address: String,
+    address6: Option<String>,
     mtu: u16,
     bypass: Vec<String>,
     dns: Vec<String>,
     dns_method: String,
     resolv: PathBuf,
     state: Option<PathBuf>,
+    parent_pid: Option<i32>,
     exec: Vec<String>,
 }
 
@@ -83,6 +86,7 @@ impl Options {
     fn parse(args: Vec<String>) -> Result<Self, String> {
         let mut options = Options {
             mtu: 1400,
+            address6: Some("fd00::1/64".to_string()),
             dns_method: "auto".to_string(),
             resolv: PathBuf::from("/etc/resolv.conf"),
             ..Default::default()
@@ -96,12 +100,18 @@ impl Options {
             match arg.as_str() {
                 "--name" => options.name = value(&mut rest)?,
                 "--address" => options.address = value(&mut rest)?,
+                "--address6" => options.address6 = Some(value(&mut rest)?),
+                "--no-ipv6" => options.address6 = None,
                 "--mtu" => options.mtu = value(&mut rest)?.parse().map_err(|_| "bad --mtu")?,
                 "--bypass" => options.bypass.push(value(&mut rest)?),
                 "--dns" => options.dns.push(value(&mut rest)?),
                 "--dns-method" => options.dns_method = value(&mut rest)?,
                 "--resolv-conf" => options.resolv = PathBuf::from(value(&mut rest)?),
                 "--state" => options.state = Some(PathBuf::from(value(&mut rest)?)),
+                "--parent-pid" => {
+                    options.parent_pid =
+                        Some(value(&mut rest)?.parse().map_err(|_| "bad --parent-pid")?)
+                }
                 "--exec" => {
                     options.exec = rest.collect();
                     break;
@@ -125,7 +135,13 @@ fn up(options: Options) -> Result<(), String> {
     }
 
     let default = ip_output(&["route", "show", "default"]).ok();
+    let default6 = ip_output(&["-6", "route", "show", "default"]).ok();
     let snapshot_default = default
+        .as_deref()
+        .and_then(|text| text.lines().next())
+        .map(|line| line.trim().to_string());
+
+    let snapshot_default6 = default6
         .as_deref()
         .and_then(|text| text.lines().next())
         .map(|line| line.trim().to_string());
@@ -141,6 +157,16 @@ fn up(options: Options) -> Result<(), String> {
         &options.mtu.to_string(),
         "up",
     ])?;
+
+    // Give the tunnel an IPv6 address and send the v6 default into it, so hosts
+    // with IPv6 connectivity cannot bypass the tunnel. Needs the link up first.
+    if let Some(address6) = &options.address6 {
+        if run_ip(&["-6", "addr", "add", address6, "dev", &options.name]).is_ok() {
+            run_ip(&["-6", "route", "replace", "default", "dev", &options.name])?;
+        } else {
+            eprintln!("bamdad-tun-helper: ignoring IPv6 address {address6}");
+        }
+    }
 
     let gateway = snapshot_default
         .as_deref()
@@ -173,6 +199,7 @@ fn up(options: Options) -> Result<(), String> {
         write_state(
             path,
             snapshot_default.as_deref(),
+            snapshot_default6.as_deref(),
             &added,
             &dns,
             &options.resolv,
@@ -197,7 +224,17 @@ fn up(options: Options) -> Result<(), String> {
                 break;
             }
         }
-        std::thread::sleep(Duration::from_millis(200));
+        // If the app that started us disappeared, tear the tunnel down instead
+        // of leaving the machine with routes into a dead device.
+        if let Some(pid) = options.parent_pid {
+            if unsafe { libc::kill(pid, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                eprintln!("bamdad-tun-helper: parent {pid} is gone, stopping");
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
     }
 
     if let Some(mut child) = child {
@@ -206,7 +243,11 @@ fn up(options: Options) -> Result<(), String> {
     }
 
     restore_dns(&options.name, &dns, &options.resolv);
-    restore(snapshot_default.as_deref(), &added);
+    restore(
+        snapshot_default.as_deref(),
+        snapshot_default6.as_deref(),
+        &added,
+    );
     if let Some(path) = &options.state {
         let _ = fs::remove_file(path);
     }
@@ -224,6 +265,7 @@ fn down(options: Options) -> Result<(), String> {
         .ok_or_else(|| "down needs --state FILE".to_string())?;
     let text = fs::read_to_string(&path).map_err(|error| format!("{error}"))?;
     let mut default = None;
+    let mut default6 = None;
     let mut added = Vec::new();
     let mut dns = DnsMethod::None;
     let mut resolv = PathBuf::from("/etc/resolv.conf");
@@ -231,6 +273,8 @@ fn down(options: Options) -> Result<(), String> {
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("default=") {
             default = Some(value.to_string()).filter(|value| !value.is_empty());
+        } else if let Some(value) = line.strip_prefix("default6=") {
+            default6 = Some(value.to_string()).filter(|value| !value.is_empty());
         } else if let Some(value) = line.strip_prefix("bypass=") {
             added.push(value.to_string());
         } else if let Some(value) = line.strip_prefix("dns=") {
@@ -250,13 +294,13 @@ fn down(options: Options) -> Result<(), String> {
     if !iface.is_empty() {
         restore_dns(&iface, &dns, &resolv);
     }
-    restore(default.as_deref(), &added);
+    restore(default.as_deref(), default6.as_deref(), &added);
     let _ = fs::remove_file(&path);
     println!("stopped");
     Ok(())
 }
 
-fn restore(default: Option<&str>, added: &[String]) {
+fn restore(default: Option<&str>, default6: Option<&str>, added: &[String]) {
     if let Some(line) = default {
         if let Some((via, dev)) = parse_default(line) {
             let _ = run_ip(&["route", "replace", "default", "via", &via, "dev", &dev]);
@@ -264,6 +308,18 @@ fn restore(default: Option<&str>, added: &[String]) {
     } else {
         // No default route existed before: remove the one we added.
         let _ = run_ip(&["route", "del", "default"]);
+    }
+    match default6 {
+        Some(line) => {
+            if let Some((via, dev)) = parse_default(line) {
+                let _ = run_ip(&[
+                    "-6", "route", "replace", "default", "via", &via, "dev", &dev,
+                ]);
+            }
+        }
+        None => {
+            let _ = run_ip(&["-6", "route", "del", "default"]);
+        }
     }
     for cidr in added {
         let _ = run_ip(&["route", "del", cidr]);
@@ -381,6 +437,7 @@ fn parse_default(line: &str) -> Option<(String, String)> {
 fn write_state(
     path: &PathBuf,
     default: Option<&str>,
+    default6: Option<&str>,
     added: &[String],
     dns: &DnsMethod,
     resolv: &std::path::Path,
@@ -388,6 +445,7 @@ fn write_state(
 ) -> Result<(), String> {
     let mut text = String::new();
     text.push_str(&format!("default={}\n", default.unwrap_or("")));
+    text.push_str(&format!("default6={}\n", default6.unwrap_or("")));
     for cidr in added {
         text.push_str(&format!("bypass={cidr}\n"));
     }

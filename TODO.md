@@ -116,6 +116,8 @@ Android TunnelController
 - [x] End-to-end network-namespace test in CI.
 - [x] DNS handling while the tunnel is up (systemd-resolved or
       `/etc/resolv.conf`, reverted on stop).
+- [x] IPv6 routed into the tunnel (no v6 leak in tunnel mode).
+- [x] Parent-death watchdog: the helper cleans up if the app disappears.
 - [ ] Windows (Wintun) and macOS (utun) helpers.
 
 ## Phase 4: unified UX

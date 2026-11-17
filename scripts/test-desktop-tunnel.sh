@@ -98,6 +98,19 @@ grep -q '^ready' "$WORK/helper.log" || {
     exit 1
 }
 
+echo '--- IPv6 goes into the tunnel too ---'
+if sudo ip -n "$NS" -6 addr show bamdad0 2>/dev/null | grep -q 'fd00::1'; then
+    sudo ip -n "$NS" -6 route > "$WORK/routes6.txt"
+    cat "$WORK/routes6.txt"
+    grep -q '^default dev bamdad0' "$WORK/routes6.txt" || {
+        echo 'ipv6-default-not-on-tun'
+        exit 1
+    }
+    echo 'desktop-tunnel-ipv6-ok'
+else
+    echo 'desktop-tunnel-ipv6-skipped'
+fi
+
 echo '--- DNS points at the tunnel ---'
 grep -q 'nameserver 1.1.1.1' "$WORK/resolv.conf" || {
     echo 'resolv-conf-not-updated'
@@ -160,4 +173,43 @@ grep -q 'nameserver 10.200.0.1' "$WORK/resolv.conf" || {
 }
 echo 'desktop-tunnel-dns-restored' 
 echo 'desktop-tunnel-restored'
+echo '--- parent death tears the tunnel down ---'
+sudo bash -c "sleep 300 & echo \$! > '$WORK/app.pid'"
+APP_PID=$(cat "$WORK/app.pid")
+sudo bash -c "ip netns exec '$NS' '$HELPER' up --name bamdad0 --address 10.255.0.1/24 \
+    --mtu 1400 --state '$WORK/tun2.state' --parent-pid '$APP_PID' \
+    --dns 1.1.1.1 --dns-method file --resolv-conf '$WORK/resolv.conf' \
+    >'$WORK/helper2.log' 2>&1 & echo \$! > '$WORK/helper2.pid'"
+for _ in $(seq 1 100); do
+    grep -q '^ready' "$WORK/helper2.log" 2>/dev/null && break
+    sleep 0.1
+done
+grep -q '^ready' "$WORK/helper2.log" || {
+    echo 'helper-did-not-start-second-run'
+    sudo cat "$WORK/helper2.log" || true
+    exit 1
+}
+sudo kill -KILL "$APP_PID"
+for _ in $(seq 1 100); do
+    sudo kill -0 "$(cat "$WORK/helper2.pid")" 2>/dev/null || break
+    sleep 0.1
+done
+if sudo kill -0 "$(cat "$WORK/helper2.pid")" 2>/dev/null; then
+    echo 'helper-survived-parent-death'
+    exit 1
+fi
+grep -q 'default via 10.200.0.1 dev veth-ns' <<<"$(sudo ip -n "$NS" route)" || {
+    echo 'routes-not-restored-after-parent-death'
+    exit 1
+}
+[ -f "$WORK/tun2.state" ] && {
+    echo 'state-file-left-after-parent-death'
+    exit 1
+}
+grep -q 'nameserver 10.200.0.1' "$WORK/resolv.conf" || {
+    echo 'dns-not-restored-after-parent-death'
+    exit 1
+}
+echo 'desktop-tunnel-parent-death-ok'
+
 echo 'desktop-tunnel-ok'

@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.0
-git push origin v0.9.0
+git tag v0.9.1
+git push origin v0.9.1
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -396,6 +396,12 @@ bamdad (user) -> pkexec -> bamdad-tun-helper (root) -> tun2socks (user) -> core 
   device with a `~.` routing domain when that is available, otherwise it swaps
   `/etc/resolv.conf` for the configured servers and keeps the original next to
   it. Both are reverted when the tunnel stops.
+- IPv6 cannot bypass the tunnel either: the helper adds `fd00::1/64` and points
+  the v6 default at the device, so v6 flows go through tun2socks too (and fail
+  closed if the core has no v6 egress).
+- The app passes its process id (`--parent-pid`); if it dies, the helper tears
+  the tunnel down and restores routing, resolver settings, and the state file
+  instead of leaving the machine pointing at a dead device.
 - The app starts both once the core's SOCKS port answers, and stops the helper
   on disconnect or error, which restores routing.
 
@@ -442,4 +448,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.0`.
+`v0.9.1`.
