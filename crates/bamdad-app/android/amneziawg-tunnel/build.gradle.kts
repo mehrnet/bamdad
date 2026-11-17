@@ -81,7 +81,7 @@ android {
 }
 
 dependencies {
-    implementation("androidx.annotation:annotation:1.7.1")
-    implementation("androidx.collection:collection:1.4.0")
+    implementation("androidx.annotation:annotation:1.11.0")
+    implementation("androidx.collection:collection:1.7.0")
     compileOnly("com.google.code.findbugs:jsr305:3.0.2")
 }
