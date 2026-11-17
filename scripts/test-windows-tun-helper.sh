@@ -34,7 +34,8 @@ trap cleanup EXIT
 echo '--- starting the helper with tun2socks ---'
 "$HELPER" up --name "$IFACE" --address 10.255.0.1/24 --mtu 1400 \
     --route "$TEST_NET" --dns 1.1.1.1 --state "$STATE" \
-    --exec "$TUN2SOCKS" -device "tun://$IFACE" --loglevel warn \
+    --exec "$TUN2SOCKS" -device "tun://$IFACE" \
+    -proxy socks5://127.0.0.1:11080 --loglevel warn \
     >"$LOG" 2>&1 &
 HELPER_PID=$!
 for _ in $(seq 1 200); do
