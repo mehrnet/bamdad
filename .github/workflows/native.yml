@@ -257,3 +257,18 @@ jobs:
         run: |
           SINGBOX="$PWD/.ci-data/bamdad/bin/sing-box" \
             bash scripts/test-desktop-tunnel.sh
+
+  macos-tun-helper:
+    name: Desktop TUN helper (macos-aarch64)
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: tun-helper-macos
+      - name: Build the helper
+        run: cargo build -p bamdad-tun-helper
+      - name: Exercise utun and routing
+        run: bash scripts/test-macos-tun-helper.sh
