@@ -56,7 +56,8 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "usage: bamdad-tun-helper up --name IFACE --address ADDR/PREFIX [--mtu N] \\
-        [--address6 ADDR/PREFIX] [--no-ipv6] [--bypass CIDR]... [--dns ADDR]... \
+        [--address6 ADDR/PREFIX] [--no-ipv6] [--route CIDR]... [--bypass CIDR]... \
+        [--dns ADDR]... \
         [--dns-method auto|resolved|file] \
         [--resolv-conf FILE] \
         [--state FILE] [--parent-pid PID] [--exec PROGRAM [ARGS...]]
@@ -74,6 +75,7 @@ struct Options {
     address6: Option<String>,
     mtu: u16,
     bypass: Vec<String>,
+    routes: Vec<String>,
     dns: Vec<String>,
     dns_method: String,
     resolv: PathBuf,
@@ -107,6 +109,7 @@ impl Options {
                 // the flag so every platform takes the same arguments.
                 "--default" => {}
                 "--bypass" => options.bypass.push(value(&mut rest)?),
+                "--route" => options.routes.push(value(&mut rest)?),
                 "--dns" => options.dns.push(value(&mut rest)?),
                 "--dns-method" => options.dns_method = value(&mut rest)?,
                 "--resolv-conf" => options.resolv = PathBuf::from(value(&mut rest)?),
@@ -163,7 +166,13 @@ fn up(options: Options) -> Result<(), String> {
 
     // Give the tunnel an IPv6 address and send the v6 default into it, so hosts
     // with IPv6 connectivity cannot bypass the tunnel. Needs the link up first.
-    if let Some(address6) = &options.address6 {
+    // Split tunnelling leaves IPv6 alone: only the listed IPv4 prefixes are
+    // captured, so a v6 default route there would break that contract.
+    if let Some(address6) = options
+        .address6
+        .as_ref()
+        .filter(|_| options.routes.is_empty())
+    {
         if run_ip(&["-6", "addr", "add", address6, "dev", &options.name]).is_ok() {
             run_ip(&["-6", "route", "replace", "default", "dev", &options.name])?;
         } else {
@@ -174,24 +183,37 @@ fn up(options: Options) -> Result<(), String> {
     let gateway = snapshot_default
         .as_deref()
         .and_then(|line| parse_default(line));
-    let mut added = Vec::new();
-    if let Some((via, dev)) = &gateway {
-        for bypass in &options.bypass {
-            run_ip(&["route", "replace", bypass, "via", via, "dev", dev])?;
-            added.push(bypass.clone());
+    let mut added: Vec<String> = Vec::new();
+    let mut routed: Vec<String> = Vec::new();
+    if options.routes.is_empty() {
+        if let Some((via, dev)) = &gateway {
+            for bypass in &options.bypass {
+                run_ip(&["route", "replace", bypass, "via", via, "dev", dev])?;
+                added.push(bypass.clone());
+            }
+        }
+        // Prefer the tunnel for everything else. `replace` keeps the old route
+        // in the snapshot only; it is restored on the way down.
+        run_ip(&["route", "replace", "default", "dev", &options.name])?;
+    } else {
+        // Split tunnelling: only the listed prefixes go through the tunnel, so
+        // the default route and the DNS setup stay untouched.
+        for cidr in &options.routes {
+            run_ip(&["route", "replace", cidr, "dev", &options.name])?;
+            routed.push(cidr.clone());
         }
     }
 
-    // Prefer the tunnel for everything else. `replace` keeps the old route in
-    // the snapshot only; it is restored on the way down.
-    run_ip(&["route", "replace", "default", "dev", &options.name])?;
-
-    let dns = apply_dns(
-        &options.name,
-        &options.dns,
-        &options.dns_method,
-        &options.resolv,
-    );
+    let dns = if options.routes.is_empty() {
+        apply_dns(
+            &options.name,
+            &options.dns,
+            &options.dns_method,
+            &options.resolv,
+        )
+    } else {
+        DnsMethod::None
+    };
     match &dns {
         DnsMethod::Resolved => println!("dns: systemd-resolved"),
         DnsMethod::File { .. } => println!("dns: {} (backup kept)", options.resolv.display()),
@@ -204,6 +226,7 @@ fn up(options: Options) -> Result<(), String> {
             snapshot_default.as_deref(),
             snapshot_default6.as_deref(),
             &added,
+            &routed,
             &dns,
             &options.resolv,
             &options.name,
@@ -270,6 +293,7 @@ fn down(options: Options) -> Result<(), String> {
     let mut default = None;
     let mut default6 = None;
     let mut added = Vec::new();
+    let mut routed: Vec<String> = Vec::new();
     let mut dns = DnsMethod::None;
     let mut resolv = PathBuf::from("/etc/resolv.conf");
     let mut iface = String::new();
@@ -280,6 +304,8 @@ fn down(options: Options) -> Result<(), String> {
             default6 = Some(value.to_string()).filter(|value| !value.is_empty());
         } else if let Some(value) = line.strip_prefix("bypass=") {
             added.push(value.to_string());
+        } else if let Some(value) = line.strip_prefix("route=") {
+            routed.push(value.to_string());
         } else if let Some(value) = line.strip_prefix("dns=") {
             dns = match value {
                 "resolved" => DnsMethod::Resolved,
@@ -296,6 +322,9 @@ fn down(options: Options) -> Result<(), String> {
     }
     if !iface.is_empty() {
         restore_dns(&iface, &dns, &resolv);
+    }
+    for cidr in &routed {
+        let _ = run_ip(&["route", "del", cidr]);
     }
     restore(default.as_deref(), default6.as_deref(), &added);
     let _ = fs::remove_file(&path);
@@ -442,6 +471,7 @@ fn write_state(
     default: Option<&str>,
     default6: Option<&str>,
     added: &[String],
+    routed: &[String],
     dns: &DnsMethod,
     resolv: &std::path::Path,
     iface: &str,
@@ -451,6 +481,9 @@ fn write_state(
     text.push_str(&format!("default6={}\n", default6.unwrap_or("")));
     for cidr in added {
         text.push_str(&format!("bypass={cidr}\n"));
+    }
+    for cidr in routed {
+        text.push_str(&format!("route={cidr}\n"));
     }
     text.push_str(&format!("iface={iface}\n"));
     text.push_str(&format!("resolv={}\n", resolv.display()));

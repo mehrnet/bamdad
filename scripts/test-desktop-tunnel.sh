@@ -217,4 +217,60 @@ grep -q 'nameserver 10.200.0.1' "$WORK/resolv.conf" || {
 }
 echo 'desktop-tunnel-parent-death-ok'
 
+echo '--- split tunnelling: only the listed prefix ---'
+echo 'nameserver 10.200.0.1' | sudo tee "$WORK/resolv.conf" >/dev/null
+sudo chmod 644 "$WORK/resolv.conf"
+sudo bash -c "ip netns exec '$NS' '$HELPER' up --name bamdad0 --address 10.255.0.1/24 \
+    --mtu 1400 --state '$WORK/tun3.state' --route 198.51.100.0/24 \
+    --dns 1.1.1.1 --dns-method file --resolv-conf '$WORK/resolv.conf' \
+    >'$WORK/helper3.log' 2>&1 & echo \$! > '$WORK/helper3.pid'"
+for _ in $(seq 1 100); do
+    grep -q '^ready' "$WORK/helper3.log" 2>/dev/null && break
+    sleep 0.1
+done
+grep -q '^ready' "$WORK/helper3.log" || {
+    echo 'helper-did-not-start-split-run'
+    sudo cat "$WORK/helper3.log" || true
+    exit 1
+}
+SPLIT_ROUTES=$(sudo ip -n "$NS" route)
+echo "$SPLIT_ROUTES"
+grep -q '^198.51.100.0/24 dev bamdad0' <<<"$SPLIT_ROUTES" || {
+    echo 'split-route-missing'
+    exit 1
+}
+grep -q "default via $HOST_IP dev veth-ns" <<<"$SPLIT_ROUTES" || {
+    echo 'default-route-changed-in-split-mode'
+    exit 1
+}
+grep -q 'nameserver 10.200.0.1' "$WORK/resolv.conf" || {
+    echo 'dns-changed-in-split-mode'
+    exit 1
+}
+grep -q 'route=198.51.100.0/24' "$WORK/tun3.state" || {
+    echo 'split-state-missing'
+    exit 1
+}
+if sudo ip -n "$NS" -6 route | grep -q '^default dev bamdad0'; then
+    echo 'ipv6-default-added-in-split-mode'
+    exit 1
+fi
+echo 'desktop-tunnel-split-ok'
+
+sudo kill -TERM "$(cat "$WORK/helper3.pid")"
+for _ in $(seq 1 100); do
+    sudo kill -0 "$(cat "$WORK/helper3.pid")" 2>/dev/null || break
+    sleep 0.1
+done
+SPLIT_ROUTES=$(sudo ip -n "$NS" route)
+grep -q '198.51.100.0/24' <<<"$SPLIT_ROUTES" && {
+    echo 'split-route-not-removed'
+    exit 1
+}
+grep -q "default via $HOST_IP dev veth-ns" <<<"$SPLIT_ROUTES" || {
+    echo 'default-route-not-intact'
+    exit 1
+}
+echo 'desktop-tunnel-split-restored'
+
 echo 'desktop-tunnel-ok'

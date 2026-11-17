@@ -118,6 +118,8 @@ Android TunnelController
       `/etc/resolv.conf`, reverted on stop).
 - [x] IPv6 routed into the tunnel (no v6 leak in tunnel mode).
 - [x] Parent-death watchdog: the helper cleans up if the app disappears.
+- [x] Desktop split tunnelling: `Tunnel routes` limits the tunnel to the
+      listed prefixes (default route, DNS, IPv6 untouched).
 - [x] macOS utun helper: device, route list or split default, endpoint host
       routes, parent watchdog, CI test on a macOS runner.
 - [x] macOS utun frame adapter (4-byte header) feeding tun2socks over fd 3.

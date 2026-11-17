@@ -83,6 +83,7 @@ export component SettingsPage inherits Rectangle {
     in-out property <string> split-mode: "off";
     in-out property <string> split-apps-text;
     in-out property <string> bypass-cidrs;
+    in-out property <string> tunnel-routes;
     in-out property <string> theme: "system";
     in-out property <string> accent: "cyan";
     in property <bool> kill-switch: false;
@@ -93,7 +94,7 @@ export component SettingsPage inherits Rectangle {
     callback set-tunnel-mode(bool);
     callback pick-split-apps(string);
     callback open-licenses();
-    callback save-settings(string, string, bool, string, string, string, string);
+    callback save-settings(string, string, bool, string, string, string, string, string);
     callback set-theme(string);
     callback set-accent(string);
     callback full-logs();
@@ -346,6 +347,14 @@ export component SettingsPage inherits Rectangle {
                             toggled => { root.set-tunnel-mode(!root.tunnel-mode); }
                         }
                     }
+                    if !root.mobile : VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "TUNNEL ROUTES (empty = all traffic)"; }
+                        TextField {
+                            text <=> root.tunnel-routes;
+                            placeholder: "192.168.0.0/16, 10.0.0.0/8";
+                        }
+                    }
 
                     HorizontalLayout {
                         spacing: 8px;
@@ -362,6 +371,7 @@ export component SettingsPage inherits Rectangle {
                                     root.split-mode,
                                     root.split-apps-text,
                                     root.bypass-cidrs,
+                                    root.tunnel-routes,
                                 );
                             }
                         }

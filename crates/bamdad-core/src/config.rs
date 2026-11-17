@@ -44,6 +44,9 @@ pub struct AppSettings {
     /// Route all desktop traffic through the tunnel (privileged helper).
     #[serde(default)]
     pub tunnel_mode: bool,
+    /// When set, only these CIDRs go through the desktop tunnel.
+    #[serde(default)]
+    pub tunnel_routes: String,
 }
 
 impl Default for AppSettings {
@@ -62,6 +65,7 @@ impl Default for AppSettings {
             bypass_cidrs: String::new(),
             failover: default_failover(),
             tunnel_mode: false,
+            tunnel_routes: String::new(),
         }
     }
 }

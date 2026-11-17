@@ -1405,7 +1405,14 @@ fn setup_callbacks(
         let store = store.clone();
         let logs = logs.clone();
         ui.on_save_settings(
-            move |socks, http, system_proxy, custom_dns, split_mode, split_apps, bypass_cidrs| {
+            move |socks,
+                  http,
+                  system_proxy,
+                  custom_dns,
+                  split_mode,
+                  split_apps,
+                  bypass_cidrs,
+                  tunnel_routes| {
                 let Some(ui) = weak.upgrade() else { return };
                 let socks_port: u16 = match socks.as_str().parse() {
                     Ok(port) => port,
@@ -1439,6 +1446,7 @@ fn setup_callbacks(
                         .map(ToOwned::to_owned)
                         .collect();
                     guard.settings.bypass_cidrs = bypass_cidrs.trim().to_string();
+                    guard.settings.tunnel_routes = tunnel_routes.trim().to_string();
                     apply_tunnel_options(&guard.settings);
                     let _ = save_store(&guard);
                 }
@@ -2781,7 +2789,7 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
 /// Starts the privileged desktop tunnel once the proxy accepts on [port].
 #[cfg(not(target_os = "android"))]
 fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Store>>, port: u16) {
-    let (enabled, bypass, dns) = {
+    let (enabled, bypass, dns, routes) = {
         let guard = store.lock().unwrap();
         let enabled = guard.settings.tunnel_mode;
         let bypass = guard
@@ -2799,12 +2807,20 @@ fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Stor
         if dns.is_empty() {
             dns = vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()];
         }
-        (enabled, bypass, dns)
+        let routes: Vec<String> = guard
+            .settings
+            .tunnel_routes
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        (enabled, bypass, dns, routes)
     };
     if !enabled {
         return;
     }
-    match crate::desktop_tun::start(port, &bypass, &dns) {
+    match crate::desktop_tun::start(port, &bypass, &dns, &routes) {
         Ok(message) => push_log(ui, logs, message),
         Err(error) => push_log(ui, logs, format!("tunnel mode: {error}")),
     }

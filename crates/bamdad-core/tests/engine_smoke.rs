@@ -53,6 +53,7 @@ async fn starts_core_and_queries_stats() {
         bypass_cidrs: String::new(),
         failover: true,
         tunnel_mode: false,
+        tunnel_routes: String::new(),
     };
     let api_port = config::free_port().unwrap();
     let profile = config::default_profile();

@@ -74,7 +74,12 @@ mod imp {
     }
 
     /// Starts the tunnel and returns a human readable description for the log.
-    pub fn start(socks_port: u16, bypass: &[String], dns: &[String]) -> Result<String, String> {
+    pub fn start(
+        socks_port: u16,
+        bypass: &[String],
+        dns: &[String],
+        routes: &[String],
+    ) -> Result<String, String> {
         stop();
 
         let helper = binary("BAMDAD_TUN_HELPER", "bamdad-tun-helper")
@@ -106,8 +111,13 @@ mod imp {
         command
             .arg("--parent-pid")
             .arg(std::process::id().to_string());
-        for cidr in bypass {
-            command.arg("--bypass").arg(cidr);
+        for cidr in routes {
+            command.arg("--route").arg(cidr);
+        }
+        if routes.is_empty() {
+            for cidr in bypass {
+                command.arg("--bypass").arg(cidr);
+            }
         }
         for server in dns {
             command.arg("--dns").arg(server);
@@ -174,7 +184,12 @@ mod imp {
 pub use imp::{start, stop};
 
 #[cfg(not(target_os = "linux"))]
-pub fn start(_socks_port: u16, _bypass: &[String], _dns: &[String]) -> Result<String, String> {
+pub fn start(
+    _socks_port: u16,
+    _bypass: &[String],
+    _dns: &[String],
+    _routes: &[String],
+) -> Result<String, String> {
     Err("tunnel mode is only implemented on Linux so far".to_string())
 }
 

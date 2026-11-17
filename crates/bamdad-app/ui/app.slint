@@ -790,6 +790,7 @@ export component AppWindow inherits Window {
     in-out property <string> split-mode: "off";
     in-out property <string> split-apps-text: "";
     in-out property <string> bypass-cidrs: "";
+    in-out property <string> tunnel-routes: "";
     in-out property <string> socks-port: "10808";
     in-out property <string> http-port: "10809";
     in-out property <bool> system-proxy: false;
@@ -847,7 +848,7 @@ export component AppWindow inherits Window {
     callback select-profile(string);
     callback import-link(string);
     callback file-import();
-    callback save-settings(string, string, bool, string, string, string, string);
+    callback save-settings(string, string, bool, string, string, string, string, string);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
     callback set-kill-switch(bool);
@@ -983,6 +984,7 @@ export component AppWindow inherits Window {
                     split-mode: root.split-mode;
                     split-apps-text: root.split-apps-text;
                     bypass-cidrs: root.bypass-cidrs;
+                    tunnel-routes: root.tunnel-routes;
                     app-version: root.app-version;
                     xray-version: root.xray-version;
                     singbox-version: root.singbox-version;
@@ -995,8 +997,8 @@ export component AppWindow inherits Window {
                     system-proxy <=> root.system-proxy;
                     theme <=> root.theme-mode;
                     accent <=> root.accent-mode;
-                    save-settings(socks, http, proxy, dns, mode, apps, bypass) => {
-                        root.save-settings(socks, http, proxy, dns, mode, apps, bypass);
+                    save-settings(socks, http, proxy, dns, mode, apps, bypass, routes) => {
+                        root.save-settings(socks, http, proxy, dns, mode, apps, bypass, routes);
                     }
                     set-theme(mode) => { root.set-theme-mode(mode); }
                     set-accent(name) => { root.set-accent-mode(name); }

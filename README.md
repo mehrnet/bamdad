@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.4
-git push origin v0.9.4
+git tag v0.9.5
+git push origin v0.9.5
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -408,6 +408,11 @@ bamdad (user) -> pkexec -> bamdad-tun-helper (root) -> tun2socks (user) -> core 
 The DNS servers come from Settings → Custom DNS (falling back to 1.1.1.1 and
 8.8.8.8). The binaries ship inside the Linux release tarballs.
 
+**Tunnel routes** (Settings → Local listeners, desktop) turns the tunnel into a
+split tunnel: when the field holds one or more CIDRs, only those prefixes are
+routed into the device — the default route, DNS, and IPv6 stay untouched. Leave
+it empty to route everything.
+
 ### macOS
 
 `bamdad-tun-helper` also builds for macOS: it opens a `utun` device through
@@ -485,4 +490,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.4`.
+`v0.9.5`.
