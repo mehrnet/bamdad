@@ -318,7 +318,7 @@ installed.
 | WireGuard / AmneziaWG `.conf` | supported on Android |
 | SSR, SIP003 plugins (`obfs`, `v2ray-plugin`) | not yet |
 | Hysteria2, TUIC | not yet |
-| IPSec/IKEv2 `.sswan` | supported on Android for certificate-based profiles (PSK, EAP-TLS pending) |
+| IPSec/IKEv2 `.sswan` | Android: certificates (tested) and EAP username/password (plumbed, untested); no PSK, IKEv1, or L2TP |
 
 XHTTP is Xray-only; imports that select sing-box are switched to Xray
 automatically. Link-based profiles are regenerated from their stored share link
@@ -344,6 +344,25 @@ core with a Bamdad-owned `VpnService`. Global settings apply to all of them:
 custom DNS, per-app split tunneling, bypass CIDRs, and the kill-switch sinkhole
 that holds the slot whenever no tunnel is connected. An emulator smoke test
 verifies that lifecycle: sinkhole → tunnel → sinkhole.
+
+## IPSec/IKEv2 protocol support
+
+| Flavour | Status |
+|---|---|
+| IKEv2, certificate auth (`ikev2-cert`, `ikev2-cert-eap`) | works; the emulator smoke covers `ikev2-cert` end to end |
+| IKEv2, EAP username/password (`ikev2-eap`) | plumbed through the profile (`<type>`, `<username>`, `<password>`); needs a server that accepts EAP, so it is not exercised in CI |
+| IKEv2, PSK | not supported |
+| IKEv1 (aggressive/main mode, XAuth) | not supported |
+| L2TP/IPSec | not supported |
+
+Why: Bamdad drives strongSwan's own Android frontend, and that frontend
+hard-codes IKEv2 (`android_service.c`) and only builds certificate or EAP
+authentication configs. There is no PSK credential lookup and no IKEv1
+initiator in it, so those modes would need a native patch (PSK: a
+`get_shared` credential implementation plus an auth-class config) rather than
+app-side code. L2TP is a different protocol stack altogether — it needs an L2TP
+daemon and PPP, which neither strongSwan nor Android expose to apps; Android's
+built-in L2TP/IPsec system VPN cannot be created by third-party apps either.
 
 ## IPSec/IKEv2 groundwork
 

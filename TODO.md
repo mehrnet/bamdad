@@ -89,6 +89,12 @@ Android TunnelController
 - [x] Import `.sswan` profiles, with embedded CA/cert/key material.
 - [x] Normalize state into the existing tunnel events.
 - [ ] Byte counters for IPSec (charon does not report them yet).
+- [ ] IKEv2 PSK: needs a native patch (PSK credential lookup + auth class) and
+      a PSK responder in the smoke.
+- [ ] EAP: add a responder (RADIUS) to the smoke; the client side already
+      accepts `<type>ikev2-eap</type>` with username/password.
+- [ ] L2TP/IPsec: out of scope — needs an L2TP+PPP stack, not provided by
+      strongSwan's Android frontend or Android itself for apps.
 - [x] Test against a strongSwan test server (emulator smoke).
 
 ## Phase 3: OpenVPN
