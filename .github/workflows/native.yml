@@ -297,7 +297,7 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip
-          Expand-Archive wintun.zip -DestinationPath wintun
+          Expand-Archive wintun.zip -DestinationPath .
           Copy-Item wintun/bin/amd64/wintun.dll target/debug/
           Get-ChildItem target/debug/wintun.dll
       - name: Exercise the adapter and routing
