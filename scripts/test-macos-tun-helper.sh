@@ -59,6 +59,10 @@ grep -q "route=$TEST_NET" "$STATE" || {
     echo 'state-file-incomplete'
     exit 1
 }
+grep -qE '^pid=[0-9]+' "$STATE" || {
+    echo 'state-file-has-no-pid'
+    exit 1
+}
 echo 'macos-helper-up-ok'
 
 echo '--- stopping the helper ---'

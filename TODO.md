@@ -120,7 +120,9 @@ Android TunnelController
 - [x] Parent-death watchdog: the helper cleans up if the app disappears.
 - [x] macOS utun helper: device, route list or split default, endpoint host
       routes, parent watchdog, CI test on a macOS runner.
-- [ ] macOS wiring: tun2socks fd handshake for utun, admin prompt, DNS.
+- [x] macOS utun frame adapter (4-byte header) feeding tun2socks over fd 3.
+- [x] macOS DNS via `networksetup`, reset on stop; helper pid in the state file.
+- [ ] macOS app wiring: `osascript` admin prompt + supervisor (needs a real Mac).
 - [ ] Windows (Wintun) helper.
 
 ## Phase 4: unified UX

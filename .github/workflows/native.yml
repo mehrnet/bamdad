@@ -270,5 +270,7 @@ jobs:
           key: tun-helper-macos
       - name: Build the helper
         run: cargo build -p bamdad-tun-helper
+      - name: Unit-test the utun frame adapter
+        run: cargo test -p bamdad-tun-helper --bin bamdad-tun-helper
       - name: Exercise utun and routing
         run: bash scripts/test-macos-tun-helper.sh

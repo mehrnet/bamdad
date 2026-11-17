@@ -52,7 +52,8 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "usage: bamdad-tun-helper up [--name utunN] --address ADDR [--mtu N] \\
-        (--route CIDR | --default --bypass IP)... [--state FILE] [--parent-pid PID] \\
+        (--route CIDR | --default --bypass IP)... [--dns ADDR]... \
+        [--dns-method auto|networksetup|none] [--state FILE] [--parent-pid PID] \\
         [--exec PROGRAM [ARGS...]]
    bamdad-tun-helper down --state FILE"
         .to_string()
@@ -66,6 +67,8 @@ struct Options {
     routes: Vec<String>,
     default: bool,
     bypass: Vec<String>,
+    dns: Vec<String>,
+    dns_method: String,
     state: Option<PathBuf>,
     parent_pid: Option<i32>,
     exec: Vec<String>,
@@ -75,6 +78,7 @@ impl Options {
     fn parse(args: Vec<String>) -> Result<Self, String> {
         let mut options = Options {
             mtu: 1400,
+            dns_method: "auto".to_string(),
             ..Default::default()
         };
         let mut rest = args.into_iter();
@@ -90,6 +94,8 @@ impl Options {
                 "--route" => options.routes.push(value()?),
                 "--default" => options.default = true,
                 "--bypass" => options.bypass.push(value()?),
+                "--dns" => options.dns.push(value()?),
+                "--dns-method" => options.dns_method = value()?,
                 "--state" => options.state = Some(PathBuf::from(value()?)),
                 "--parent-pid" => {
                     options.parent_pid = Some(value()?.parse().map_err(|_| "bad --parent-pid")?)
@@ -161,10 +167,20 @@ fn up(options: Options) -> Result<(), String> {
         }
     }
 
+    let dns_services = apply_dns(&options.dns, &options.dns_method);
+
     if let Some(path) = &options.state {
-        let mut text = format!("device={device}\n");
+        // The pid lets a privileged `kill` stop us after a crash; the app
+        // cannot signal a root process on its own.
+        let mut text = format!(
+            "device={device}\npid={}\n",
+            unsafe { libc::getpid() }
+        );
         for entry in &added {
             text.push_str(&format!("route={entry}\n"));
+        }
+        for service in &dns_services {
+            text.push_str(&format!("dns={service}\n"));
         }
         fs::write(path, text).map_err(|error| format!("state file: {error}"))?;
     }
@@ -174,10 +190,17 @@ fn up(options: Options) -> Result<(), String> {
 
     install_signal_handlers();
 
-    let mut child = if options.exec.is_empty() {
+    // utun frames carry a 4-byte address-family header that tun2socks does not
+    // expect, so packets go through a socketpair that strips and re-adds it.
+    let payload_fd = if options.exec.is_empty() {
         None
     } else {
-        Some(spawn_payload(&options.exec, fd)?)
+        Some(start_header_adapter(fd)?)
+    };
+
+    let mut child = match payload_fd {
+        Some(payload_fd) => Some(spawn_payload(&options.exec, payload_fd)?),
+        None => None,
     };
 
     while !STOP.load(Ordering::SeqCst) {
@@ -202,6 +225,9 @@ fn up(options: Options) -> Result<(), String> {
         let _ = child.wait();
     }
 
+    for service in &dns_services {
+        let _ = exec_command("networksetup", &["-setdnsservers", service, "Empty"]);
+    }
     for entry in &added {
         let _ = remove_route(entry);
     }
@@ -224,11 +250,41 @@ fn down(options: Options) -> Result<(), String> {
     for line in text.lines() {
         if let Some(route) = line.strip_prefix("route=") {
             let _ = remove_route(route);
+        } else if let Some(service) = line.strip_prefix("dns=") {
+            let _ = exec_command("networksetup", &["-setdnsservers", service, "Empty"]);
         }
     }
     let _ = fs::remove_file(&path);
     println!("stopped");
     Ok(())
+}
+
+/// Points every network service at the tunnel's DNS servers. Returns the
+/// services that were changed so they can be reset on the way down.
+fn apply_dns(servers: &[String], method: &str) -> Vec<String> {
+    if servers.is_empty() || method == "none" {
+        return Vec::new();
+    }
+    let Ok(output) = exec_command("networksetup", &["-listallnetworkservices"]) else {
+        return Vec::new();
+    };
+    let mut changed = Vec::new();
+    for line in output.lines().skip(1) {
+        let service = line.trim();
+        // Disabled services are prefixed with an asterisk.
+        if service.is_empty() || service.starts_with('*') {
+            continue;
+        }
+        let mut args = vec!["-setdnsservers", service];
+        args.extend(servers.iter().map(String::as_str));
+        if exec_command("networksetup", &args).is_ok() {
+            changed.push(service.to_string());
+        }
+    }
+    if changed.is_empty() {
+        eprintln!("bamdad-tun-helper: no network service accepted the DNS servers");
+    }
+    changed
 }
 
 fn add_route(cidr: &str, device: &str) -> Result<(), String> {
@@ -326,6 +382,104 @@ struct SockaddrCtl {
     sc_reserved: [u32; 5],
 }
 
+/// Pumps packets between the utun device and a socketpair, translating the
+/// 4-byte Darwin address-family header into plain IP packets and back.
+fn start_header_adapter(utun: i32) -> Result<i32, String> {
+    let mut pair = [0i32; 2];
+    if unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, pair.as_mut_ptr()) } != 0 {
+        return Err(format!(
+            "socketpair: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let ours = pair[0];
+    let payload = pair[1];
+    set_nonblocking(utun)?;
+    set_nonblocking(ours)?;
+
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 65536];
+        while !STOP.load(Ordering::SeqCst) {
+            if !readable(utun) {
+                continue;
+            }
+            let read = unsafe { libc::read(utun, buffer.as_mut_ptr().cast(), buffer.len()) };
+            if read <= 0 {
+                continue;
+            }
+            let frame = &buffer[..read as usize];
+            let Some(payload) = strip_af(frame) else { continue };
+            unsafe { libc::write(ours, payload.as_ptr().cast(), payload.len()) };
+        }
+    });
+
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 65536];
+        while !STOP.load(Ordering::SeqCst) {
+            if !readable(payload) {
+                continue;
+            }
+            let read =
+                unsafe { libc::read(payload, buffer[4..].as_mut_ptr().cast(), buffer.len() - 4) };
+            if read <= 0 {
+                continue;
+            }
+            let Some(family) = packet_family(&buffer[4..4 + read as usize]) else {
+                continue;
+            };
+            buffer[..4].copy_from_slice(&family.to_be_bytes());
+            let total = 4 + read as usize;
+            unsafe { libc::write(utun, buffer.as_ptr().cast(), total) };
+        }
+    });
+
+    Ok(payload)
+}
+
+fn set_nonblocking(fd: i32) -> Result<(), String> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(format!(
+            "fcntl(O_NONBLOCK): {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+fn readable(fd: i32) -> bool {
+    let mut poll = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    unsafe { libc::poll(&mut poll, 1, 200) > 0 && (poll.revents & libc::POLLIN) != 0 }
+}
+
+/// Darwin address families carried in utun frame headers.
+const AF_INET_DARWIN: u32 = 2;
+const AF_INET6_DARWIN: u32 = 30;
+
+fn packet_family(packet: &[u8]) -> Option<u32> {
+    match packet.first().map(|byte| byte >> 4) {
+        Some(4) => Some(AF_INET_DARWIN),
+        Some(6) => Some(AF_INET6_DARWIN),
+        _ => None,
+    }
+}
+
+/// Removes the utun header, validating that it names a family we understand.
+fn strip_af(frame: &[u8]) -> Option<&[u8]> {
+    if frame.len() <= 4 {
+        return None;
+    }
+    let family = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]);
+    if family != AF_INET_DARWIN && family != AF_INET6_DARWIN {
+        return None;
+    }
+    Some(&frame[4..])
+}
+
 /// Opens a utun device. `hint` may name a specific unit (`utun4`); otherwise
 /// the kernel picks the next free one.
 fn open_utun(hint: Option<&str>) -> Result<(i32, String), String> {
@@ -395,4 +549,31 @@ fn open_utun(hint: Option<&str>) -> Result<(i32, String), String> {
         .unwrap_or(name.len());
     let device = String::from_utf8_lossy(&name[..end]).to_string();
     Ok((fd, device))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_the_utun_header() {
+        let mut frame = 2u32.to_be_bytes().to_vec();
+        frame.extend_from_slice(&[0x45, 0, 0, 20, 0, 0]);
+        assert_eq!(strip_af(&frame).unwrap(), &[0x45, 0, 0, 20, 0, 0]);
+
+        let mut v6 = 30u32.to_be_bytes().to_vec();
+        v6.extend_from_slice(&[0x60, 0, 0, 0]);
+        assert_eq!(strip_af(&v6).unwrap(), &[0x60, 0, 0, 0]);
+
+        assert!(strip_af(&[0, 0, 0]).is_none());
+        assert!(strip_af(&[0, 0, 0, 7, 0x45]).is_none());
+    }
+
+    #[test]
+    fn derives_the_family_from_the_packet() {
+        assert_eq!(packet_family(&[0x45, 0, 0, 0]), Some(AF_INET_DARWIN));
+        assert_eq!(packet_family(&[0x60, 0, 0, 0]), Some(AF_INET6_DARWIN));
+        assert_eq!(packet_family(&[]), None);
+        assert_eq!(packet_family(&[0x10]), None);
+    }
 }
