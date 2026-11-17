@@ -374,10 +374,12 @@ fn spawn_payload(argv: &[String]) -> Result<Child, String> {
 fn wait_for_adapter(name: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if netsh(&["interface", "ipv4", "show", "interfaces", name]).is_ok()
-            && netsh(&["interface", "ipv4", "show", "addresses", name]).is_ok()
-        {
-            return true;
+        // The adapter exists before it has an address, so list every interface
+        // instead of asking netsh about this one by name.
+        if let Ok(output) = netsh(&["interface", "ipv4", "show", "interfaces"]) {
+            if output.split_whitespace().any(|token| token == name) {
+                return true;
+            }
         }
         std::thread::sleep(Duration::from_millis(250));
     }
