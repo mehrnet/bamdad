@@ -1578,7 +1578,7 @@ fn setup_callbacks(
             if !enabled {
                 stop_desktop_tunnel();
             }
-            let probe = if enabled {
+            let probe: Result<(), String> = if enabled {
                 #[cfg(target_os = "android")]
                 {
                     Ok(())
@@ -3345,6 +3345,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 if !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
                     let weak = ui.as_weak();
                     let logs = logs.clone();
+                    #[cfg(not(target_os = "android"))]
                     let store = context.store.clone();
                     std::thread::spawn(move || {
                         use std::net::{SocketAddr, TcpStream};
