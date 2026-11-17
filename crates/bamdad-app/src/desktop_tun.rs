@@ -26,6 +26,24 @@ pub fn supported() -> bool {
     cfg!(target_os = "linux")
 }
 
+/// Checks that the binaries the tunnel needs are in place, so the UI can warn
+/// before a connection silently runs without a tunnel.
+pub fn probe() -> Result<(), String> {
+    if !supported() {
+        return Err("tunnel mode is only implemented on Linux so far".to_string());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if imp::binary("BAMDAD_TUN_HELPER", "bamdad-tun-helper").is_none() {
+            return Err("bamdad-tun-helper is not next to the app".to_string());
+        }
+        if imp::binary("BAMDAD_TUN2SOCKS", "bamdad-tun2socks").is_none() {
+            return Err("bamdad-tun2socks is not next to the app".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Host routes the helper must keep on the physical link: the profile's
 /// endpoint addresses.
 pub fn bypass_for(host: &str, port: u16) -> Vec<String> {
@@ -51,7 +69,7 @@ mod imp {
 
     static ACTIVE: Mutex<Option<Child>> = Mutex::new(None);
 
-    fn binary(env_var: &str, name: &str) -> Option<PathBuf> {
+    pub(super) fn binary(env_var: &str, name: &str) -> Option<PathBuf> {
         if let Ok(path) = std::env::var(env_var) {
             let path = PathBuf::from(path);
             if path.is_file() {
@@ -195,3 +213,17 @@ pub fn start(
 
 #[cfg(not(target_os = "linux"))]
 pub fn stop() {}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bypass_lists_endpoint_addresses() {
+        let ipv4 = bypass_for("203.0.113.9", 51820);
+        assert_eq!(ipv4, vec!["203.0.113.9/32".to_string()]);
+
+        let ipv6 = bypass_for("2001:db8::7", 51820);
+        assert_eq!(ipv6, vec!["2001:db8::7/128".to_string()]);
+    }
+}

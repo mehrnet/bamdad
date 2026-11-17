@@ -120,6 +120,9 @@ Android TunnelController
 - [x] Parent-death watchdog: the helper cleans up if the app disappears.
 - [x] Desktop split tunnelling: `Tunnel routes` limits the tunnel to the
       listed prefixes (default route, DNS, IPv6 untouched).
+- [x] Desktop kill switch: a lost core keeps the tunnel up (blocked) when the
+      setting is on, and restores routing when it is off.
+- [x] Tunnel-mode failures surface in the UI and in the log.
 - [x] macOS utun helper: device, route list or split default, endpoint host
       routes, parent watchdog, CI test on a macOS runner.
 - [x] macOS utun frame adapter (4-byte header) feeding tun2socks over fd 3.

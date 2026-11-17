@@ -1578,8 +1578,24 @@ fn setup_callbacks(
             if !enabled {
                 stop_desktop_tunnel();
             }
+            let probe = if enabled {
+                #[cfg(target_os = "android")]
+                {
+                    Ok(())
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    crate::desktop_tun::probe()
+                }
+            } else {
+                Ok(())
+            };
             if let Some(ui) = weak.upgrade() {
                 ui.set_tunnel_mode(enabled);
+                if let Err(error) = &probe {
+                    push_log(&ui, &logs, format!("tunnel mode unavailable: {error}"));
+                    ui.set_status_text("Tunnel mode unavailable".into());
+                }
                 push_log(
                     &ui,
                     &logs,
@@ -2822,7 +2838,12 @@ fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Stor
     }
     match crate::desktop_tun::start(port, &bypass, &dns, &routes) {
         Ok(message) => push_log(ui, logs, message),
-        Err(error) => push_log(ui, logs, format!("tunnel mode: {error}")),
+        Err(error) => {
+            push_log(ui, logs, format!("tunnel mode: {error}"));
+            if ui.get_connected() {
+                ui.set_status_text("Connected · tunnel failed".into());
+            }
+        }
     }
 }
 
@@ -3460,7 +3481,30 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);
-                ui.set_status_text("Core error".into());
+                let blocked = {
+                    #[cfg(target_os = "android")]
+                    {
+                        false
+                    }
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        KILL_SWITCH.load(Ordering::SeqCst)
+                    }
+                };
+                // On desktop the TUN can hold the traffic while the core is
+                // gone; only keep it when the user asked for a kill switch.
+                #[cfg(not(target_os = "android"))]
+                if !blocked {
+                    stop_desktop_tunnel();
+                }
+                ui.set_status_text(
+                    if blocked {
+                        "Core error · traffic blocked"
+                    } else {
+                        "Core error"
+                    }
+                    .into(),
+                );
                 set_network_text(ui, "", "");
                 ui.set_country_flag(Default::default());
                 #[cfg(not(target_os = "android"))]

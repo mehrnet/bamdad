@@ -336,7 +336,7 @@ export component SettingsPage inherits Rectangle {
                                 font-size: 15px;
                             }
                             Text {
-                                text: "Route all desktop traffic through the tunnel. Needs the privileged TUN helper; the desktop asks for approval when connecting. Applies on the next connect.";
+                                text: "Route all desktop traffic through the tunnel. Needs the privileged TUN helper; the desktop asks for approval when connecting. With the kill switch on, losing the core leaves traffic blocked instead of restoring the direct route. Applies on the next connect.";
                                 color: Theme.muted;
                                 font-size: 12px;
                                 wrap: word-wrap;
@@ -498,7 +498,7 @@ export component SettingsPage inherits Rectangle {
                                 font-weight: 600;
                             }
                             Text {
-                                text: "Keep the VPN slot with a blackhole when no tunnel is connected, so apps cannot leak to the physical network.";
+                                text: "No leaks if the tunnel drops: Android keeps the VPN slot with a blackhole, and desktop tunnel mode stays up with traffic blocked when the core fails.";
                                 color: Theme.muted;
                                 font-size: 12px;
                                 wrap: word-wrap;

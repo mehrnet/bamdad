@@ -225,8 +225,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.5
-git push origin v0.9.5
+git tag v0.9.6
+git push origin v0.9.6
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -402,6 +402,12 @@ bamdad (user) -> pkexec -> bamdad-tun-helper (root) -> tun2socks (user) -> core 
 - The app passes its process id (`--parent-pid`); if it dies, the helper tears
   the tunnel down and restores routing, resolver settings, and the state file
   instead of leaving the machine pointing at a dead device.
+- Failures are visible: if the helper or sidecar is missing, enabling tunnel
+  mode says so, and a tunnel that fails to start turns the status into
+  `Connected · tunnel failed` instead of pretending to protect the session.
+- The kill switch means the same thing as on Android: when the core dies the
+  tunnel stays up and traffic is blocked (`Core error · traffic blocked`)
+  instead of silently falling back to the physical route.
 - The app starts both once the core's SOCKS port answers, and stops the helper
   on disconnect or error, which restores routing.
 
@@ -490,4 +496,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.5`.
+`v0.9.6`.
