@@ -26,7 +26,7 @@ ureq = { version = "2", features = ["socks-proxy"] }
 url.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
 unicode-segmentation = "1"
-emojis = "0.7"
+emojis = "0.9"
 unicode-normalization = "0.1"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
