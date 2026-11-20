@@ -200,6 +200,21 @@ Data directory:
 | macOS   | `~/Library/Application Support/bamdad`             |
 | Windows | `%APPDATA%\bamdad`                                 |
 
+### Build directory
+
+`target/` is disposable and can grow to many gigabytes: every `cargo` invocation
+with a different `-p`/`--target`/environment fingerprint leaves its own copy of
+the workspace artifacts, and each one links the whole Slint/wgpu stack.
+
+- `cargo clean` removes everything (a cold debug build takes a few minutes).
+- `cargo clean -p bamdad-app` drops the workspace artifacts and generated UI
+  directories while keeping the dependency cache warm.
+- `scripts/prune-target.sh` is the periodic option: it lists (dry run) and, with
+  `--apply`, deletes workspace artifacts untouched for 14 days
+  (`--days N` to change, `--aggressive` to include dependency artifacts).
+  Test binaries are stripped via `[profile.test] strip = "symbols"`, so they no
+  longer dominate the directory.
+
 ## Cross builds and releases
 
 CI is in `.github/workflows/native.yml` (push/PR) and `release.yml` (tags).

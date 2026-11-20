@@ -50,3 +50,6 @@ incremental = false
 [profile.test]
 debug = 0
 incremental = false
+# Test binaries link the whole UI stack and are the biggest reusable artifacts;
+# symbols are not needed for `cargo test` output.
+strip = "symbols"
