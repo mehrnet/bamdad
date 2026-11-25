@@ -127,7 +127,7 @@ class TunnelService : Service() {
             transportLabel(profile),
             profile.accent,
         )
-        MainActivity.nativeTunnelEvent(status.toJson())
+        MainActivity.nativeTunnelEvent(status.toJson(profile.id))
     }
 
     private fun startStatusPolling(profile: TunnelProfile) {

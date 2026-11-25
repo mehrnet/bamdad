@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
  */
 object TunnelController {
     private val mutex = Mutex()
+    @Volatile
     private var active: TunnelBackend? = null
 
     suspend fun connect(

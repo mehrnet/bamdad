@@ -68,6 +68,10 @@ mod imp {
     use super::*;
 
     static ACTIVE: Mutex<Option<Child>> = Mutex::new(None);
+    /// Serializes start and stop. Without it a stop that wins the race while
+    /// `start` is still waiting for the helper would see no child, return, and
+    /// leave the tunnel running after the user disconnected.
+    static LIFECYCLE: Mutex<()> = Mutex::new(());
 
     pub(super) fn binary(env_var: &str, name: &str) -> Option<PathBuf> {
         if let Ok(path) = std::env::var(env_var) {
@@ -98,7 +102,8 @@ mod imp {
         dns: &[String],
         routes: &[String],
     ) -> Result<String, String> {
-        stop();
+        let _lifecycle = LIFECYCLE.lock().unwrap();
+        stop_locked();
 
         let helper = binary("BAMDAD_TUN_HELPER", "bamdad-tun-helper")
             .ok_or_else(|| "bamdad-tun-helper not found (set BAMDAD_TUN_HELPER)".to_string())?;
@@ -179,6 +184,11 @@ mod imp {
 
     /// Stops the helper (which restores routing) and the sidecar.
     pub fn stop() {
+        let _lifecycle = LIFECYCLE.lock().unwrap();
+        stop_locked();
+    }
+
+    fn stop_locked() {
         let child = ACTIVE.lock().unwrap().take();
         let Some(mut child) = child else { return };
         let pid = child.id() as libc::pid_t;

@@ -310,7 +310,20 @@ impl Store {
             std::fs::create_dir_all(parent)?;
         }
         let text = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, text)?;
+        // Write-then-rename: a crash or power loss mid-save must never leave a
+        // truncated store behind, which would reset every profile on load.
+        let temp = path.with_extension("json.tmp");
+        {
+            use std::io::Write;
+            let mut file = std::fs::File::create(&temp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+        }
+        #[cfg(windows)]
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+        std::fs::rename(&temp, path)?;
         Ok(())
     }
 
@@ -1007,6 +1020,28 @@ mod tests {
             .map(|profile| profile.id.as_str())
             .collect();
         assert_eq!(ids, vec!["c", "a", "b"]);
+    }
+
+    #[test]
+    fn store_saves_atomically() {
+        let dir = std::env::temp_dir().join(format!("bamdad-store-{}", new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profiles.json");
+
+        let mut store = Store::default();
+        store.settings.socks_port = 1111;
+        store.save(&path).unwrap();
+        assert!(
+            !dir.join("profiles.json.tmp").exists(),
+            "temp file left behind"
+        );
+
+        store.settings.socks_port = 2222;
+        store.save(&path).unwrap();
+        let reloaded = Store::load_or_default(&path);
+        assert_eq!(reloaded.settings.socks_port, 2222);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

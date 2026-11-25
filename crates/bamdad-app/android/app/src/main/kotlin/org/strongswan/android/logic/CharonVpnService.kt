@@ -58,6 +58,13 @@ class CharonVpnService : VpnService() {
         @Volatile
         private var instance: CharonVpnService? = null
 
+        /**
+         * charon is a process-wide singleton. The asynchronous teardown after a
+         * disconnect must never overlap the next `initializeCharon`, or the
+         * native libraries get deinitialized underneath the new session.
+         */
+        private val charonLock = Any()
+
         /** Latest connection state, polled by [com.mehrnet.bamdad.IpSecBackend]. */
         @Volatile
         var state: TunnelState = TunnelState.DOWN
@@ -187,13 +194,15 @@ class CharonVpnService : VpnService() {
             builder.setMetered(false)
         }
 
-        val started = initializeCharon(
-            BuilderAdapter(builder) { Builder() },
-            File(appDir, "charon.log").absolutePath,
-            appDir.absolutePath,
-            false,
-            config.type.startsWith("ikev2-byod"),
-        )
+        val started = synchronized(charonLock) {
+            initializeCharon(
+                BuilderAdapter(builder) { Builder() },
+                File(appDir, "charon.log").absolutePath,
+                appDir.absolutePath,
+                false,
+                config.type.startsWith("ikev2-byod"),
+            )
+        }
         if (!started) {
             fail("charon failed to start")
             return
@@ -340,7 +349,7 @@ class CharonVpnService : VpnService() {
             // Never let that hold up the caller: the VpnService is stopped
             // right after this, which is what actually removes the tun.
             Thread {
-                runCatching { deinitializeCharon() }
+                synchronized(charonLock) { runCatching { deinitializeCharon() } }
                 Log.i(TAG, "deinit: done")
             }.apply { isDaemon = true }.start()
         }

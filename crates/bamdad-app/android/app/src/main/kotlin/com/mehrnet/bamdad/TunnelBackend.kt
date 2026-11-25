@@ -92,8 +92,9 @@ data class TunnelStatus(
     val lastHandshake: Long = 0L,
     val error: String? = null,
 ) {
-    fun toJson(): String = JSONObject().apply {
+    fun toJson(profileId: String = ""): String = JSONObject().apply {
         put("state", state.name.lowercase())
+        if (profileId.isNotEmpty()) put("profile_id", profileId)
         put("rx_bytes", rxBytes)
         put("tx_bytes", txBytes)
         put("endpoint", endpoint)

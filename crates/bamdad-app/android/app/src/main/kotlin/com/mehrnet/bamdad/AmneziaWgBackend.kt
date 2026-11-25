@@ -24,6 +24,7 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
     override var onStatus: ((TunnelStatus) -> Unit)? = null
 
     private val backend = GoBackend(context)
+    @Volatile
     private var config: Config? = null
     @Volatile
     private var state: Tunnel.State = Tunnel.State.DOWN

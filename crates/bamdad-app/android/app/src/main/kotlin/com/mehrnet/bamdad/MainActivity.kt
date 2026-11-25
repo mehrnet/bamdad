@@ -75,6 +75,7 @@ class MainActivity : NativeActivity() {
         const val IMPORT_FILE_REQUEST = 1004
 
         @Volatile
+        @Volatile
         private var instance: MainActivity? = null
 
         @Volatile

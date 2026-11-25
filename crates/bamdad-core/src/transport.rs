@@ -98,4 +98,7 @@ pub struct TunnelStatus {
     pub local_address: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Profile the backend belongs to; empty when the sender cannot know it.
+    #[serde(default)]
+    pub profile_id: String,
 }

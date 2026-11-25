@@ -243,6 +243,17 @@ mod android {
                 eprintln!("bamdad: invalid native tunnel event: {text}");
                 return;
             };
+            // A backend from a previous session can still deliver a final
+            // DOWN/ERROR after a switch or a disconnect, and a native→native
+            // switch overlaps two backends. Only accept events from the
+            // backend that is supposed to own the VPN slot right now.
+            if !controller::native_events_expected() {
+                return;
+            }
+            if !status.profile_id.is_empty() && status.profile_id != controller::active_profile_id()
+            {
+                return;
+            }
             use bamdad_core::TunnelState;
             // The Kotlin backend polls every second and reports the same UP
             // state each time. Emit the state event only on transitions so a
@@ -552,6 +563,15 @@ mod android {
         });
     }
 
+    /// Forgets the last native status so a new backend's first event is
+    /// always delivered, even if it matches the previous session's last state.
+    pub(super) fn reset_native_state() {
+        LAST_NATIVE_STATE.store(255, Ordering::SeqCst);
+        if let Ok(mut last) = LAST_NATIVE_LOCAL.lock() {
+            last.clear();
+        }
+    }
+
     #[unsafe(no_mangle)]
     pub fn android_main(app: slint::android::AndroidApp) {
         JAVA_VM.store(app.vm_as_ptr(), Ordering::Release);
@@ -585,6 +605,14 @@ mod android {
         }
     }
 }
+
+#[cfg(target_os = "android")]
+pub(crate) fn reset_native_event_state() {
+    android::reset_native_state();
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) fn reset_native_event_state() {}
 
 #[cfg(target_os = "android")]
 pub(crate) fn logcat(line: &str) {

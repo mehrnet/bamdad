@@ -47,6 +47,9 @@ static SESSION: AtomicU64 = AtomicU64::new(0);
 static BUSY_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
 /// Profile picked while a connection was still coming up; applied on `Running`.
 static PENDING_SWITCH: Mutex<Option<String>> = Mutex::new(None);
+/// Set when the user disconnects, so late backend errors cannot trigger a
+/// failover after the tunnel was deliberately stopped.
+static USER_STOPPED: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -232,8 +235,15 @@ pub(crate) fn set_active_profile_id(id: &str) {
     *ACTIVE_PROFILE_ID.lock().unwrap() = id.to_string();
 }
 
-fn active_profile_id() -> String {
+pub(crate) fn active_profile_id() -> String {
     ACTIVE_PROFILE_ID.lock().unwrap().clone()
+}
+
+/// Whether a native backend is supposed to be reporting right now. Backends
+/// from a previous session can deliver one last DOWN/ERROR after a switch or
+/// disconnect; those events must not touch the UI.
+pub(crate) fn native_events_expected() -> bool {
+    NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
 }
 
 pub fn init(
@@ -1622,7 +1632,7 @@ fn setup_callbacks(
             }
             #[cfg(not(target_os = "android"))]
             if !enabled {
-                stop_desktop_tunnel();
+                stop_desktop_tunnel_async();
             }
             let probe: Result<(), String> = if enabled {
                 #[cfg(target_os = "android")]
@@ -2924,21 +2934,42 @@ fn start_desktop_tunnel(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Stor
     if !enabled {
         return;
     }
-    match crate::desktop_tun::start(port, &bypass, &dns, &routes) {
-        Ok(message) => push_log(ui, logs, message),
-        Err(error) => {
-            push_log(ui, logs, format!("tunnel mode: {error}"));
-            if ui.get_connected() {
-                ui.set_status_text("Connected · tunnel failed".into());
+    // Starting the helper waits for it to report ready; keep that off the UI
+    // thread and post the result back.
+    let weak = ui.as_weak();
+    let logs = logs.clone();
+    let started = session();
+    std::thread::spawn(move || {
+        let result = crate::desktop_tun::start(port, &bypass, &dns, &routes);
+        let _ = slint::invoke_from_event_loop(move || {
+            if session() != started {
+                return;
             }
-        }
-    }
+            let Some(ui) = weak.upgrade() else { return };
+            match result {
+                Ok(message) => push_log(&ui, &logs, message),
+                Err(error) => {
+                    push_log(&ui, &logs, format!("tunnel mode: {error}"));
+                    if ui.get_connected() {
+                        ui.set_status_text("Connected · tunnel failed".into());
+                    }
+                }
+            }
+        });
+    });
 }
 
 /// Restores desktop routing when the tunnel is no longer wanted.
 #[cfg(not(target_os = "android"))]
 fn stop_desktop_tunnel() {
     crate::desktop_tun::stop();
+}
+
+/// `desktop_tun::stop` waits up to a few seconds for the helper to exit, so it
+/// must never run on the Slint thread.
+#[cfg(not(target_os = "android"))]
+fn stop_desktop_tunnel_async() {
+    std::thread::spawn(stop_desktop_tunnel);
 }
 
 fn new_session() -> u64 {
@@ -2951,6 +2982,7 @@ fn session() -> u64 {
 
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
     let _ = new_session();
+    USER_STOPPED.store(false, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = Some(Instant::now());
     crate::stop_kill_switch();
     STARTING.store(true, Ordering::SeqCst);
@@ -3072,6 +3104,7 @@ fn start_connection(
                 }
             };
             NATIVE_TUNNEL_ACTIVE.store(true, Ordering::SeqCst);
+            crate::reset_native_event_state();
             engine.stop();
             crate::stop_android_vpn();
             push_log(
@@ -3226,9 +3259,19 @@ fn start_connection(
             socks_port: settings.socks_port,
             http_port: settings.http_port,
         };
-        if let Err(error) = system_proxy::enable(proxy) {
-            push_log(ui, logs, format!("system proxy: {error}"));
-        }
+        // `gsettings`/`netsh`/`networksetup` can take hundreds of ms; never run
+        // them on the Slint thread.
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = system_proxy::enable(proxy) {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        push_log(&ui, &logs, format!("system proxy: {error}"));
+                    }
+                });
+            }
+        });
     }
 }
 
@@ -3239,6 +3282,7 @@ fn stop_connection(
     logs: &LogBuffer,
 ) {
     let _ = new_session();
+    USER_STOPPED.store(true, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = None;
     *PENDING_SWITCH.lock().unwrap() = None;
     SWITCHING.store(false, Ordering::SeqCst);
@@ -3249,15 +3293,27 @@ fn stop_connection(
     engine.stop();
     crate::stop_android_vpn();
     #[cfg(not(target_os = "android"))]
-    stop_desktop_tunnel();
+    stop_desktop_tunnel_async();
     ui.set_busy(true);
     ui.set_status_text("Stopping…".into());
 
     let system_proxy_enabled = store.lock().unwrap().settings.system_proxy;
     if system_proxy_enabled {
-        if let Err(error) = system_proxy::disable() {
-            push_log(ui, logs, format!("could not restore system proxy: {error}"));
-        }
+        let weak = ui.as_weak();
+        let logs = logs.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = system_proxy::disable() {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        push_log(
+                            &ui,
+                            &logs,
+                            format!("could not restore system proxy: {error}"),
+                        );
+                    }
+                });
+            }
+        });
     }
 }
 
@@ -3293,6 +3349,9 @@ fn start_bridge(
 /// records what was tried so a group full of dead servers stops instead of
 /// looping, and resets as soon as something connects.
 fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason: &str) {
+    if USER_STOPPED.load(Ordering::SeqCst) {
+        return;
+    }
     let (enabled, failed_id) = {
         let guard = context.store.lock().unwrap();
         (guard.settings.failover, guard.selected_id.clone())
@@ -3411,7 +3470,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 ui.set_country_flag(Default::default());
                 crate::stop_android_vpn();
                 #[cfg(not(target_os = "android"))]
-                stop_desktop_tunnel();
+                stop_desktop_tunnel_async();
                 *BUSY_SINCE.lock().unwrap() = None;
                 *PENDING_SWITCH.lock().unwrap() = None;
                 if KILL_SWITCH.load(Ordering::SeqCst) {
@@ -3497,7 +3556,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                         }
 
                         #[cfg(target_os = "android")]
-                        if ready {
+                        if ready && session() == probe_session {
                             crate::start_android_vpn(port);
                         }
 
@@ -3615,7 +3674,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 ui.set_status_text("Stopping…".into());
                 crate::stop_android_vpn();
                 #[cfg(not(target_os = "android"))]
-                stop_desktop_tunnel();
+                stop_desktop_tunnel_async();
             }
             EngineState::Error(message) => {
                 STARTING.store(false, Ordering::SeqCst);
@@ -3640,7 +3699,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 // gone; only keep it when the user asked for a kill switch.
                 #[cfg(not(target_os = "android"))]
                 if !blocked {
-                    stop_desktop_tunnel();
+                    stop_desktop_tunnel_async();
                 }
                 ui.set_status_text(
                     if blocked {
