@@ -133,6 +133,12 @@ can block, and only the current attempt may change it.
   now reports an error instead of leaving the bar green over a dead tunnel.
   Failover is suppressed for these failures because the next profile would hit
   the same VPN permission/slot problem.
+- A native connect is cancellable: stop, or picking another profile, interrupts
+  it immediately. The OpenVPN core stops retrying after a few refused
+  transports and reports `OpenVPN could not connect` instead of reconnecting
+  forever behind a bar that cannot stop it.
+- Picking a profile while a connection is still coming up switches to it right
+  away; the pick is no longer deferred until a tunnel that may never arrive.
 
 ## Unified latency
 
@@ -273,8 +279,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -566,4 +572,4 @@ scheme. Use `scripts/bump-version.sh` to advance it. For a milestone release
 (for example `0.10.0 -> 1.1.0`) set the version by hand in `Cargo.toml`, run
 `cargo update -w` so `Cargo.lock` follows, and update the default in
 `crates/bamdad-app/android/app/build.gradle.kts`. The next release is
-`v1.1.0`.
+`v1.1.1`.
