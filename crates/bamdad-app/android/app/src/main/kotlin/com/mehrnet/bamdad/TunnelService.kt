@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,20 +59,13 @@ class TunnelService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 val mine = generation
-                val target = TunnelController.current()
                 scope.launch {
                     if (generation == mine) {
                         pollingJob?.cancel()
-                        TunnelController.disconnect(target)
-                        // Tell Rust the slot is really free. A stop that
-                        // arrives while the backend is still establishing
-                        // would otherwise leave the event gate open for a
-                        // late UP.
-                        runCatching {
-                            MainActivity.nativeTunnelEvent(
-                                TunnelStatus(TunnelState.DOWN).toJson(profile?.id ?: ""),
-                            )
-                        }
+                        TunnelController.disconnect()
+                        // Rust already moved the bar to "Stopping…" and
+                        // closes the event gate itself; publishing a DOWN
+                        // here could land after the next attempt started.
                         stopForegroundCompat()
                     }
                     // Ignored when a newer start arrived meanwhile.
@@ -81,6 +75,10 @@ class TunnelService : Service() {
             }
             ACTION_START -> {
                 generation++
+                // The previous attempt's poller must not keep its handshake
+                // watchdog armed against the tunnel we are about to start.
+                pollingJob?.cancel()
+                pollingJob = null
                 val raw = intent.getStringExtra(EXTRA_PROFILE) ?: return START_NOT_STICKY
                 val parsed = runCatching { TunnelProfile.fromJson(raw) }.getOrNull()
                     ?: run {
@@ -111,10 +109,14 @@ class TunnelService : Service() {
                 }
                 scope.launch {
                     try {
-                        TunnelController.connect(this@TunnelService, parsed) { status ->
+                        val connected = TunnelController.connect(this@TunnelService, parsed) { status ->
                             publish(parsed, status)
                         }
-                        startStatusPolling(parsed)
+                        if (connected) startStatusPolling(parsed)
+                    } catch (cancelled: CancellationException) {
+                        // A stop or a newer profile pick cancelled this
+                        // attempt; it must not report an error.
+                        throw cancelled
                     } catch (error: Throwable) {
                         Log.e(TAG, "tunnel connect failed", error)
                         log("connect failed: ${error.message}")
@@ -168,7 +170,10 @@ class TunnelService : Service() {
                     if (status.state == TunnelState.DOWN || status.state == TunnelState.ERROR) break
                     continue
                 }
-                if (status.state != TunnelState.UP) break
+                if (status.state != TunnelState.UP) {
+                    publish(profile, status)
+                    break
+                }
                 publish(profile, status)
                 // The handshake watchdog is WireGuard-specific; OpenVPN
                 // sessions have no handshake timestamp and reconnect on their

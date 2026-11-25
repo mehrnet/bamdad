@@ -30,6 +30,8 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
     private var state: Tunnel.State = Tunnel.State.DOWN
     @Volatile
     private var connectedSince: Long = 0L
+    @Volatile
+    private var connecting = false
 
     private val tunnel = object : Tunnel {
         override fun getName(): String = TUNNEL_NAME
@@ -48,6 +50,7 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
 
     override suspend fun connect(profile: TunnelProfile) {
         withContext(Dispatchers.IO) {
+            connecting = true
             state = Tunnel.State.DOWN
             publish()
             val clean = profile.config.trimStart { it.isWhitespace() || it == '\uFEFF' || it == '\u200B' }
@@ -60,7 +63,12 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
             MainActivity.nativeLog(
                 "BamdadAmnezia: parsed ${profile.name} endpoint=$endpoint address=$address",
             )
-            backend.setState(tunnel, Tunnel.State.UP, parsed)
+            try {
+                backend.setState(tunnel, Tunnel.State.UP, parsed)
+            } finally {
+                connecting = false
+            }
+            publish()
         }
     }
 
@@ -72,9 +80,11 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
                 Log.w(TAG, "disconnect failed: ${error.message}")
             }
             config = null
+            connecting = false
             state = Tunnel.State.DOWN
             connectedSince = 0L
-            publish()
+            // No status event: Rust owns the bar during a stop/switch, and a
+            // late DOWN would close the next attempt's event gate.
         }
     }
 
@@ -101,8 +111,9 @@ class AmneziaWgBackend(context: Context) : TunnelBackend {
         val endpoint = active?.peers?.firstOrNull()?.endpoint?.orElse(null)?.toString().orEmpty()
         val address = active?.`interface`?.addresses?.joinToString(", ") { it.toString() }.orEmpty()
         return TunnelStatus(
-            state = when (state) {
-                Tunnel.State.UP -> TunnelState.UP
+            state = when {
+                state == Tunnel.State.UP -> TunnelState.UP
+                connecting -> TunnelState.CONNECTING
                 else -> TunnelState.DOWN
             },
             rxBytes = rx,

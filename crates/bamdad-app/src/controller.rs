@@ -45,8 +45,6 @@ static FAILOVER: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SESSION: AtomicU64 = AtomicU64::new(0);
 /// When the current busy phase started, for double-click protection.
 static BUSY_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
-/// Profile picked while a connection was still coming up; applied on `Running`.
-static PENDING_SWITCH: Mutex<Option<String>> = Mutex::new(None);
 /// Set when the user disconnects, so late backend errors cannot trigger a
 /// failover after the tunnel was deliberately stopped.
 static USER_STOPPED: AtomicBool = AtomicBool::new(false);
@@ -1344,7 +1342,7 @@ fn setup_callbacks(
 
             ui.set_selected_id(selected.id.as_str().into());
 
-            if ui.get_connected() && !ui.get_busy() {
+            if ui.get_connected() {
                 FAILOVER.lock().unwrap().clear();
                 let message = format!(
                     "switching to {} ({}) without dropping the tunnel",
@@ -1355,18 +1353,27 @@ fn setup_callbacks(
                 crate::logcat(&message);
                 push_log(&ui, &logs, message);
                 start_connection(&ui, &store, &engine, &logs, true);
-            } else if ui.get_busy() && !ui.get_connected() {
-                // Mid-connect: remember the pick and apply it as soon as the
-                // current attempt is up instead of leaving the bar showing one
-                // profile and the tunnel running another.
-                *PENDING_SWITCH.lock().unwrap() = Some(selected.id.clone());
-                push_log(
-                    &ui,
-                    &logs,
-                    format!("will switch to {} once connected", selected.name),
-                );
+            } else if ui.get_busy() {
+                // Mid-connect. A pick must never look ignored: when the
+                // current server is not answering, waiting for the timeout
+                // (or for a tunnel that may never come up) is exactly when
+                // the user tries another profile. Cancel that attempt and
+                // start the chosen one instead.
+                if active_profile_id() == selected.id {
+                    push_log(
+                        &ui,
+                        &logs,
+                        format!("already connecting to {}", selected.name),
+                    );
+                } else {
+                    push_log(
+                        &ui,
+                        &logs,
+                        format!("switching to {} while connecting", selected.name),
+                    );
+                    start_connection(&ui, &store, &engine, &logs, true);
+                }
             } else {
-                *PENDING_SWITCH.lock().unwrap() = None;
                 push_log(&ui, &logs, format!("selected profile: {}", selected.name));
             }
         });
@@ -2953,7 +2960,6 @@ fn spawn_start_watchdog(ui: &AppWindow, engine: &EngineHandle, logs: &LogBuffer,
                 // a late UP would otherwise turn the bar green after the
                 // timeout was already reported.
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
-                *PENDING_SWITCH.lock().unwrap() = None;
                 crate::stop_native_tunnel();
                 if KILL_SWITCH.load(Ordering::SeqCst) {
                     crate::start_kill_switch();
@@ -3375,7 +3381,6 @@ fn stop_connection(
     let _ = new_session();
     USER_STOPPED.store(true, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = None;
-    *PENDING_SWITCH.lock().unwrap() = None;
     SWITCHING.store(false, Ordering::SeqCst);
     STARTING.store(false, Ordering::SeqCst);
     if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
@@ -3568,7 +3573,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 #[cfg(not(target_os = "android"))]
                 stop_desktop_tunnel_async();
                 *BUSY_SINCE.lock().unwrap() = None;
-                *PENDING_SWITCH.lock().unwrap() = None;
                 if KILL_SWITCH.load(Ordering::SeqCst) {
                     crate::start_kill_switch();
                 }
@@ -3614,20 +3618,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                         }
                     });
                 });
-
-                // A profile picked while we were connecting is applied now.
-                let pending = PENDING_SWITCH.lock().unwrap().take();
-                if let Some(id) = pending {
-                    if active_profile_id() != id {
-                        push_log(
-                            ui,
-                            logs,
-                            "applying the profile selected while connecting".to_string(),
-                        );
-                        start_connection(ui, &context.store, &context.engine, logs, true);
-                        return;
-                    }
-                }
                 if NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
                     refresh_native_exit_ips(ui);
                 }
@@ -3779,7 +3769,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
                 *BUSY_SINCE.lock().unwrap() = None;
-                *PENDING_SWITCH.lock().unwrap() = None;
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);

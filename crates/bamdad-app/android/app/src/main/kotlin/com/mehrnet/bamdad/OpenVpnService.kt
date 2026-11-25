@@ -31,6 +31,12 @@ class OpenVpnService : VpnService() {
         @Volatile
         private var status = TunnelStatus(TunnelState.DOWN)
 
+        /** Transport errors are followed by one RECONNECTING per retry. */
+        private const val MAX_RECONNECTS = 4
+
+        @Volatile
+        private var reconnects = 0
+
         @Volatile
         private var instance: OpenVpnService? = null
 
@@ -44,6 +50,7 @@ class OpenVpnService : VpnService() {
         }
 
         fun start(context: Context, profile: TunnelProfile, username: String = "", password: String = "") {
+            reconnects = 0
             update(TunnelStatus(TunnelState.CONNECTING, endpoint = remoteOf(profile.config)))
             val intent = Intent(context, OpenVpnService::class.java).apply {
                 action = ACTION_START
@@ -274,12 +281,37 @@ class OpenVpnService : VpnService() {
         val fatal = event.optBoolean("fatal") || event.optBoolean("error")
         MainActivity.nativeLog("BamdadOpenVpn: event $name${if (info.isNotBlank()) " $info" else ""}")
 
+        // Once a terminal state is reached, later events (the core keeps
+        // retrying for a moment) must not paint "Connecting" over the error.
+        val terminal = status.state == TunnelState.ERROR
         when (name) {
-            "CONNECTED" -> update(TunnelStatus(TunnelState.UP, endpoint = status.endpoint, localAddress = status.localAddress))
+            "CONNECTED" -> {
+                reconnects = 0
+                update(TunnelStatus(TunnelState.UP, endpoint = status.endpoint, localAddress = status.localAddress))
+            }
             "DISCONNECTED" -> update(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+            "RECONNECTING" -> {
+                reconnects++
+                if (!terminal) {
+                    if (reconnects >= MAX_RECONNECTS) {
+                        // The core retries transport failures forever. Report
+                        // the failure so the backend (and the bar) can stop
+                        // waiting and the retry loop can be shut down.
+                        update(
+                            TunnelStatus(
+                                TunnelState.ERROR,
+                                endpoint = status.endpoint,
+                                error = "OpenVPN could not connect",
+                            ),
+                        )
+                    } else if (status.state != TunnelState.UP) {
+                        update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
+                    }
+                }
+            }
             "CONNECTING", "RESOLVE", "WAIT", "WAIT_PROXY", "AUTH", "AUTH_PENDING", "GET_CONFIG",
-            "ASSIGN_IP", "ADD_ROUTES", "RECONNECTING", "RESUME", "RELAY",
-            -> if (status.state != TunnelState.UP) {
+            "ASSIGN_IP", "ADD_ROUTES", "RESUME", "RELAY",
+            -> if (!terminal && status.state != TunnelState.UP) {
                 update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
             }
             else -> if (fatal) {

@@ -21,6 +21,7 @@ class IpSecBackend(private val context: Context) : TunnelBackend {
     override suspend fun connect(profile: TunnelProfile) {
         val config = IpSecConfig.parse(profile.config)
         endpoint = "${config.server}:${config.port}"
+        publish(TunnelStatus(TunnelState.CONNECTING, endpoint = endpoint))
         withContext(Dispatchers.IO) {
             CharonVpnService.start(
                 context,
@@ -39,7 +40,8 @@ class IpSecBackend(private val context: Context) : TunnelBackend {
             CharonVpnService.stop(context)
         }
         connectedSince = 0L
-        publish()
+        // No status event: Rust owns the bar during a stop/switch, and a late
+        // DOWN would close the next attempt's event gate.
     }
 
     override fun released(): Boolean? = CharonVpnService.released()
