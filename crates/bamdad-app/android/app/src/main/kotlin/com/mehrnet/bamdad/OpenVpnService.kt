@@ -85,6 +85,7 @@ class OpenVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         try {
             OpenVpnNative.nativeAttach(this)
         } catch (error: Throwable) {
@@ -297,11 +298,6 @@ class OpenVpnService : VpnService() {
     fun onLog(line: String) {
         Log.d(TAG, line)
         MainActivity.nativeLog("BamdadOpenVpn: $line")
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        instance = this
     }
 
     override fun onDestroy() {
