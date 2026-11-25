@@ -38,7 +38,8 @@ class KillSwitchService : VpnService() {
             runCatching {
                 context.stopService(Intent(context, KillSwitchService::class.java))
             }
-            active = false
+            // `active` stays true until onDestroy: stopService is asynchronous,
+            // and callers use isActive() to know the VPN slot is still held.
         }
     }
 

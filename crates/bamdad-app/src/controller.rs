@@ -55,6 +55,11 @@ static USER_STOPPED: AtomicBool = AtomicBool::new(false);
 /// with a trailing refresh so the last result is never lost.
 static GROUP_REFRESH_AT: Mutex<Option<Instant>> = Mutex::new(None);
 static GROUP_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
+/// Set by the Kotlin proxy VpnService when it cannot take the VPN slot. Such a
+/// failure is not a core/profile failure: it must not trigger failover, and
+/// with the kill switch on it must arm the sinkhole because this TUN never
+/// existed.
+static PROXY_FAILURE: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -249,6 +254,16 @@ pub(crate) fn active_profile_id() -> String {
 /// disconnect; those events must not touch the UI.
 pub(crate) fn native_events_expected() -> bool {
     NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Records a proxy VpnService failure. The error event that follows tells the
+/// UI to arm the kill switch when needed; this flag tells it that the failure
+/// was the VPN slot, not the profile.
+pub(crate) fn proxy_vpn_failed() {
+    PROXY_FAILURE.store(true, Ordering::SeqCst);
+    // A VPN permission or slot problem is not this profile's fault, so the
+    // same failure on the next profile would just repeat. Suppress failover.
+    USER_STOPPED.store(true, Ordering::SeqCst);
 }
 
 pub fn init(
@@ -1540,13 +1555,24 @@ fn setup_callbacks(
                     socks_port,
                     http_port,
                 };
-                if system_proxy && ui.get_connected() {
-                    if let Err(error) = system_proxy::enable(proxy) {
-                        push_log(&ui, &logs, format!("system proxy: {error}"));
+                // `gsettings`/`netsh`/`networksetup` are separate processes;
+                // saving settings must not wait for them on the UI thread.
+                let connected = ui.get_connected();
+                let weak = ui.as_weak();
+                let thread_logs = logs.clone();
+                std::thread::spawn(move || {
+                    if system_proxy && connected {
+                        if let Err(error) = system_proxy::enable(proxy) {
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = weak.upgrade() {
+                                    push_log(&ui, &thread_logs, format!("system proxy: {error}"));
+                                }
+                            });
+                        }
+                    } else if !system_proxy {
+                        let _ = system_proxy::disable();
                     }
-                } else if !system_proxy {
-                    let _ = system_proxy::disable();
-                }
+                });
 
                 ui.set_socks_port(socks_port.to_string().into());
                 ui.set_http_port(http_port.to_string().into());
@@ -2616,12 +2642,8 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
         let Ok(spec) = link::parse(None, &line) else {
             continue;
         };
-        let core = if matches!(spec.network.as_str(), "xhttp" | "splithttp") {
-            CoreKind::Xray
-        } else {
-            CoreKind::Xray
-        };
-        nodes.push(config::Profile::from_spec(&spec, core));
+        // Links are rendered for Xray; XHTTP/splithttp require it anyway.
+        nodes.push(config::Profile::from_spec(&spec, CoreKind::Xray));
     }
 
     let title = title.or_else(|| {
@@ -2927,7 +2949,15 @@ fn spawn_start_watchdog(ui: &AppWindow, engine: &EngineHandle, logs: &LogBuffer,
             ui.set_busy(false);
             ui.set_status_text("Connection timed out".into());
             if native {
+                // Keep no gate open for a backend that is being abandoned:
+                // a late UP would otherwise turn the bar green after the
+                // timeout was already reported.
+                NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
+                *PENDING_SWITCH.lock().unwrap() = None;
                 crate::stop_native_tunnel();
+                if KILL_SWITCH.load(Ordering::SeqCst) {
+                    crate::start_kill_switch();
+                }
             } else {
                 engine.stop();
             }
@@ -3517,7 +3547,12 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
     match event {
         EngineEvent::State(state) => match state {
             EngineState::Stopped => {
-                if SWITCHING.load(Ordering::SeqCst) {
+                // A start in flight emits Stopped from the engine it just
+                // stopped (the actor answers Stop with Stopped when there is
+                // no session yet). Applying that would flip a fresh native
+                // connect to "Disconnected", clear NATIVE_TUNNEL_ACTIVE and
+                // drop every event the new backend sends.
+                if SWITCHING.load(Ordering::SeqCst) || STARTING.load(Ordering::SeqCst) {
                     return;
                 }
                 ui.set_connected(false);
@@ -3739,6 +3774,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 stop_desktop_tunnel_async();
             }
             EngineState::Error(message) => {
+                let proxy_failure = PROXY_FAILURE.swap(false, Ordering::SeqCst);
                 STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
@@ -3763,11 +3799,17 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 if !blocked {
                     stop_desktop_tunnel_async();
                 }
+                // A short, user-facing reason (VPN permission denied, slot
+                // busy) is more useful than a generic "Core error"; long
+                // engine diagnostics stay in the log.
+                let short = !message.is_empty() && message.chars().count() <= 48;
                 ui.set_status_text(
-                    if blocked {
-                        "Core error · traffic blocked"
+                    if short {
+                        message.clone()
+                    } else if blocked {
+                        "Core error · traffic blocked".to_string()
                     } else {
-                        "Core error"
+                        "Core error".to_string()
                     }
                     .into(),
                 );
@@ -3775,8 +3817,15 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 ui.set_country_flag(Default::default());
                 #[cfg(not(target_os = "android"))]
                 let _ = system_proxy::disable();
-                // Android: keep the TUN up as a blackhole so apps cannot fall
-                // back to the physical network. The user disconnects explicitly.
+                // A failed proxy VpnService never held the slot: on Android the
+                // usual "the TUN stays up as a blackhole" does not apply, so
+                // hand the slot to the sinkhole explicitly.
+                #[cfg(target_os = "android")]
+                if proxy_failure && KILL_SWITCH.load(Ordering::SeqCst) {
+                    crate::start_kill_switch();
+                }
+                // Android: for core failures the existing TUN stays up as a
+                // blackhole so apps cannot fall back to the physical network.
                 push_log(ui, logs, message.clone());
                 try_failover(ui, logs, context, &message);
             }

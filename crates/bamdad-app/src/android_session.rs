@@ -46,6 +46,10 @@ pub fn run(ui: AppWindow) -> anyhow::Result<()> {
     // stay alive. Detach the UI channel and keep the session for the next
     // activity instance.
     *ui_tx.lock().unwrap() = None;
+    // The debounced saver may still hold the last change; the process keeps
+    // running for the VPN, so flush now instead of risking a kill before the
+    // next write.
+    crate::persist::flush();
     result?;
     Ok(())
 }

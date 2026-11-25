@@ -303,7 +303,14 @@ fn parse_trojan(rest: &str) -> Result<ProxySpec> {
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>> {
-    let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+    // Some clients percent-encode the payload (`=` as %3D, `+` as %2B), which
+    // ShareLink generators in the wild do; plain base64 is unchanged by the
+    // decode.
+    let decoded_input = decode_percent(input);
+    let cleaned: String = decoded_input
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let engines = [
         base64::engine::general_purpose::STANDARD,
         base64::engine::general_purpose::STANDARD_NO_PAD,
@@ -870,6 +877,28 @@ mod tests {
         );
         let vmess = parse(None, &link).unwrap();
         assert_eq!(vmess.name, "🔥 Node");
+    }
+
+    #[test]
+    fn parses_percent_encoded_vmess_payload() {
+        let payload = json!({
+            "v": "2",
+            "ps": "Encoded",
+            "add": "example.com",
+            "port": "443",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "net": "ws",
+            "path": "/ws",
+            "tls": "tls"
+        });
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload.to_string());
+        // Clients that URL-encode the payload produce %3D for the padding.
+        let escaped = encoded.replace('=', "%3D");
+        let spec = parse(None, &format!("vmess://{escaped}")).unwrap();
+        assert_eq!(spec.name, "Encoded");
+        assert_eq!(spec.address, "example.com");
+        assert_eq!(spec.port, 443);
+        assert_eq!(spec.network, "ws");
     }
 
     #[test]

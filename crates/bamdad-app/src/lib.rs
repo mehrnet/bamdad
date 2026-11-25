@@ -315,7 +315,32 @@ mod android {
             }
         }
 
+        /// A proxy VpnService could not take the VPN slot (permission denied,
+        /// service start rejected, establish/tun2socks failure). Not gated by
+        /// NATIVE_TUNNEL_ACTIVE: the proxy path never sets that flag, and the
+        /// user has to be told that the bar is not actually connected.
+        extern "system" fn proxy_error(mut env: jni::JNIEnv, _class: JClass, message: JString) {
+            let message: String = env
+                .get_string(&message)
+                .map(|value| value.into())
+                .unwrap_or_default();
+            let message = if message.trim().is_empty() {
+                "VPN could not start".to_string()
+            } else {
+                message
+            };
+            controller::proxy_vpn_failed();
+            tunnel::emit_event(EngineEvent::State(bamdad_core::engine::EngineState::Error(
+                message,
+            )));
+        }
+
         let methods = [
+            NativeMethod {
+                name: "nativeProxyError".into(),
+                sig: "(Ljava/lang/String;)V".into(),
+                fn_ptr: proxy_error as *mut c_void,
+            },
             NativeMethod {
                 name: "nativeSplitAppsSelected".into(),
                 sig: "(Ljava/lang/String;)V".into(),

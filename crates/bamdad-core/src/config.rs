@@ -312,18 +312,29 @@ impl Store {
         let text = serde_json::to_string_pretty(self)?;
         // Write-then-rename: a crash or power loss mid-save must never leave a
         // truncated store behind, which would reset every profile on load.
-        let temp = path.with_extension("json.tmp");
-        {
+        // The temp name is unique per save: a second app instance saving at
+        // the same time would otherwise interleave both payloads in one temp
+        // file and publish the mixture.
+        let temp = unique_temp_path(path);
+        let written = (|| -> Result<()> {
             use std::io::Write;
             let mut file = std::fs::File::create(&temp)?;
             file.write_all(text.as_bytes())?;
             file.sync_all()?;
+            Ok(())
+        })();
+        if let Err(error) = written {
+            let _ = std::fs::remove_file(&temp);
+            return Err(error);
         }
         #[cfg(windows)]
         if path.exists() {
             let _ = std::fs::remove_file(path);
         }
-        std::fs::rename(&temp, path)?;
+        if let Err(error) = std::fs::rename(&temp, path) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -486,6 +497,18 @@ impl Store {
         }
         self.profiles.len() != before
     }
+}
+
+/// `profiles.json.<pid>.<n>.tmp` next to the store. Concurrent writers get
+/// distinct files, so only a complete payload can ever be renamed into place.
+fn unique_temp_path(path: &Path) -> std::path::PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("bamdad-store.json");
+    let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+    path.with_file_name(format!("{name}.{}.{unique}.tmp", std::process::id()))
 }
 
 pub fn new_id() -> String {
@@ -1041,6 +1064,43 @@ mod tests {
         let reloaded = Store::load_or_default(&path);
         assert_eq!(reloaded.settings.socks_port, 2222);
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn concurrent_saves_never_mix_payloads() {
+        let dir = std::env::temp_dir().join(format!("bamdad-concurrent-{}", new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profiles.json");
+
+        let mut handles = Vec::new();
+        for port in 2000..2008u16 {
+            let path = path.clone();
+            handles.push(std::thread::spawn(move || {
+                let mut store = Store::default();
+                store.settings.socks_port = port;
+                for _ in 0..5 {
+                    store.save(&path).unwrap();
+                }
+                port
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let reloaded = Store::load_or_default(&path);
+        assert!(
+            (2000..2008).contains(&reloaded.settings.socks_port),
+            "store is a mixture: {}",
+            reloaded.settings.socks_port
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left behind");
         std::fs::remove_dir_all(&dir).ok();
     }
 

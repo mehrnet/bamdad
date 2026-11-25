@@ -46,13 +46,19 @@ object TunnelOptions {
         return CidrRoutes.subtractKeeping(parsed, bypass)
     }
 
-    fun apply(builder: VpnService.Builder) {
+    fun apply(builder: VpnService.Builder, selfPackage: String = "") {
         dns.forEach { address ->
             runCatching { builder.addDnsServer(address) }
                 .onFailure { Log.w(TAG, "bad DNS $address: ${it.message}") }
         }
         when (splitMode) {
             "allow" -> splitApps.forEach { pkg ->
+                // The core shares our UID: putting it on the allow list would
+                // route its own sockets into its own tunnel.
+                if (pkg == selfPackage) {
+                    Log.w(TAG, "not adding $pkg to its own allow list")
+                    return@forEach
+                }
                 runCatching { builder.addAllowedApplication(pkg) }
                     .onFailure { Log.w(TAG, "allow $pkg failed: ${it.message}") }
             }

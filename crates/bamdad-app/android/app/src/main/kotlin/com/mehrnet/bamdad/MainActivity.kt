@@ -34,9 +34,10 @@ class MainActivity : NativeActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == VPN_REQUEST) {
             if (resultCode == RESULT_OK) {
-                startVpnService(this, pendingVpnPort)
+                awaitVpnSlot(includeNative = true) { startVpnService(this, pendingVpnPort) }
             } else {
                 Log.w(TAG, "VPN consent denied")
+                nativeProxyError("VPN permission denied")
             }
         } else if (requestCode == IMPORT_FILE_REQUEST) {
             if (resultCode == RESULT_OK) {
@@ -55,7 +56,7 @@ class MainActivity : NativeActivity() {
             val json = pendingNativeTunnel
             pendingNativeTunnel = null
             if (resultCode == RESULT_OK && json != null) {
-                startNativeTunnelService(this, json)
+                awaitVpnSlot { startNativeTunnelService(this, json) }
             } else {
                 Log.w(TAG, "native VPN consent denied")
                 nativeTunnelEvent(
@@ -83,6 +84,39 @@ class MainActivity : NativeActivity() {
         @Volatile
         private var pendingNativeTunnel: String? = null
 
+        private const val SLOT_TIMEOUT_MS = 3_000L
+        private const val SLOT_POLL_MS = 50L
+
+        /**
+         * Runs [then] once the previous VPN owner has released the single
+         * Android slot. Guessing with a fixed delay either failed establish()
+         * on a slow teardown or made a quick switch needlessly slow.
+         *
+         * [includeNative] also waits for the WireGuard/OpenVPN/IPSec backend.
+         * A native-to-native switch does not need it: the TunnelService
+         * performs that handover itself.
+         */
+        private fun awaitVpnSlot(
+            includeNative: Boolean = false,
+            waited: Long = 0,
+            then: () -> Unit,
+        ) {
+            val free = BamdadVpnService.released() &&
+                !KillSwitchService.isActive() &&
+                (!includeNative || (TunnelController.released() ?: true))
+            if (!free && waited < SLOT_TIMEOUT_MS) {
+                Handler(Looper.getMainLooper()).postDelayed(
+                    { awaitVpnSlot(includeNative, waited + SLOT_POLL_MS, then) },
+                    SLOT_POLL_MS,
+                )
+                return
+            }
+            if (!free) {
+                Log.w(TAG, "VPN slot still busy after ${waited}ms; starting anyway")
+            }
+            then()
+        }
+
         /** Registered by Rust; forwards native backend state into the session. */
         @JvmStatic
         external fun nativeTunnelEvent(json: String)
@@ -90,6 +124,10 @@ class MainActivity : NativeActivity() {
         /** Registered by Rust; receives the split-tunneling app selection. */
         @JvmStatic
         external fun nativeSplitAppsSelected(csv: String)
+
+        /** Registered by Rust; reports a proxy VpnService that could not start. */
+        @JvmStatic
+        external fun nativeProxyError(message: String)
 
         /** Registered by Rust; imports one or more config bodies. */
         @JvmStatic
@@ -172,15 +210,24 @@ class MainActivity : NativeActivity() {
          */
         @JvmStatic
         fun startVpn(socksPort: Int) {
-            val activity = instance ?: return
+            if (instance == null) {
+                nativeProxyError("VPN could not start: the app window is gone")
+                return
+            }
             Handler(Looper.getMainLooper()).post {
                 pendingVpnPort = socksPort
+                val activity = instance ?: run {
+                    nativeProxyError("VPN could not start: the app window is gone")
+                    return@post
+                }
                 requestNotificationPermission(activity)
                 val consent = VpnService.prepare(activity)
                 if (consent != null) {
                     activity.startActivityForResult(consent, VPN_REQUEST)
                 } else {
-                    startVpnService(activity, socksPort)
+                    awaitVpnSlot(includeNative = true) {
+                        startVpnService(activity, socksPort)
+                    }
                 }
             }
         }
@@ -201,17 +248,26 @@ class MainActivity : NativeActivity() {
          */
         @JvmStatic
         fun startNativeTunnel(json: String) {
-            val activity = instance ?: return
-            Handler(Looper.getMainLooper()).postDelayed({
-                requestNotificationPermission(activity)
-                val consent = VpnService.prepare(activity)
-                if (consent != null) {
-                    pendingNativeTunnel = json
-                    activity.startActivityForResult(consent, VPN_REQUEST_NATIVE)
-                } else {
-                    startNativeTunnelService(activity, json)
+            if (instance == null) {
+                nativeProxyError("VPN could not start: the app window is gone")
+                return
+            }
+            Handler(Looper.getMainLooper()).post {
+                awaitVpnSlot {
+                    val activity = instance ?: run {
+                        nativeProxyError("VPN could not start: the app window is gone")
+                        return@awaitVpnSlot
+                    }
+                    requestNotificationPermission(activity)
+                    val consent = VpnService.prepare(activity)
+                    if (consent != null) {
+                        pendingNativeTunnel = json
+                        activity.startActivityForResult(consent, VPN_REQUEST_NATIVE)
+                    } else {
+                        startNativeTunnelService(activity, json)
+                    }
                 }
-            }, 1200)
+            }
         }
 
         @JvmStatic

@@ -165,9 +165,10 @@ fn platform_disable() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn platform_enable(settings: ProxySettings) -> Result<()> {
     let mut any = false;
-    for service in ["Wi-Fi", "Ethernet"] {
-        let socks = settings.socks_port.to_string();
-        let http = settings.http_port.to_string();
+    let socks = settings.socks_port.to_string();
+    let http = settings.http_port.to_string();
+    for service in network_services() {
+        let service = service.as_str();
         let commands: [&[&str]; 6] = [
             &["-setsocksfirewallproxy", service, "127.0.0.1", &socks],
             &["-setsocksfirewallproxystate", service, "on"],
@@ -193,7 +194,8 @@ fn platform_enable(settings: ProxySettings) -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn platform_disable() -> Result<()> {
-    for service in ["Wi-Fi", "Ethernet"] {
+    for service in network_services() {
+        let service = service.as_str();
         let _ = run(
             "networksetup",
             &["-setsocksfirewallproxystate", service, "off"],
@@ -202,6 +204,33 @@ fn platform_disable() -> Result<()> {
         let _ = run("networksetup", &["-setsecurewebproxystate", service, "off"]);
     }
     Ok(())
+}
+
+/// Every user-visible network service. Hard-coding "Wi-Fi"/"Ethernet" missed
+/// USB/Thunderbolt/Bridge adapters, which is exactly what a desktop Mac uses.
+#[cfg(target_os = "macos")]
+fn network_services() -> Vec<String> {
+    let mut services: Vec<String> = Vec::new();
+    if let Ok(output) = Command::new("networksetup")
+        .arg("-listallnetworkservices")
+        .output()
+    {
+        if output.status.success() {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let line = line.trim();
+                // First line is the asterisk legend; `*name` is disabled.
+                if line.is_empty() || line.starts_with("An asterisk") || line.starts_with('*') {
+                    continue;
+                }
+                services.push(line.to_string());
+            }
+        }
+    }
+    if services.is_empty() {
+        services.push("Wi-Fi".to_string());
+        services.push("Ethernet".to_string());
+    }
+    services
 }
 
 #[cfg(target_os = "windows")]

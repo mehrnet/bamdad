@@ -10,9 +10,11 @@ import android.util.Base64
 import android.util.Log
 import com.mehrnet.bamdad.IpSecConfig
 import com.mehrnet.bamdad.MainActivity
+import com.mehrnet.bamdad.TunnelOptions
 import com.mehrnet.bamdad.TunnelState
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.net.InetAddress
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.cert.CertificateFactory
@@ -199,7 +201,7 @@ class CharonVpnService : VpnService() {
 
         val started = synchronized(charonLock) {
             initializeCharon(
-                BuilderAdapter(builder) { Builder() },
+                BuilderAdapter(builder, packageName) { Builder() },
                 File(appDir, "charon.log").absolutePath,
                 appDir.absolutePath,
                 false,
@@ -378,6 +380,7 @@ class CharonVpnService : VpnService() {
      */
     class BuilderAdapter(
         private var builder: VpnService.Builder,
+        private val selfPackage: String = "",
         private val newBuilder: () -> VpnService.Builder,
     ) {
         private var established: VpnService.Builder? = null
@@ -390,13 +393,26 @@ class CharonVpnService : VpnService() {
 
         @Synchronized
         fun addRoute(address: String, prefixLength: Int): Boolean = runCatching {
-            builder.addRoute(address, prefixLength)
+            // Bypassed prefixes are cut out of the routes the gateway pushes,
+            // the same way the proxy and OpenVPN builders do it.
+            val routed = TunnelOptions.bypassRoutes("$address/$prefixLength")
+            if (routed.isEmpty()) {
+                builder.addRoute(address, prefixLength)
+            } else {
+                for (route in routed) {
+                    builder.addRoute(InetAddress.getByName(route.address), route.prefix)
+                }
+            }
             true
         }.getOrDefault(false)
 
         @Synchronized
         fun addDnsServer(address: String): Boolean = runCatching {
-            builder.addDnsServer(address)
+            // A custom DNS list replaces the gateway's; TunnelOptions.apply
+            // adds it just before establish().
+            if (TunnelOptions.dns.isEmpty()) {
+                builder.addDnsServer(address)
+            }
             true
         }.getOrDefault(false)
 
@@ -408,6 +424,7 @@ class CharonVpnService : VpnService() {
 
         @Synchronized
         fun establish(): Int {
+            TunnelOptions.apply(builder, selfPackage)
             val fd: ParcelFileDescriptor = runCatching { builder.establish() }.getOrNull()
                 ?: return -1
             established = builder

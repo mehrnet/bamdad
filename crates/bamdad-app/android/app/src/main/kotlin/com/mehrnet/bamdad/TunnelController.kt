@@ -50,12 +50,24 @@ object TunnelController {
         backend.connect(profile)
     }
 
-    suspend fun disconnect() = mutex.withLock {
+    /**
+     * Disconnects the active backend. Pass [target] to make the call a no-op
+     * when a newer backend has taken over in the meantime: a stop command
+     * queued just before a reconnect must not tear the new tunnel down.
+     */
+    suspend fun disconnect(target: TunnelBackend? = null) = mutex.withLock {
+        if (target != null && active !== target) return@withLock
         active?.let { runCatching { it.disconnect() } }
         active = null
     }
 
+    /** The backend owning the VPN slot right now, if any. */
+    fun current(): TunnelBackend? = active
+
     fun status(): TunnelStatus? = active?.status()
+
+    /** Whether the active backend has released the VPN slot (see [TunnelBackend.released]). */
+    fun released(): Boolean? = active?.released()
 
     /**
      * Waits until the previous backend's VpnService has torn down. A fixed

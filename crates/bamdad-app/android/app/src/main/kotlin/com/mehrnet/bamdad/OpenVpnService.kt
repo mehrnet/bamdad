@@ -232,7 +232,7 @@ class OpenVpnService : VpnService() {
                     }
                 }
             }
-            TunnelOptions.apply(builder)
+            TunnelOptions.apply(builder, packageName)
 
             val fd = try {
                 builder.establish()

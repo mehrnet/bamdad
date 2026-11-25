@@ -33,6 +33,15 @@ class TunnelService : Service() {
     private var pollingJob: Job? = null
     private var lastLoggedState: TunnelState? = null
 
+    /**
+     * Bumped for every start command. A stop that was queued before a newer
+     * start must not tear down that newer tunnel, cancel its polling, or
+     * remove its notification: the two commands arrive milliseconds apart
+     * when the user reconnects quickly.
+     */
+    @Volatile
+    private var generation = 0
+
     private fun log(message: String) {
         Log.i(TAG, message)
         MainActivity.nativeLog("BamdadTunnel: $message")
@@ -48,15 +57,30 @@ class TunnelService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                pollingJob?.cancel()
+                val mine = generation
+                val target = TunnelController.current()
                 scope.launch {
-                    TunnelController.disconnect()
-                    stopForegroundCompat()
-                    stopSelf()
+                    if (generation == mine) {
+                        pollingJob?.cancel()
+                        TunnelController.disconnect(target)
+                        // Tell Rust the slot is really free. A stop that
+                        // arrives while the backend is still establishing
+                        // would otherwise leave the event gate open for a
+                        // late UP.
+                        runCatching {
+                            MainActivity.nativeTunnelEvent(
+                                TunnelStatus(TunnelState.DOWN).toJson(profile?.id ?: ""),
+                            )
+                        }
+                        stopForegroundCompat()
+                    }
+                    // Ignored when a newer start arrived meanwhile.
+                    stopSelf(startId)
                 }
                 return START_NOT_STICKY
             }
             ACTION_START -> {
+                generation++
                 val raw = intent.getStringExtra(EXTRA_PROFILE) ?: return START_NOT_STICKY
                 val parsed = runCatching { TunnelProfile.fromJson(raw) }.getOrNull()
                     ?: run {

@@ -71,14 +71,21 @@ class BamdadVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
-        try {
-            // The core runs under the same UID and must use the physical
-            // network, not loop back into the tunnel.
-            builder.addDisallowedApplication(packageName)
-        } catch (error: Exception) {
-            Log.w(TAG, "could not exclude $packageName: ${error.message}")
+        // The core runs under the same UID and must use the physical network,
+        // not loop back into the tunnel. In "only these apps" mode the builder
+        // cannot mix allowed and disallowed applications - and it does not
+        // need to: Bamdad is simply not on the allow list, so it stays
+        // outside. Calling addDisallowedApplication first made every
+        // addAllowedApplication throw and silently disabled split tunneling.
+        val allowOnly = TunnelOptions.splitMode == "allow" && TunnelOptions.splitApps.isNotEmpty()
+        if (!allowOnly) {
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (error: Exception) {
+                Log.w(TAG, "could not exclude $packageName: ${error.message}")
+            }
         }
-        TunnelOptions.apply(builder)
+        TunnelOptions.apply(builder, packageName)
 
         val fd = try {
             builder.establish()
@@ -88,6 +95,7 @@ class BamdadVpnService : VpnService() {
         }
         if (fd == null) {
             Log.e(TAG, "VpnService.Builder.establish() returned null")
+            MainActivity.nativeProxyError("Android rejected the VPN interface")
             stopTunnel()
             stopSelf()
             return
@@ -98,6 +106,7 @@ class BamdadVpnService : VpnService() {
             fd.close()
             stopTunnel()
             stopSelf()
+            MainActivity.nativeProxyError("Could not start the traffic forwarder")
             return
         }
 
@@ -198,11 +207,23 @@ class BamdadVpnService : VpnService() {
             instance?.refreshNotification()
         }
 
+        /** True once the service is gone and the VPN slot is free. */
+        fun released(): Boolean = instance == null
+
         fun start(context: Context, socksPort: Int) {
             Log.i(TAG, "start requested (socks $socksPort)")
             val intent = Intent(context, BamdadVpnService::class.java)
                 .putExtra(EXTRA_SOCKS_PORT, socksPort)
-            context.startForegroundService(intent)
+            try {
+                context.startForegroundService(intent)
+            } catch (error: Throwable) {
+                // Android 12+ rejects a foreground service started from the
+                // background; without this the process simply crashed.
+                Log.e(TAG, "could not start the VPN service", error)
+                MainActivity.nativeProxyError(
+                    "Could not start the VPN service: ${error.message}",
+                )
+            }
         }
 
         fun stop(context: Context) {

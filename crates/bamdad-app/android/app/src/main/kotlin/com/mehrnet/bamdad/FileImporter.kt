@@ -25,6 +25,7 @@ object FileImporter {
     private const val TAG = "BamdadImport"
     private const val MAX_FILE_BYTES = 2 * 1024 * 1024
     private const val MAX_ZIP_BYTES = 20 * 1024 * 1024
+    private const val MAX_TOTAL_BYTES = 32 * 1024 * 1024
     private const val MAX_ENTRIES = 40
 
     fun pick(activity: Activity) {
@@ -122,24 +123,38 @@ object FileImporter {
             if (!password.isNullOrEmpty()) {
                 zip.setPassword(password.toCharArray())
             }
-            val files = JSONArray()
-            val all = mutableMapOf<String, String>()
-            var count = 0
-            for (header in zip.fileHeaders) {
-                if (header.isDirectory) continue
-                val entry = header.fileName.replace('\\', '/')
-                if (entry.startsWith("__MACOSX/") || entry.substringAfterLast('/').startsWith(".")) {
-                    continue
+            val entries = zip.fileHeaders
+                .filter { !it.isDirectory }
+                .map { header -> header to header.fileName.replace('\\', '/') }
+                .filter { (_, entry) ->
+                    !entry.startsWith("__MACOSX/") &&
+                        !entry.substringAfterLast('/').startsWith(".")
                 }
+            // Read every sibling first: an .ovpn may reference a certificate
+            // that is stored after it in the archive, and the previous
+            // single pass then left the reference unresolved.
+            val all = mutableMapOf<String, String>()
+            var budget = MAX_TOTAL_BYTES
+            for ((header, entry) in entries) {
                 if (header.uncompressedSize > MAX_FILE_BYTES.toLong()) {
                     Log.w(TAG, "skipping oversized entry $entry (${header.uncompressedSize} bytes)")
                     continue
                 }
-                if (count >= MAX_ENTRIES) break
-                val text = zip.getInputStream(header).bufferedReader().use { it.readText() }
-                // Sibling files are needed to inline .ovpn references.
+                if (budget <= 0) {
+                    Log.w(TAG, "stopping at the ZIP import budget")
+                    break
+                }
+                val text = readEntry(zip, header) ?: continue
+                budget -= text.length * 2
                 all[entry.substringAfterLast('/').lowercase()] = text
+            }
+
+            val files = JSONArray()
+            var count = 0
+            for ((_, entry) in entries) {
+                if (count >= MAX_ENTRIES) break
                 if (!supported(entry)) continue
+                val text = all[entry.substringAfterLast('/').lowercase()] ?: continue
                 val inline = if (entry.lowercase().endsWith(".ovpn")) {
                     inlineOpenVpnReferences(text, all)
                 } else {
@@ -169,6 +184,34 @@ object FileImporter {
             Log.e(TAG, "zip extraction failed", error)
             toast(activity, "ZIP error: ${error.message}")
         }
+    }
+
+    /**
+     * Reads one entry with a hard cap. `uncompressedSize` comes from the
+     * archive itself and a malicious ZIP can understate it, so the read is
+     * bounded instead of trusting the header.
+     */
+    private fun readEntry(zip: ZipFile, header: net.lingala.zip4j.model.FileHeader): String? {
+        val bytes = try {
+            zip.getInputStream(header).use { stream ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(16 * 1024)
+                var total = 0
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_FILE_BYTES) return null
+                    out.write(buffer, 0, read)
+                }
+                out.toByteArray()
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "could not read ${header.fileName}: ${error.message}")
+            return null
+        }
+        if (bytes.isEmpty()) return ""
+        return String(bytes, Charsets.UTF_8)
     }
 
     private val inlineTags = mapOf(
