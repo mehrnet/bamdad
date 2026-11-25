@@ -128,6 +128,11 @@ can block, and only the current attempt may change it.
 - Recreating the Android activity reattaches to the running session: the bar,
   counters, logs, and exit IP are repainted from the live session, and a
   re-attach in the middle of a switch still wires the event bridge.
+- A proxy `VpnService` that cannot take the slot (permission denied, Android
+  12+ background start rejection, `establish()` failure, forwarder failure)
+  now reports an error instead of leaving the bar green over a dead tunnel.
+  Failover is suppressed for these failures because the next profile would hit
+  the same VPN permission/slot problem.
 
 ## Unified latency
 
@@ -268,8 +273,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.10.0
-git push origin v0.10.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -533,7 +538,7 @@ original routing must be back after the helper stops.
 3. ~~**Real-delay probe**~~ — proxied `generate_204` requests now drive the
    proxy latency numbers.
 4. **Routing editor** — per-app split tunneling, custom DNS, and bypass
-   routes already apply to the proxy, WireGuard/AmneziaWG, and OpenVPN
+   routes already apply to the proxy, WireGuard/AmneziaWG, OpenVPN, and IPSec
    tunnels; a profile-aware routing editor is next.
 5. **Packaging** — bundle sidecars, AppImage/MSI/.app, auto-update, tray mode.
 
@@ -557,5 +562,8 @@ single digit and rolls over into `minor`:
 ```
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
-scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.10.0`.
+scheme. Use `scripts/bump-version.sh` to advance it. For a milestone release
+(for example `0.10.0 -> 1.1.0`) set the version by hand in `Cargo.toml`, run
+`cargo update -w` so `Cargo.lock` follows, and update the default in
+`crates/bamdad-app/android/app/build.gradle.kts`. The next release is
+`v1.1.0`.

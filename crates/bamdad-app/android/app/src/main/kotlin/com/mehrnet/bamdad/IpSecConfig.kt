@@ -22,11 +22,13 @@ data class IpSecConfig(
     val key: String?,
 ) {
     companion object {
-        private val tagCache = mutableMapOf<String, Regex>()
-
-        private fun pattern(tag: String): Regex = tagCache.getOrPut(tag) {
-            Regex("<$tag\\s*>(.*?)</$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        }
+        // No shared cache: parse() runs from the UI thread and from the connect
+        // thread, and a plain HashMap cannot be mutated concurrently.
+        private fun pattern(tag: String): Regex =
+            Regex(
+                "<$tag\\s*>(.*?)</$tag>",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+            )
 
         private fun value(xml: String, tag: String): String? =
             pattern(tag).find(xml)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
