@@ -42,6 +42,8 @@ class IpSecBackend(private val context: Context) : TunnelBackend {
         publish()
     }
 
+    override fun released(): Boolean? = CharonVpnService.released()
+
     override fun status(): TunnelStatus {
         val state = CharonVpnService.state
         if (state == TunnelState.UP && connectedSince == 0L) {

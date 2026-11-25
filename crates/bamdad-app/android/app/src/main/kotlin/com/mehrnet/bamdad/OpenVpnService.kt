@@ -31,7 +31,13 @@ class OpenVpnService : VpnService() {
         @Volatile
         private var status = TunnelStatus(TunnelState.DOWN)
 
+        @Volatile
+        private var instance: OpenVpnService? = null
+
         fun snapshot(): TunnelStatus = status
+
+        /** True once the service is gone and the VPN slot is free. */
+        fun released(): Boolean = instance == null
 
         private fun update(newStatus: TunnelStatus) {
             status = newStatus
@@ -293,9 +299,17 @@ class OpenVpnService : VpnService() {
         MainActivity.nativeLog("BamdadOpenVpn: $line")
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
     override fun onDestroy() {
         runCatching { OpenVpnNative.nativeStop() }
         releaseTun()
+        if (instance === this) {
+            instance = null
+        }
         super.onDestroy()
     }
 }

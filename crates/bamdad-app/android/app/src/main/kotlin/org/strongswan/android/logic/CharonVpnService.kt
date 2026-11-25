@@ -105,6 +105,9 @@ class CharonVpnService : VpnService() {
             context.startService(intent)
         }
 
+        /** True once the service is gone and the VPN slot is free. */
+        fun released(): Boolean = instance == null
+
         fun stop(context: Context) {
             instance?.let { service ->
                 service.shutdown()

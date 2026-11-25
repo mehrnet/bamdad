@@ -111,4 +111,11 @@ interface TunnelBackend {
     suspend fun connect(profile: TunnelProfile)
     suspend fun disconnect()
     fun status(): TunnelStatus
+
+    /**
+     * Whether the backend's VpnService has released the single Android VPN
+     * slot: true when gone, false while still holding it, null when the
+     * backend cannot tell (the caller then waits a fixed settle time).
+     */
+    fun released(): Boolean? = null
 }

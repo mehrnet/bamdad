@@ -54,6 +54,8 @@ class OpenVpnBackend(private val context: Context) : TunnelBackend {
         }
     }
 
+    override fun released(): Boolean? = OpenVpnService.released()
+
     override fun status(): TunnelStatus {
         val snapshot = OpenVpnService.snapshot()
         val (rx, tx) = OpenVpnService.statistics()
