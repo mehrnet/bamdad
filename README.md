@@ -102,6 +102,26 @@ Profile {
 sing-box configs are written with mode `0600` into the app's run directory and
 removed when the session ends. Xray configs never touch disk.
 
+## Connection state
+
+The bar is driven by one rule: the click is acknowledged before anything that
+can block, and only the current attempt may change it.
+
+- `start_connection` enters the busy state *before* locking the store or
+  touching the engine, so a slow lock can no longer swallow the first click.
+- Every attempt bumps a session counter. Proxied probes, exit-IP lookups, the
+  "keep Connecting visible" timer, and the start watchdog capture it and drop
+  their result if it no longer matches — a previous session can't paint
+  "Proxy unreachable" or an old IP over a new connection.
+- Picking another profile while a connection is still coming up is deferred and
+  applied once it is up, instead of leaving the bar showing one profile and the
+  tunnel running another.
+- A second tap within 700 ms of a start is ignored (it used to silently cancel
+  the connection the user just started). Later taps still cancel.
+- A start that never reaches `Running` fails after 20 s with
+  `Connection timed out` instead of sitting in `Connecting…` forever, and an
+  aborted start restores the kill-switch sinkhole.
+
 ## Unified latency
 
 **Ping** and **Ping all** work for every saved profile, and what gets measured
@@ -240,8 +260,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v0.9.6
-git push origin v0.9.6
+git tag v0.9.7
+git push origin v0.9.7
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -530,4 +550,4 @@ single digit and rolls over into `minor`:
 
 There is no standard SemVer name for this; it is a base-10 (odometer) carry
 scheme. Use `scripts/bump-version.sh` to advance it. The next release is
-`v0.9.6`.
+`v0.9.7`.
