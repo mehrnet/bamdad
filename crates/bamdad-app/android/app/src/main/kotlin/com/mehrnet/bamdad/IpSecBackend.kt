@@ -21,7 +21,6 @@ class IpSecBackend(private val context: Context) : TunnelBackend {
     override suspend fun connect(profile: TunnelProfile) {
         val config = IpSecConfig.parse(profile.config)
         endpoint = "${config.server}:${config.port}"
-        publish(TunnelStatus(TunnelState.CONNECTING, endpoint = endpoint))
         withContext(Dispatchers.IO) {
             CharonVpnService.start(
                 context,
