@@ -250,13 +250,6 @@ fn up(options: Options) -> Result<(), String> {
                 break;
             }
         }
-        // Our direct parent is pkexec/sudo in the normal case. If it dies the
-        // termination signal may not reach us (pkexec is killed, not us), and
-        // nobody else knows we are still holding the routes.
-        if unsafe { libc::getppid() } <= 1 {
-            eprintln!("bamdad-tun-helper: launcher is gone, stopping");
-            break;
-        }
         // If the app that started us disappeared, tear the tunnel down instead
         // of leaving the machine with routes into a dead device.
         if let Some(pid) = options.parent_pid {
