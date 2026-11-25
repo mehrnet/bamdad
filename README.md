@@ -121,6 +121,13 @@ can block, and only the current attempt may change it.
 - A start that never reaches `Running` fails after 20 s with
   `Connection timed out` instead of sitting in `Connecting…` forever, and an
   aborted start restores the kill-switch sinkhole.
+- On Android, switching transports waits for the previous backend to actually
+  release the single VPN slot (the OpenVPN and IPSec services report their
+  teardown; the WireGuard backend keeps a fixed settle time) instead of always
+  sleeping 800 ms.
+- Recreating the Android activity reattaches to the running session: the bar,
+  counters, logs, and exit IP are repainted from the live session, and a
+  re-attach in the middle of a switch still wires the event bridge.
 
 ## Unified latency
 

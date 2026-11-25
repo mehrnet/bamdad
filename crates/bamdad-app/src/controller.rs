@@ -367,7 +367,6 @@ pub(crate) fn init_attached(
     set_import_context(ui.as_weak(), store.clone(), pings.clone(), logs.clone());
     seed(ui, &store, &pings);
     prefetch_dns(&store, &runtime);
-    seed_last_network(ui);
     {
         let items: Vec<SharedString> = logs
             .lock()
@@ -389,36 +388,61 @@ pub(crate) fn init_attached(
                 ui.set_connected(true);
                 ui.set_busy(false);
                 ui.set_status_text("Connected".into());
+                // Only a running session has a public exit to show. Seeding
+                // this unconditionally would show the previous session's exit
+                // IP and flag after a disconnect happened while the activity
+                // was gone.
+                seed_last_network(ui);
             }
             EngineState::Starting => {
+                clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(true);
                 ui.set_status_text("Connecting…".into());
             }
             EngineState::Stopping => {
+                clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(true);
                 ui.set_status_text("Stopping…".into());
             }
             EngineState::Error(_) => {
+                clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);
                 ui.set_tunnel_ip("".into());
+                set_network_text(ui, "", "");
+                ui.set_country_flag(Default::default());
                 ui.set_status_text("Core error".into());
                 idle = true;
             }
             EngineState::Stopped => {
-                // Ignore a stale Stopped from the previous session while a new
-                // one is still coming up; otherwise it would flash the bar
-                // back to the disconnected state.
                 if SWITCHING.load(Ordering::SeqCst) || STARTING.load(Ordering::SeqCst) {
-                    return;
+                    // A new attempt is already coming up (the snapshot still
+                    // says Stopped because the proxy core is between runs).
+                    // Paint the transition, but never return early: the
+                    // callbacks and event bridge below are what revive this
+                    // UI.
+                    ui.set_connected(false);
+                    ui.set_busy(true);
+                    ui.set_status_text(
+                        if SWITCHING.load(Ordering::SeqCst) {
+                            "Switching…"
+                        } else {
+                            "Connecting…"
+                        }
+                        .into(),
+                    );
+                } else {
+                    NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
+                    clear_last_network();
+                    ui.set_connected(false);
+                    ui.set_busy(false);
+                    ui.set_status_text("Disconnected".into());
+                    set_network_text(ui, "", "");
+                    ui.set_country_flag(Default::default());
+                    idle = true;
                 }
-                NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
-                ui.set_connected(false);
-                ui.set_busy(false);
-                ui.set_status_text("Disconnected".into());
-                idle = true;
             }
         }
         idle
