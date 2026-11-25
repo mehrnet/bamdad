@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -29,12 +29,24 @@ static LAST_COUNTRY: Mutex<String> = Mutex::new(String::new());
 static LOG_LAST_PUBLISH: Mutex<Option<Instant>> = Mutex::new(None);
 static LOG_FLUSH_PENDING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_PROFILE: Mutex<String> = Mutex::new(String::new());
+/// Id of the profile the current/last attempt is for, so a deferred switch can
+/// tell "picked a different row" from "picked the same row".
+static ACTIVE_PROFILE_ID: Mutex<String> = Mutex::new(String::new());
 static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
 static CREDENTIALS_TARGET: Mutex<String> = Mutex::new(String::new());
 static KILL_SWITCH: AtomicBool = AtomicBool::new(false);
 static PENDING_CONNECT: Mutex<Option<String>> = Mutex::new(None);
 /// Profiles already tried by the current failover chain, in order.
 static FAILOVER: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Bumped for every connection attempt. Async work (proxied probes, exit-IP
+/// lookups, busy timers, watchdogs) captures it and drops its result when it
+/// no longer matches, so a previous session can never paint over the current
+/// one while switching.
+static SESSION: AtomicU64 = AtomicU64::new(0);
+/// When the current busy phase started, for double-click protection.
+static BUSY_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+/// Profile picked while a connection was still coming up; applied on `Running`.
+static PENDING_SWITCH: Mutex<Option<String>> = Mutex::new(None);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -214,6 +226,14 @@ pub(crate) fn set_active_profile_name(name: &str) {
 
 pub(crate) fn active_profile_name() -> String {
     ACTIVE_PROFILE.lock().unwrap().clone()
+}
+
+pub(crate) fn set_active_profile_id(id: &str) {
+    *ACTIVE_PROFILE_ID.lock().unwrap() = id.to_string();
+}
+
+fn active_profile_id() -> String {
+    ACTIVE_PROFILE_ID.lock().unwrap().clone()
 }
 
 pub fn init(
@@ -657,6 +677,7 @@ fn fetch_exit_ips_fast(
 /// reports the address the server assigns to the tunnel.
 fn refresh_native_exit_ips(ui: &AppWindow) {
     let weak = ui.as_weak();
+    let lookup_session = session();
     std::thread::spawn(move || {
         // Give Android a moment to install the routes.
         std::thread::sleep(Duration::from_millis(900));
@@ -683,7 +704,10 @@ fn refresh_native_exit_ips(ui: &AppWindow) {
             };
             // A disconnect or transport switch may have happened while the
             // lookup was in flight; never apply stale results.
-            if !ui.get_connected() || !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
+            if session() != lookup_session
+                || !ui.get_connected()
+                || !NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
+            {
                 return;
             }
             set_last_network(v4.as_deref(), v6.as_deref(), country.as_deref());
@@ -1222,6 +1246,17 @@ fn setup_callbacks(
         ui.on_toggle_connect(move || {
             let Some(ui) = weak.upgrade() else { return };
             if ui.get_connected() || ui.get_busy() {
+                // Ignore an accidental second tap right after the first one:
+                // before, a slow acknowledgement meant the second tap silently
+                // cancelled the connection the user just started.
+                let elapsed = BUSY_SINCE
+                    .lock()
+                    .ok()
+                    .and_then(|stamp| *stamp)
+                    .map(|started| started.elapsed());
+                if should_ignore_toggle(ui.get_busy(), ui.get_connected(), elapsed) {
+                    return;
+                }
                 stop_connection(&ui, &store, &engine, &logs);
             } else {
                 FAILOVER.lock().unwrap().clear();
@@ -1266,7 +1301,18 @@ fn setup_callbacks(
                 crate::logcat(&message);
                 push_log(&ui, &logs, message);
                 start_connection(&ui, &store, &engine, &logs, true);
+            } else if ui.get_busy() && !ui.get_connected() {
+                // Mid-connect: remember the pick and apply it as soon as the
+                // current attempt is up instead of leaving the bar showing one
+                // profile and the tunnel running another.
+                *PENDING_SWITCH.lock().unwrap() = Some(selected.id.clone());
+                push_log(
+                    &ui,
+                    &logs,
+                    format!("will switch to {} once connected", selected.name),
+                );
             } else {
+                *PENDING_SWITCH.lock().unwrap() = None;
                 push_log(&ui, &logs, format!("selected profile: {}", selected.name));
             }
         });
@@ -2784,12 +2830,49 @@ fn set_ping(
     ui.set_groups(group_model(&guard, pings));
 }
 
+/// A second tap this soon after a start is an accidental double-click, not a
+/// request to cancel: before the click was acknowledged instantly, the second
+/// tap of a double-click silently killed the connection.
+fn should_ignore_toggle(busy: bool, connected: bool, since: Option<Duration>) -> bool {
+    busy && !connected && since.is_some_and(|elapsed| elapsed < Duration::from_millis(700))
+}
+
+/// Fails a start that never reaches `Running`: without this the bar can sit in
+/// "Connecting…" forever, which is exactly when users start double-clicking.
+fn spawn_start_watchdog(ui: &AppWindow, engine: &EngineHandle, logs: &LogBuffer, native: bool) {
+    let weak = ui.as_weak();
+    let logs = logs.clone();
+    let engine = engine.clone();
+    let started = session();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(20));
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            if session() != started || ui.get_connected() || !ui.get_busy() {
+                return;
+            }
+            STARTING.store(false, Ordering::SeqCst);
+            SWITCHING.store(false, Ordering::SeqCst);
+            *BUSY_SINCE.lock().unwrap() = None;
+            push_log(&ui, &logs, "connection timed out".to_string());
+            ui.set_busy(false);
+            ui.set_status_text("Connection timed out".into());
+            if native {
+                crate::stop_native_tunnel();
+            } else {
+                engine.stop();
+            }
+        });
+    });
+}
+
 /// Leave the busy state when a start is aborted before the core launches.
 /// Restores the previous visual state because an aborted switch leaves the
 /// running tunnel untouched.
 fn cancel_starting(ui: &AppWindow, was_connected: bool) {
     SWITCHING.store(false, Ordering::SeqCst);
     STARTING.store(false, Ordering::SeqCst);
+    *BUSY_SINCE.lock().unwrap() = None;
     ui.set_busy(false);
     ui.set_connected(was_connected);
     ui.set_status_text(if was_connected {
@@ -2797,6 +2880,11 @@ fn cancel_starting(ui: &AppWindow, was_connected: bool) {
     } else {
         "Disconnected".into()
     });
+    // Entering the busy state stops the sinkhole; an aborted start (no profile,
+    // credentials dialog) must hand the VPN slot back when disconnected.
+    if !was_connected && KILL_SWITCH.load(Ordering::SeqCst) {
+        crate::start_kill_switch();
+    }
 }
 
 /// Enter the yellow "busy" state immediately when a connection starts or the
@@ -2853,7 +2941,17 @@ fn stop_desktop_tunnel() {
     crate::desktop_tun::stop();
 }
 
+fn new_session() -> u64 {
+    SESSION.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+fn session() -> u64 {
+    SESSION.load(Ordering::SeqCst)
+}
+
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
+    let _ = new_session();
+    *BUSY_SINCE.lock().unwrap() = Some(Instant::now());
     crate::stop_kill_switch();
     STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
@@ -2918,6 +3016,15 @@ fn start_connection(
     logs: &LogBuffer,
     switching: bool,
 ) {
+    // Flip the bar into the yellow connecting state before locking the store
+    // or doing any engine work: the click must be acknowledged on the next
+    // frame even when another thread holds the store lock.
+    let was_connected = ui.get_connected();
+    if switching {
+        SWITCHING.store(true, Ordering::SeqCst);
+    }
+    enter_starting_state(ui, switching);
+
     let (settings, profile) = {
         let guard = store.lock().unwrap();
         (guard.settings.clone(), guard.selected_profile().cloned())
@@ -2925,26 +3032,22 @@ fn start_connection(
 
     let Some(profile) = profile else {
         push_log(ui, logs, "no profile selected".to_string());
+        cancel_starting(ui, was_connected);
         return;
     };
     ui.set_active_profile(profile.name.clone().into());
     set_active_profile_name(&profile.name);
+    set_active_profile_id(&profile.id);
 
     // OpenVPN profiles that need auth-user-pass but have neither an inline
-    // block nor saved credentials ask before anything starts.
+    // block nor saved credentials ask before anything starts; the bar falls
+    // back to its previous state while the dialog is open.
     if openvpn_needs_auth(&profile) {
+        cancel_starting(ui, was_connected);
         *PENDING_CONNECT.lock().unwrap() = Some(profile.id.clone());
         open_credentials_dialog(ui, store, &profile.id);
         return;
     }
-
-    // Flip the bar into the yellow connecting state before any validation or
-    // engine work, so the click is acknowledged on the next frame.
-    let was_connected = ui.get_connected();
-    if switching {
-        SWITCHING.store(true, Ordering::SeqCst);
-    }
-    enter_starting_state(ui, switching);
 
     if !profile.is_proxy() {
         #[cfg(target_os = "android")]
@@ -2981,6 +3084,7 @@ fn start_connection(
                 ),
             );
             crate::start_native_tunnel(&json);
+            spawn_start_watchdog(ui, engine, logs, true);
             return;
         }
         #[cfg(not(target_os = "android"))]
@@ -3115,6 +3219,7 @@ fn start_connection(
     };
 
     engine.start(spec);
+    spawn_start_watchdog(ui, engine, logs, false);
 
     if settings.system_proxy && !cfg!(target_os = "android") {
         let proxy = ProxySettings {
@@ -3133,6 +3238,9 @@ fn stop_connection(
     engine: &EngineHandle,
     logs: &LogBuffer,
 ) {
+    let _ = new_session();
+    *BUSY_SINCE.lock().unwrap() = None;
+    *PENDING_SWITCH.lock().unwrap() = None;
     SWITCHING.store(false, Ordering::SeqCst);
     STARTING.store(false, Ordering::SeqCst);
     if NATIVE_TUNNEL_ACTIVE.swap(false, Ordering::SeqCst) {
@@ -3304,6 +3412,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 crate::stop_android_vpn();
                 #[cfg(not(target_os = "android"))]
                 stop_desktop_tunnel();
+                *BUSY_SINCE.lock().unwrap() = None;
+                *PENDING_SWITCH.lock().unwrap() = None;
                 if KILL_SWITCH.load(Ordering::SeqCst) {
                     crate::start_kill_switch();
                 }
@@ -3314,7 +3424,14 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(true);
-                ui.set_status_text("Starting…".into());
+                ui.set_status_text(
+                    if SWITCHING.load(Ordering::SeqCst) {
+                        "Switching…"
+                    } else {
+                        "Connecting…"
+                    }
+                    .into(),
+                );
                 ui.set_total_down_text("0 B".into());
                 ui.set_total_up_text("0 B".into());
                 ui.set_tunnel_ip("".into());
@@ -3326,19 +3443,36 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 ui.set_connected(true);
                 ui.set_status_text("Connected".into());
                 set_traffic_totals(ui, 0, 0);
+                *BUSY_SINCE.lock().unwrap() = None;
                 // Keep the yellow "connecting" state visible for a moment even
-                // when the core starts very quickly.
+                // when the core starts very quickly. The session check keeps a
+                // timer from an earlier connection from clearing a newer one.
+                let connected_session = session();
                 let weak_busy = ui.as_weak();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(450));
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = weak_busy.upgrade() {
-                            if ui.get_connected() {
+                            if session() == connected_session && ui.get_connected() {
                                 ui.set_busy(false);
                             }
                         }
                     });
                 });
+
+                // A profile picked while we were connecting is applied now.
+                let pending = PENDING_SWITCH.lock().unwrap().take();
+                if let Some(id) = pending {
+                    if active_profile_id() != id {
+                        push_log(
+                            ui,
+                            logs,
+                            "applying the profile selected while connecting".to_string(),
+                        );
+                        start_connection(ui, &context.store, &context.engine, logs, true);
+                        return;
+                    }
+                }
                 if NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst) {
                     refresh_native_exit_ips(ui);
                 }
@@ -3347,6 +3481,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                     let logs = logs.clone();
                     #[cfg(not(target_os = "android"))]
                     let store = context.store.clone();
+                    let probe_session = session();
                     std::thread::spawn(move || {
                         use std::net::{SocketAddr, TcpStream};
                         let port = VPN_SOCKS_PORT.load(Ordering::Relaxed);
@@ -3372,6 +3507,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                             let weak = weak.clone();
                             let logs = logs.clone();
                             let _ = slint::invoke_from_event_loop(move || {
+                                if session() != probe_session {
+                                    return;
+                                }
                                 if let Some(ui) = weak.upgrade() {
                                     start_desktop_tunnel(&ui, &logs, &store, port);
                                 }
@@ -3408,7 +3546,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                                     let Some(ui) = weak_net.upgrade() else {
                                         return;
                                     };
-                                    if !ui.get_connected()
+                                    if session() != probe_session
+                                        || !ui.get_connected()
                                         || NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
                                     {
                                         return;
@@ -3451,6 +3590,9 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                         #[cfg(target_os = "android")]
                         crate::logcat(&message);
                         let _ = slint::invoke_from_event_loop(move || {
+                            if session() != probe_session {
+                                return;
+                            }
                             if let Some(ui) = weak.upgrade() {
                                 push_log(&ui, &logs, message);
                                 if let Some(status) = status {
@@ -3479,6 +3621,8 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
+                *BUSY_SINCE.lock().unwrap() = None;
+                *PENDING_SWITCH.lock().unwrap() = None;
                 clear_last_network();
                 ui.set_connected(false);
                 ui.set_busy(false);
@@ -3682,7 +3826,9 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{display_name, group_model, mask_ipv4, mask_ipv6, openvpn_needs_auth};
+    use super::{
+        display_name, group_model, mask_ipv4, mask_ipv6, openvpn_needs_auth, should_ignore_toggle,
+    };
     use bamdad_core::config::{self, Store};
     use bamdad_core::CoreKind;
     use std::collections::HashMap;
@@ -3736,6 +3882,32 @@ mod tests {
             auth_user: user.map(str::to_string),
             auth_pass: pass.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn ignores_a_double_click_while_connecting() {
+        use std::time::Duration;
+
+        // Right after a start: the second tap is accidental.
+        assert!(should_ignore_toggle(
+            true,
+            false,
+            Some(Duration::from_millis(120))
+        ));
+        // A deliberate cancel later on still works.
+        assert!(!should_ignore_toggle(
+            true,
+            false,
+            Some(Duration::from_millis(1500))
+        ));
+        // While connected the button must always disconnect.
+        assert!(!should_ignore_toggle(
+            true,
+            true,
+            Some(Duration::from_millis(10))
+        ));
+        // Idle: normal connect path.
+        assert!(!should_ignore_toggle(false, false, None));
     }
 
     #[test]
