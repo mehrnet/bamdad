@@ -14,6 +14,7 @@ pub(crate) mod country_names;
 #[cfg(not(target_os = "android"))]
 mod desktop_tun;
 mod licenses;
+mod persist;
 #[cfg(target_os = "android")]
 mod tunnel;
 
@@ -73,6 +74,7 @@ fn run_ui(ui: AppWindow, runtime: tokio::runtime::Runtime) -> anyhow::Result<()>
     ui.run()?;
 
     // Clean shutdown: stop the child, restore the OS proxy/VPN, drain the runtime.
+    persist::flush();
     engine.stop();
     stop_android_vpn();
     let _ = bamdad_core::system_proxy::disable();

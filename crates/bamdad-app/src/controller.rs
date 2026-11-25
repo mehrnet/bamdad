@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
 
-use bamdad_core::config::{self, load_store, save_store, Store};
+use bamdad_core::config::{self, load_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
 use bamdad_core::error::CoreError;
 use bamdad_core::httpprobe;
@@ -50,6 +50,11 @@ static PENDING_SWITCH: Mutex<Option<String>> = Mutex::new(None);
 /// Set when the user disconnects, so late backend errors cannot trigger a
 /// failover after the tunnel was deliberately stopped.
 static USER_STOPPED: AtomicBool = AtomicBool::new(false);
+/// Ping results arrive one by one; rebuilding the whole row model for each of
+/// them is O(n²) on ping-all. Coalesce into at most one rebuild per 120 ms,
+/// with a trailing refresh so the last result is never lost.
+static GROUP_REFRESH_AT: Mutex<Option<Instant>> = Mutex::new(None);
+static GROUP_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -131,7 +136,7 @@ pub(crate) fn import_native_files(group: &str, files_json: &str) -> usize {
         for profile in added {
             store.add_profile(profile);
         }
-        let _ = save_store(&store);
+        crate::persist::save(&store);
     }
 
     let ui = context.ui.clone();
@@ -796,7 +801,7 @@ pub(crate) fn split_apps_selected(csv: String) {
         let mut guard = store.lock().unwrap();
         guard.settings.split_apps = apps.clone();
         apply_tunnel_options(&guard.settings);
-        let _ = save_store(&guard);
+        crate::persist::save(&guard);
     }
     let text = apps.join(", ");
     let _ = slint::invoke_from_event_loop(move || {
@@ -1290,7 +1295,7 @@ fn setup_callbacks(
                 };
                 guard.selected_id = Some(profile.id.clone());
                 guard.selected = Some(profile.name.clone());
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 profile
             };
 
@@ -1342,7 +1347,7 @@ fn setup_callbacks(
                 {
                     let mut guard = store.lock().unwrap();
                     guard.add_profile(profile);
-                    let _ = save_store(&guard);
+                    crate::persist::save(&guard);
                 }
                 let guard = store.lock().unwrap();
                 ui.set_groups(group_model(&guard, &pings));
@@ -1383,7 +1388,7 @@ fn setup_callbacks(
                         {
                             let mut guard = store.lock().unwrap();
                             guard.add_profile(profile);
-                            let _ = save_store(&guard);
+                            crate::persist::save(&guard);
                         }
                         let guard = store.lock().unwrap();
                         ui.set_groups(group_model(&guard, &pings));
@@ -1429,7 +1434,7 @@ fn setup_callbacks(
                     {
                         let mut guard = store.lock().unwrap();
                         guard.add_profile(profile);
-                        let _ = save_store(&guard);
+                        crate::persist::save(&guard);
                     }
 
                     let guard = store.lock().unwrap();
@@ -1504,7 +1509,7 @@ fn setup_callbacks(
                     guard.settings.bypass_cidrs = bypass_cidrs.trim().to_string();
                     guard.settings.tunnel_routes = tunnel_routes.trim().to_string();
                     apply_tunnel_options(&guard.settings);
-                    let _ = save_store(&guard);
+                    crate::persist::save(&guard);
                 }
 
                 let proxy = ProxySettings {
@@ -1556,7 +1561,7 @@ fn setup_callbacks(
             let accent = {
                 let mut guard = store.lock().unwrap();
                 guard.settings.theme = mode.to_string();
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 guard.settings.accent.clone()
             };
             ui.set_theme_mode(mode.into());
@@ -1573,7 +1578,7 @@ fn setup_callbacks(
             let theme = {
                 let mut guard = store.lock().unwrap();
                 guard.settings.accent = accent.to_string();
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 guard.settings.theme.clone()
             };
             ui.set_accent_mode(accent.into());
@@ -1606,7 +1611,7 @@ fn setup_callbacks(
             {
                 let mut guard = store.lock().unwrap();
                 guard.settings.kill_switch = enabled;
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
             }
             KILL_SWITCH.store(enabled, Ordering::SeqCst);
             if let Some(ui) = weak.upgrade() {
@@ -1628,7 +1633,7 @@ fn setup_callbacks(
             {
                 let mut guard = store.lock().unwrap();
                 guard.settings.tunnel_mode = enabled;
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
             }
             #[cfg(not(target_os = "android"))]
             if !enabled {
@@ -1674,7 +1679,7 @@ fn setup_callbacks(
             {
                 let mut guard = store.lock().unwrap();
                 guard.settings.failover = enabled;
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
             }
             if !enabled {
                 FAILOVER.lock().unwrap().clear();
@@ -1891,7 +1896,7 @@ fn setup_callbacks(
                                 .iter()
                                 .find(|profile| profile.id == first_id)
                                 .map(|profile| profile.name.clone());
-                            let _ = save_store(&guard);
+                            crate::persist::save(&guard);
                             ui.set_groups(group_model(&guard, &pings));
                             ui.set_selected_id(first_id.into());
                             let count = guard
@@ -1992,7 +1997,7 @@ fn setup_callbacks(
                 let mut guard = store.lock().unwrap();
                 let removed = guard.remove_group(id.as_str());
                 if removed {
-                    let _ = save_store(&guard);
+                    crate::persist::save(&guard);
                 }
                 removed
             };
@@ -2072,7 +2077,7 @@ fn setup_callbacks(
                     .as_ref()
                     .and_then(|selected| guard.profile_by_id(selected))
                     .map(|profile| profile.name.clone());
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 ui.set_groups(group_model(&guard, &pings));
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
@@ -2112,7 +2117,7 @@ fn setup_callbacks(
             });
             let ids: Vec<String> = nodes.into_iter().map(|(_, id)| id).collect();
             guard.group_order.insert(group_id.to_string(), ids);
-            let _ = save_store(&guard);
+            crate::persist::save(&guard);
             drop(ping_map);
             ui.set_groups(group_model(&guard, &pings));
         });
@@ -2127,7 +2132,7 @@ fn setup_callbacks(
             let Some(ui) = weak.upgrade() else { return };
             let mut guard = store.lock().unwrap();
             if guard.group_order.remove(group_id.as_str()).is_some() {
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 ui.set_groups(group_model(&guard, &pings));
                 drop(guard);
                 push_log(&ui, &logs, "custom ordering reset".to_string());
@@ -2202,7 +2207,7 @@ fn setup_callbacks(
                     profile.auth_user = if user.is_empty() { None } else { Some(user) };
                     profile.auth_pass = if pass.is_empty() { None } else { Some(pass) };
                 }
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 ui.set_groups(group_model(&guard, &pings));
             }
             ui.set_credentials_open(false);
@@ -2265,7 +2270,7 @@ fn setup_callbacks(
                 .as_ref()
                 .and_then(|selected| guard.profile_by_id(selected))
                 .map(|profile| profile.name.clone());
-            let _ = save_store(&guard);
+            crate::persist::save(&guard);
             ui.set_groups(group_model(&guard, &pings));
             ui.set_rename_open(false);
         });
@@ -2290,7 +2295,7 @@ fn setup_callbacks(
                 .as_ref()
                 .and_then(|selected| guard.profile_by_id(selected))
                 .map(|profile| profile.name.clone());
-            let _ = save_store(&guard);
+            crate::persist::save(&guard);
             ui.set_groups(group_model(&guard, &pings));
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
@@ -2361,7 +2366,7 @@ fn setup_callbacks(
                 }
             }
             if changed {
-                let _ = save_store(&guard);
+                crate::persist::save(&guard);
                 ui.set_groups(group_model(&guard, &pings));
             }
             drop(guard);
@@ -2487,7 +2492,7 @@ fn setup_callbacks(
                                     ui.set_selected_id(selected.into());
                                 }
                             }
-                            let _ = save_store(&guard);
+                            crate::persist::save(&guard);
                             ui.set_groups(group_model(&guard, &pings));
                             let count = guard
                                 .profiles
@@ -2808,12 +2813,44 @@ fn begin_ping_batch(
                         map.insert(id, (text, state));
                     }
                 }
-                if let Ok(guard) = store.lock() {
-                    ui.set_groups(group_model(&guard, &pings));
-                }
+                refresh_groups(&ui, &store, &pings);
             }
         });
     });
+}
+
+/// Rebuilds the profile rows, coalescing bursts into one refresh.
+fn refresh_groups(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
+    let now = Instant::now();
+    let throttled = {
+        let last = GROUP_REFRESH_AT.lock().unwrap();
+        last.is_some_and(|at| now.duration_since(at) < Duration::from_millis(120))
+    };
+    if throttled {
+        // Make sure a refresh still happens after the window, otherwise the
+        // final ping result could stay invisible.
+        if !GROUP_REFRESH_PENDING.swap(true, Ordering::SeqCst) {
+            let weak = ui.as_weak();
+            let store = store.clone();
+            let pings = pings.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(130));
+                GROUP_REFRESH_PENDING.store(false, Ordering::SeqCst);
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = weak.upgrade() else { return };
+                    if let Ok(guard) = store.lock() {
+                        ui.set_groups(group_model(&guard, &pings));
+                    }
+                    *GROUP_REFRESH_AT.lock().unwrap() = Some(Instant::now());
+                });
+            });
+        }
+        return;
+    }
+    *GROUP_REFRESH_AT.lock().unwrap() = Some(now);
+    if let Ok(guard) = store.lock() {
+        ui.set_groups(group_model(&guard, pings));
+    }
 }
 
 fn latency_state(ms: u64) -> i32 {
@@ -2835,9 +2872,7 @@ fn set_ping(
     state: i32,
 ) {
     pings.lock().unwrap().insert(id.to_string(), (text, state));
-
-    let guard = store.lock().unwrap();
-    ui.set_groups(group_model(&guard, pings));
+    refresh_groups(ui, store, pings);
 }
 
 /// A second tap this soon after a start is an accidental double-click, not a
@@ -2984,7 +3019,6 @@ fn enter_starting_state(ui: &AppWindow, switching: bool) {
     let _ = new_session();
     USER_STOPPED.store(false, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = Some(Instant::now());
-    crate::stop_kill_switch();
     STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
     ui.set_busy(true);
@@ -3107,6 +3141,8 @@ fn start_connection(
             crate::reset_native_event_state();
             engine.stop();
             crate::stop_android_vpn();
+            // Hand the single VPN slot over as late as possible.
+            crate::stop_kill_switch();
             push_log(
                 ui,
                 logs,
@@ -3249,6 +3285,7 @@ fn start_connection(
         work_dir: paths::run_dir(),
         api_addr: settings.api_addr.clone(),
         api_port,
+        ready_port: Some(settings.socks_port),
     };
 
     engine.start(spec);
@@ -3401,7 +3438,7 @@ fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason
         let mut guard = context.store.lock().unwrap();
         guard.selected_id = Some(next_id.clone());
         guard.selected = Some(next_name.clone());
-        let _ = save_store(&guard);
+        crate::persist::save(&guard);
         ui.set_groups(group_model(&guard, &context.pings));
     }
     ui.set_selected_id(next_id.clone().into());
@@ -3557,6 +3594,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
 
                         #[cfg(target_os = "android")]
                         if ready && session() == probe_session {
+                            crate::stop_kill_switch();
                             crate::start_android_vpn(port);
                         }
 

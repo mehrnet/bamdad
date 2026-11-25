@@ -56,6 +56,9 @@ pub struct LaunchSpec {
     pub work_dir: PathBuf,
     pub api_addr: String,
     pub api_port: u16,
+    /// Local inbound the core must accept on before `Running` is reported.
+    /// `None` for cores without a synchronous inbound (tests, future types).
+    pub ready_port: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -234,6 +237,19 @@ async fn run_session(
         LogStream::App,
         format!("{} running (pid {pid})", spec.core.label()),
     );
+
+    // "Running" is what turns the bar green, so wait for the inbound to accept
+    // instead of reporting the mere existence of the process.
+    if let Some(port) = spec.ready_port {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if tokio::net::TcpStream::connect(addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+    }
     send_state(&events, EngineState::Running);
 
     let mut ticker = interval(Duration::from_secs(1));

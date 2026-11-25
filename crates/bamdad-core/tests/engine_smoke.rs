@@ -68,6 +68,8 @@ async fn starts_core_and_queries_stats() {
         work_dir: bamdad_core::paths::run_dir(),
         api_addr: settings.api_addr.clone(),
         api_port,
+        // The smoke asserts the state transition, not the inbound.
+        ready_port: None,
     };
 
     let (tx, rx) = mpsc::channel();
