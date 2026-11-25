@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-app"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "anyhow",
  "bamdad-core",
@@ -547,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "bamdad-core"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -569,11 +569,11 @@ dependencies = [
 
 [[package]]
 name = "bamdad-netcheck"
-version = "0.9.8"
+version = "0.9.9"
 
 [[package]]
 name = "bamdad-tun-helper"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
