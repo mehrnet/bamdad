@@ -202,9 +202,10 @@ Linux build prerequisites are the usual Slint/winit ones (C toolchain,
 fontconfig, Wayland/X11 headers). Windows (MSVC) and macOS build with the same
 commands.
 
-The app starts with two local test profiles, **Direct · Xray** and
-**Direct · sing-box**, which run a `freedom`/`direct` outbound and local
-SOCKS/HTTP inbounds. They verify the full pipeline without a remote server.
+A fresh store starts empty: import a share link, a `.conf`/`.ovpn`/`.sswan`, or
+a JSON config with the **+** button. The emulator smokes seed two local
+"direct" profiles (`freedom`/`direct` outbound plus local SOCKS/HTTP inbounds)
+to exercise the pipeline without a remote server.
 
 ### Core resolution
 
