@@ -101,4 +101,30 @@ pub struct TunnelStatus {
     /// Profile the backend belongs to; empty when the sender cannot know it.
     #[serde(default)]
     pub profile_id: String,
+    /// The failure is local to this device/app (TUN/adapter setup, permission),
+    /// so trying a different profile would hit exactly the same problem.
+    #[serde(default)]
+    pub local_error: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_local_error_flag() {
+        let local: TunnelStatus = serde_json::from_str(
+            r#"{"state":"error","error":"cannot acquire tun interface socket","local_error":true}"#,
+        )
+        .unwrap();
+        assert!(local.local_error);
+        assert_eq!(local.state, TunnelState::Error);
+        assert_eq!(
+            local.error.as_deref(),
+            Some("cannot acquire tun interface socket")
+        );
+
+        let remote: TunnelStatus = serde_json::from_str(r#"{"state":"up"}"#).unwrap();
+        assert!(!remote.local_error);
+    }
 }

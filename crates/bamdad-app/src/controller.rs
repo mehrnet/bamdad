@@ -58,6 +58,10 @@ static GROUP_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 /// with the kill switch on it must arm the sinkhole because this TUN never
 /// existed.
 static PROXY_FAILURE: AtomicBool = AtomicBool::new(false);
+/// Set by a native backend when the failure is local (TUN/adapter setup,
+/// device permission). Another profile would fail the same way, so failover
+/// must not run for it.
+static LOCAL_FAILURE: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -252,6 +256,11 @@ pub(crate) fn active_profile_id() -> String {
 /// disconnect; those events must not touch the UI.
 pub(crate) fn native_events_expected() -> bool {
     NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Records that the next error is a local/device failure, not a profile one.
+pub(crate) fn local_failure() {
+    LOCAL_FAILURE.store(true, Ordering::SeqCst);
 }
 
 /// Records a proxy VpnService failure. The error event that follows tells the
@@ -3078,6 +3087,7 @@ fn session() -> u64 {
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
     let _ = new_session();
     USER_STOPPED.store(false, Ordering::SeqCst);
+    LOCAL_FAILURE.store(false, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = Some(Instant::now());
     STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
@@ -3765,6 +3775,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
             }
             EngineState::Error(message) => {
                 let proxy_failure = PROXY_FAILURE.swap(false, Ordering::SeqCst);
+                let local_failure = LOCAL_FAILURE.swap(false, Ordering::SeqCst);
                 STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
@@ -3816,7 +3827,17 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 // Android: for core failures the existing TUN stays up as a
                 // blackhole so apps cannot fall back to the physical network.
                 push_log(ui, logs, message.clone());
-                try_failover(ui, logs, context, &message);
+                if local_failure {
+                    // A TUN/adapter/permission failure is the device's, not
+                    // the profile's; the next profile would fail identically.
+                    push_log(
+                        ui,
+                        logs,
+                        "not switching profiles: this failure is local to the device".to_string(),
+                    );
+                } else {
+                    try_failover(ui, logs, context, &message);
+                }
             }
         },
         EngineEvent::Log { stream, line } => {

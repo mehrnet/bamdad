@@ -60,7 +60,13 @@ object TunnelController {
         if (attempt.get() != mine) return false
 
         val backend = backendFor(context, profile)
-        backend.onStatus = onStatus
+        // Backends report their own terminal error (which can carry the
+        // local-failure flag); only synthesise one when they throw without it.
+        var reportedError = false
+        backend.onStatus = { status ->
+            if (status.state == TunnelState.ERROR) reportedError = true
+            onStatus(status)
+        }
         val owned = handover.withLock {
             if (attempt.get() != mine) {
                 false
@@ -84,7 +90,7 @@ object TunnelController {
             throw cancelled
         } catch (error: Throwable) {
             Log.w(TAG, "connect failed: ${error.message}", error)
-            if (attempt.get() == mine) {
+            if (attempt.get() == mine && !reportedError) {
                 onStatus(
                     TunnelStatus(
                         state = TunnelState.ERROR,

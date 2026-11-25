@@ -137,6 +137,10 @@ can block, and only the current attempt may change it.
   it immediately. The OpenVPN core stops retrying after a few refused
   transports and reports `OpenVPN could not connect` instead of reconnecting
   forever behind a bar that cannot stop it.
+- Failover only runs for failures of the *profile* (refused/unreachable
+  server, auth, certificate). Local failures — TUN/adapter setup, VPN
+  permission, device limits — are reported as such and never switch to another
+  config, because the next profile would hit exactly the same problem.
 - Picking a profile while a connection is still coming up switches to it right
   away; the pick is no longer deferred until a tunnel that may never arrive.
 

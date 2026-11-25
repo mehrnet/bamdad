@@ -256,6 +256,9 @@ mod android {
             {
                 return;
             }
+            if status.local_error {
+                controller::local_failure();
+            }
             use bamdad_core::TunnelState;
             // The Kotlin backend polls every second and reports the same UP
             // state each time. Emit the state event only on transitions so a

@@ -91,6 +91,8 @@ data class TunnelStatus(
     val localAddress: String = "",
     val lastHandshake: Long = 0L,
     val error: String? = null,
+    /** Set for failures of this device (TUN/adapter), not of this profile. */
+    val localError: Boolean = false,
 ) {
     fun toJson(profileId: String = ""): String = JSONObject().apply {
         put("state", state.name.lowercase())
@@ -101,6 +103,7 @@ data class TunnelStatus(
         put("local_address", localAddress)
         put("last_handshake", lastHandshake)
         error?.let { put("error", it) }
+        if (localError) put("local_error", true)
     }.toString()
 }
 

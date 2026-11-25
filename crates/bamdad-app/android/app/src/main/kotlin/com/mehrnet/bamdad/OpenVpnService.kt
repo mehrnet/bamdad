@@ -320,11 +320,17 @@ class OpenVpnService : VpnService() {
                         TunnelState.ERROR,
                         endpoint = status.endpoint,
                         error = if (info.isNotBlank()) info else name,
+                        // TUN/adapter setup and proxy failures are the
+                        // device's problem: another profile cannot fix them.
+                        localError = localFailure(name),
                     ),
                 )
             }
         }
     }
+
+    private fun localFailure(name: String): Boolean =
+        name.startsWith("TUN_") || name == "PROXY_ERROR" || name == "PROXY_NEED_CREDS" || name == "CLIENT_HALT"
 
     @Keep
     fun onLog(line: String) {
