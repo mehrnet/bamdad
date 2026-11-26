@@ -440,3 +440,18 @@ fn sample(agent: &ureq::Agent, timeout: Duration) -> Option<u64> {
     }
     Some(started.elapsed().as_millis() as u64)
 }
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    /// Manual check: the direct route is the active-native path. Ignored by
+    /// default because it needs internet access.
+    #[test]
+    #[ignore]
+    fn direct_route_reports_a_ttfb() {
+        let ms = measure(Route::Direct, Duration::from_secs(4)).unwrap();
+        assert!(ms >= 1, "ttfb was {ms}");
+        println!("direct ttfb {ms} ms");
+    }
+}
