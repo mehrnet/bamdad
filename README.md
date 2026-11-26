@@ -131,18 +131,14 @@ can block, and only the current attempt may change it.
 - A proxy `VpnService` that cannot take the slot (permission denied, Android
   12+ background start rejection, `establish()` failure, forwarder failure)
   now reports an error instead of leaving the bar green over a dead tunnel.
-  Failover is suppressed for these failures because the next profile would hit
-  the same VPN permission/slot problem.
 - A native connect is cancellable: stop, or picking another profile, interrupts
   it immediately. The OpenVPN core stops retrying after a few refused
   transports and reports `OpenVPN could not connect` instead of reconnecting
   forever behind a bar that cannot stop it.
-- Failover only runs for failures of the *profile* (refused/unreachable
-  server, auth, certificate). Local failures — TUN/adapter setup, VPN
-  permission, device limits — are reported as such and never switch to another
-  config, because the next profile would hit exactly the same problem.
 - Picking a profile while a connection is still coming up switches to it right
   away; the pick is no longer deferred until a tunnel that may never arrive.
+- A failed connection never switches to another profile. The selected config
+  stays exactly where you put it; retry it, or pick another row.
 
 ## Unified latency
 
@@ -165,22 +161,6 @@ depends on the transport:
 While a native tunnel owns the VPN slot, proxy rows use the endpoint path
 measurement instead of starting a probe core that would be routed through the
 tunnel. Results are shown per row (green/amber/red) and update asynchronously.
-
-## Failover
-
-With **Auto-switch on failure** enabled (Settings → Privacy, on by default), a
-hard failure moves the tunnel to the next profile in the same group:
-
-- The walk follows the group's display order, wraps once, and skips profiles
-  that cannot be dialled (no endpoint, empty native config) or that would need
-  a password prompt mid-switch.
-- An attempt ledger stops the rotation once every profile in the group has been
-  tried, so a group of dead servers cannot keep restarting cores.
-- The ledger resets as soon as the tunnel is proven: a successful proxied
-  request, real traffic counters, or a fresh manual connect. Starting a core is
-  not proof — a bad config exits right after "running".
-- The switch is logged (`failover: <name> failed (<reason>); trying <name>`) and
-  the selected profile, accent, and UI selection move with it.
 
 ## Repository layout
 

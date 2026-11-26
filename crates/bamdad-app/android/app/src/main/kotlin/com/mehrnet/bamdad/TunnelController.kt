@@ -60,8 +60,8 @@ object TunnelController {
         if (attempt.get() != mine) return false
 
         val backend = backendFor(context, profile)
-        // Backends report their own terminal error (which can carry the
-        // local-failure flag); only synthesise one when they throw without it.
+        // Backends report their own terminal error status with the real
+        // message; only synthesise one when they throw without it.
         var reportedError = false
         backend.onStatus = { status ->
             if (status.state == TunnelState.ERROR) reportedError = true

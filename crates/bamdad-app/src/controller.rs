@@ -36,8 +36,6 @@ static ACTIVE_ACCENT: Mutex<String> = Mutex::new(String::new());
 static CREDENTIALS_TARGET: Mutex<String> = Mutex::new(String::new());
 static KILL_SWITCH: AtomicBool = AtomicBool::new(false);
 static PENDING_CONNECT: Mutex<Option<String>> = Mutex::new(None);
-/// Profiles already tried by the current failover chain, in order.
-static FAILOVER: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Bumped for every connection attempt. Async work (proxied probes, exit-IP
 /// lookups, busy timers, watchdogs) captures it and drops its result when it
 /// no longer matches, so a previous session can never paint over the current
@@ -45,23 +43,15 @@ static FAILOVER: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SESSION: AtomicU64 = AtomicU64::new(0);
 /// When the current busy phase started, for double-click protection.
 static BUSY_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
-/// Set when the user disconnects, so late backend errors cannot trigger a
-/// failover after the tunnel was deliberately stopped.
-static USER_STOPPED: AtomicBool = AtomicBool::new(false);
 /// Ping results arrive one by one; rebuilding the whole row model for each of
 /// them is O(n²) on ping-all. Coalesce into at most one rebuild per 120 ms,
 /// with a trailing refresh so the last result is never lost.
 static GROUP_REFRESH_AT: Mutex<Option<Instant>> = Mutex::new(None);
 static GROUP_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
-/// Set by the Kotlin proxy VpnService when it cannot take the VPN slot. Such a
-/// failure is not a core/profile failure: it must not trigger failover, and
-/// with the kill switch on it must arm the sinkhole because this TUN never
+/// Set by the Kotlin proxy VpnService when it cannot take the VPN slot. With
+/// the kill switch on this must arm the sinkhole, because this TUN never
 /// existed.
 static PROXY_FAILURE: AtomicBool = AtomicBool::new(false);
-/// Set by a native backend when the failure is local (TUN/adapter setup,
-/// device permission). Another profile would fail the same way, so failover
-/// must not run for it.
-static LOCAL_FAILURE: AtomicBool = AtomicBool::new(false);
 
 struct ImportContext {
     ui: Weak<AppWindow>,
@@ -258,19 +248,10 @@ pub(crate) fn native_events_expected() -> bool {
     NATIVE_TUNNEL_ACTIVE.load(Ordering::SeqCst)
 }
 
-/// Records that the next error is a local/device failure, not a profile one.
-pub(crate) fn local_failure() {
-    LOCAL_FAILURE.store(true, Ordering::SeqCst);
-}
-
-/// Records a proxy VpnService failure. The error event that follows tells the
-/// UI to arm the kill switch when needed; this flag tells it that the failure
-/// was the VPN slot, not the profile.
+/// Records a proxy VpnService failure so the error event that follows arms
+/// the kill switch (no tunnel exists to hold the slot).
 pub(crate) fn proxy_vpn_failed() {
     PROXY_FAILURE.store(true, Ordering::SeqCst);
-    // A VPN permission or slot problem is not this profile's fault, so the
-    // same failure on the next profile would just repeat. Suppress failover.
-    USER_STOPPED.store(true, Ordering::SeqCst);
 }
 
 pub fn init(
@@ -295,16 +276,7 @@ pub fn init(
         pings.clone(),
     );
     start_size_watch(ui);
-    start_bridge(
-        ui.as_weak(),
-        events,
-        logs,
-        EventContext {
-            store: store.clone(),
-            engine: engine.clone(),
-            pings: pings.clone(),
-        },
-    );
+    start_bridge(ui.as_weak(), events, logs, store.clone());
     if KILL_SWITCH.load(Ordering::SeqCst) {
         crate::start_kill_switch();
     }
@@ -475,14 +447,16 @@ pub(crate) fn init_attached(
         crate::start_kill_switch();
     }
 
-    let context = EventContext {
-        store: store.clone(),
-        engine: engine.clone(),
-        pings: pings.clone(),
-    };
-    setup_callbacks(ui, engine, runtime, store, logs.clone(), pings.clone());
+    setup_callbacks(
+        ui,
+        engine,
+        runtime,
+        store.clone(),
+        logs.clone(),
+        pings.clone(),
+    );
     start_size_watch(ui);
-    start_bridge(ui.as_weak(), events, logs, context);
+    start_bridge(ui.as_weak(), events, logs, store);
 }
 
 fn set_last_network(ipv4: Option<&str>, ipv6: Option<&str>, country: Option<&str>) {
@@ -892,7 +866,6 @@ fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     ui.set_http_port(store.settings.http_port.to_string().into());
     ui.set_system_proxy(store.settings.system_proxy);
     ui.set_kill_switch(store.settings.kill_switch);
-    ui.set_failover(store.settings.failover);
     ui.set_custom_dns(store.settings.custom_dns.clone().into());
     ui.set_bypass_cidrs(store.settings.bypass_cidrs.clone().into());
     ui.set_split_mode(store.settings.split_mode.clone().into());
@@ -1320,7 +1293,6 @@ fn setup_callbacks(
                 }
                 stop_connection(&ui, &store, &engine, &logs);
             } else {
-                FAILOVER.lock().unwrap().clear();
                 start_connection(&ui, &store, &engine, &logs, false);
             }
         });
@@ -1352,7 +1324,6 @@ fn setup_callbacks(
             ui.set_selected_id(selected.id.as_str().into());
 
             if ui.get_connected() {
-                FAILOVER.lock().unwrap().clear();
                 let message = format!(
                     "switching to {} ({}) without dropping the tunnel",
                     selected.name,
@@ -1732,37 +1703,6 @@ fn setup_callbacks(
                     } else {
                         "tunnel mode disabled".to_string()
                     },
-                );
-            }
-        });
-    }
-
-    {
-        let weak = ui.as_weak();
-        let store = store.clone();
-        let logs = logs.clone();
-        ui.on_set_failover(move |enabled| {
-            {
-                let mut guard = store.lock().unwrap();
-                guard.settings.failover = enabled;
-                crate::persist::save(&guard);
-            }
-            if !enabled {
-                FAILOVER.lock().unwrap().clear();
-            }
-            if let Some(ui) = weak.upgrade() {
-                ui.set_failover(enabled);
-                push_log(
-                    &ui,
-                    &logs,
-                    format!(
-                        "failover {}",
-                        if enabled {
-                            "enabled: failures move to the next profile in the group"
-                        } else {
-                            "disabled"
-                        }
-                    ),
                 );
             }
         });
@@ -2285,7 +2225,6 @@ fn setup_callbacks(
                     .map(|profile| !openvpn_needs_auth(profile))
                     .unwrap_or(false);
                 if ready {
-                    FAILOVER.lock().unwrap().clear();
                     start_connection(&ui, &store, &engine, &logs, false);
                 }
             }
@@ -3086,8 +3025,6 @@ fn session() -> u64 {
 
 fn enter_starting_state(ui: &AppWindow, switching: bool) {
     let _ = new_session();
-    USER_STOPPED.store(false, Ordering::SeqCst);
-    LOCAL_FAILURE.store(false, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = Some(Instant::now());
     STARTING.store(true, Ordering::SeqCst);
     ui.set_connected(false);
@@ -3389,7 +3326,6 @@ fn stop_connection(
     logs: &LogBuffer,
 ) {
     let _ = new_session();
-    USER_STOPPED.store(true, Ordering::SeqCst);
     *BUSY_SINCE.lock().unwrap() = None;
     SWITCHING.store(false, Ordering::SeqCst);
     STARTING.store(false, Ordering::SeqCst);
@@ -3423,98 +3359,24 @@ fn stop_connection(
     }
 }
 
-/// Handles the events need to start a replacement tunnel when one fails.
-#[derive(Clone)]
-struct EventContext {
-    store: Arc<Mutex<Store>>,
-    engine: EngineHandle,
-    pings: PingState,
-}
-
 fn start_bridge(
     weak: Weak<AppWindow>,
     events: Receiver<EngineEvent>,
     logs: LogBuffer,
-    context: EventContext,
+    store: Arc<Mutex<Store>>,
 ) {
     std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let weak = weak.clone();
             let logs = logs.clone();
-            let context = context.clone();
+            let store = store.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = weak.upgrade() {
-                    apply_event(&ui, &logs, &context, event);
+                    apply_event(&ui, &logs, &store, event);
                 }
             });
         }
     });
-}
-
-/// When a profile fails, move to the next one in the same group. The chain
-/// records what was tried so a group full of dead servers stops instead of
-/// looping, and resets as soon as something connects.
-fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason: &str) {
-    if USER_STOPPED.load(Ordering::SeqCst) {
-        return;
-    }
-    let (enabled, failed_id) = {
-        let guard = context.store.lock().unwrap();
-        (guard.settings.failover, guard.selected_id.clone())
-    };
-    if !enabled {
-        return;
-    }
-    let Some(failed_id) = failed_id else { return };
-    let failed_name = context
-        .store
-        .lock()
-        .unwrap()
-        .profile_by_id(&failed_id)
-        .map(|profile| profile.name.clone())
-        .unwrap_or_else(|| failed_id.clone());
-
-    let next = {
-        let guard = context.store.lock().unwrap();
-        let mut attempted = FAILOVER.lock().unwrap();
-        if !attempted.iter().any(|id| id == &failed_id) {
-            attempted.push(failed_id.clone());
-        }
-        let next = guard
-            .failover_after(&failed_id, &attempted, |profile| {
-                !openvpn_needs_auth(profile)
-            })
-            .map(|profile| (profile.id.clone(), profile.name.clone()));
-        if let Some((id, _)) = &next {
-            attempted.push(id.clone());
-        }
-        next
-    };
-
-    let Some((next_id, next_name)) = next else {
-        FAILOVER.lock().unwrap().clear();
-        let message = format!(
-            "failover: {failed_name} failed ({reason}); no untried profile left in this group"
-        );
-        #[cfg(target_os = "android")]
-        crate::logcat(&message);
-        push_log(ui, logs, message);
-        return;
-    };
-
-    {
-        let mut guard = context.store.lock().unwrap();
-        guard.selected_id = Some(next_id.clone());
-        guard.selected = Some(next_name.clone());
-        crate::persist::save(&guard);
-        ui.set_groups(group_model(&guard, &context.pings));
-    }
-    ui.set_selected_id(next_id.clone().into());
-    let message = format!("failover: {failed_name} failed ({reason}); trying {next_name}");
-    #[cfg(target_os = "android")]
-    crate::logcat(&message);
-    push_log(ui, logs, message);
-    start_connection(ui, &context.store, &context.engine, logs, true);
 }
 
 enum ProxyProbe {
@@ -3556,7 +3418,7 @@ fn proxy_probe(port: u16) -> ProxyProbe {
     }
 }
 
-fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: EngineEvent) {
+fn apply_event(ui: &AppWindow, logs: &LogBuffer, store: &Arc<Mutex<Store>>, event: EngineEvent) {
     match event {
         EngineEvent::State(state) => match state {
             EngineState::Stopped => {
@@ -3633,7 +3495,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                     let weak = ui.as_weak();
                     let logs = logs.clone();
                     #[cfg(not(target_os = "android"))]
-                    let store = context.store.clone();
+                    let store = store.clone();
                     let probe_session = session();
                     std::thread::spawn(move || {
                         use std::net::{SocketAddr, TcpStream};
@@ -3730,12 +3592,7 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                             )
                         } else {
                             match proxy_probe(port) {
-                                ProxyProbe::Ok(message) => {
-                                    // The tunnel works end to end; a later
-                                    // failure starts a fresh failover chain.
-                                    FAILOVER.lock().unwrap().clear();
-                                    (message, None)
-                                }
+                                ProxyProbe::Ok(message) => (message, None),
                                 ProxyProbe::Dns(message) => (message, Some("Proxy DNS issue")),
                                 ProxyProbe::Failed(message) => (message, Some("Proxy unreachable")),
                             }
@@ -3773,7 +3630,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
             }
             EngineState::Error(message) => {
                 let proxy_failure = PROXY_FAILURE.swap(false, Ordering::SeqCst);
-                let local_failure = LOCAL_FAILURE.swap(false, Ordering::SeqCst);
                 STARTING.store(false, Ordering::SeqCst);
                 SWITCHING.store(false, Ordering::SeqCst);
                 NATIVE_TUNNEL_ACTIVE.store(false, Ordering::SeqCst);
@@ -3825,17 +3681,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 // Android: for core failures the existing TUN stays up as a
                 // blackhole so apps cannot fall back to the physical network.
                 push_log(ui, logs, message.clone());
-                if local_failure {
-                    // A TUN/adapter/permission failure is the device's, not
-                    // the profile's; the next profile would fail identically.
-                    let message =
-                        "failover skipped: this failure is local to the device".to_string();
-                    #[cfg(target_os = "android")]
-                    crate::logcat(&message);
-                    push_log(ui, logs, message);
-                } else {
-                    try_failover(ui, logs, context, &message);
-                }
             }
         },
         EngineEvent::Log { stream, line } => {
@@ -3851,9 +3696,6 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
             total_down,
             ..
         } => {
-            if total_up + total_down > 0 {
-                FAILOVER.lock().unwrap().clear();
-            }
             set_traffic_totals(ui, total_up, total_down);
         }
         EngineEvent::TunnelInfo { local_address } => {

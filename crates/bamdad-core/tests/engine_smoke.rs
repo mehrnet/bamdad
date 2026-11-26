@@ -51,7 +51,6 @@ async fn starts_core_and_queries_stats() {
         split_mode: "off".to_string(),
         split_apps: Vec::new(),
         bypass_cidrs: String::new(),
-        failover: true,
         tunnel_mode: false,
         tunnel_routes: String::new(),
     };

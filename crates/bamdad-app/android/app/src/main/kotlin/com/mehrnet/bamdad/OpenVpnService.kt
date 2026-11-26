@@ -139,7 +139,7 @@ class OpenVpnService : VpnService() {
      * Applies a "not connected" update unless the session already ended in an
      * error. The core calls `teardown` right after a failed TUN setup, and
      * overwriting that error with DOWN made the backend wait for its timeout
-     * and lose the local-failure flag (which suppresses failover).
+     * instead of reporting the real failure.
      */
     private fun updateUnlessFailed(newStatus: TunnelStatus) {
         if (status.state == TunnelState.ERROR) return
@@ -331,17 +331,11 @@ class OpenVpnService : VpnService() {
                         TunnelState.ERROR,
                         endpoint = status.endpoint,
                         error = if (info.isNotBlank()) info else name,
-                        // TUN/adapter setup and proxy failures are the
-                        // device's problem: another profile cannot fix them.
-                        localError = localFailure(name),
                     ),
                 )
             }
         }
     }
-
-    private fun localFailure(name: String): Boolean =
-        name.startsWith("TUN_") || name == "PROXY_ERROR" || name == "PROXY_NEED_CREDS" || name == "CLIENT_HALT"
 
     @Keep
     fun onLog(line: String) {

@@ -50,7 +50,6 @@ async fn starts_singbox_and_reads_clash_api() {
         split_mode: "off".to_string(),
         split_apps: Vec::new(),
         bypass_cidrs: String::new(),
-        failover: true,
         tunnel_mode: false,
         tunnel_routes: String::new(),
     };

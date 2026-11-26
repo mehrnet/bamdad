@@ -102,7 +102,7 @@ class TunnelService : Service() {
                 } catch (error: Throwable) {
                     log("startForeground failed: ${error.message}")
                     MainActivity.nativeTunnelEvent(
-                        """{"state":"error","error":"Could not start the VPN notification","local_error":true}""",
+                        """{"state":"error","error":"Could not start the VPN notification"}""",
                     )
                     stopSelf()
                     return START_NOT_STICKY
