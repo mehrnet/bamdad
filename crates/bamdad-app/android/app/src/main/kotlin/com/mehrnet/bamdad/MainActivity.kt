@@ -60,7 +60,7 @@ class MainActivity : NativeActivity() {
             } else {
                 Log.w(TAG, "native VPN consent denied")
                 nativeTunnelEvent(
-                    """{"state":"error","error":"VPN permission denied"}""",
+                    """{"state":"error","error":"VPN permission denied","local_error":true}""",
                 )
             }
         }
@@ -489,7 +489,7 @@ class MainActivity : NativeActivity() {
                 Log.e(TAG, "could not start native tunnel service", error)
                 nativeLog("BamdadTunnel: could not start service: ${error.message}")
                 nativeTunnelEvent(
-                    """{"state":"error","error":"Could not start the tunnel service: ${error.message}"}""",
+                    """{"state":"error","error":"Could not start the tunnel service","local_error":true}""",
                 )
             }
         }

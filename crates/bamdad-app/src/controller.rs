@@ -3493,13 +3493,12 @@ fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason
 
     let Some((next_id, next_name)) = next else {
         FAILOVER.lock().unwrap().clear();
-        push_log(
-            ui,
-            logs,
-            format!(
-                "failover: {failed_name} failed ({reason}); no untried profile left in this group"
-            ),
+        let message = format!(
+            "failover: {failed_name} failed ({reason}); no untried profile left in this group"
         );
+        #[cfg(target_os = "android")]
+        crate::logcat(&message);
+        push_log(ui, logs, message);
         return;
     };
 
@@ -3511,11 +3510,10 @@ fn try_failover(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, reason
         ui.set_groups(group_model(&guard, &context.pings));
     }
     ui.set_selected_id(next_id.clone().into());
-    push_log(
-        ui,
-        logs,
-        format!("failover: {failed_name} failed ({reason}); trying {next_name}"),
-    );
+    let message = format!("failover: {failed_name} failed ({reason}); trying {next_name}");
+    #[cfg(target_os = "android")]
+    crate::logcat(&message);
+    push_log(ui, logs, message);
     start_connection(ui, &context.store, &context.engine, logs, true);
 }
 
@@ -3830,11 +3828,11 @@ fn apply_event(ui: &AppWindow, logs: &LogBuffer, context: &EventContext, event: 
                 if local_failure {
                     // A TUN/adapter/permission failure is the device's, not
                     // the profile's; the next profile would fail identically.
-                    push_log(
-                        ui,
-                        logs,
-                        "not switching profiles: this failure is local to the device".to_string(),
-                    );
+                    let message =
+                        "failover skipped: this failure is local to the device".to_string();
+                    #[cfg(target_os = "android")]
+                    crate::logcat(&message);
+                    push_log(ui, logs, message);
                 } else {
                     try_failover(ui, logs, context, &message);
                 }

@@ -135,6 +135,17 @@ class OpenVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Applies a "not connected" update unless the session already ended in an
+     * error. The core calls `teardown` right after a failed TUN setup, and
+     * overwriting that error with DOWN made the backend wait for its timeout
+     * and lose the local-failure flag (which suppresses failover).
+     */
+    private fun updateUnlessFailed(newStatus: TunnelStatus) {
+        if (status.state == TunnelState.ERROR) return
+        update(newStatus)
+    }
+
     private fun stopSession() {
         runCatching { OpenVpnNative.nativeStop() }
         releaseTun()
@@ -269,7 +280,7 @@ class OpenVpnService : VpnService() {
     fun teardown(disconnect: Boolean) {
         Log.i(TAG, "tun teardown (disconnect=$disconnect)")
         releaseTun()
-        update(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+        updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
         stopSelf()
     }
 
@@ -289,7 +300,7 @@ class OpenVpnService : VpnService() {
                 reconnects = 0
                 update(TunnelStatus(TunnelState.UP, endpoint = status.endpoint, localAddress = status.localAddress))
             }
-            "DISCONNECTED" -> update(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+            "DISCONNECTED" -> updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
             "RECONNECTING" -> {
                 reconnects++
                 if (!terminal) {
