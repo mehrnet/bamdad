@@ -2612,9 +2612,13 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
 #[derive(Clone, Copy)]
 enum PingMode {
     Skip,
-    Native,
+    /// Endpoint round trip only: an inactive native config has no tunnel to
+    /// send an HTTP probe through.
+    Endpoint,
     Proxy,
+    /// HTTP through the active proxy tunnel.
     ActiveProxy,
+    /// HTTP through the active native tunnel.
     ActiveNative,
 }
 
@@ -2628,9 +2632,10 @@ fn ping_entry(id: String, result: Result<u64, CoreError>) -> (String, String, i3
     }
 }
 
-/// Native transports are probed over ICMP, so a web-port fallback is a path
-/// estimate rather than the transport's own round trip. Mark it as such.
-fn native_ping_entry(
+/// Endpoint latency (ICMP/TCP) for configs whose tunnel is not active. A
+/// web-port fallback is a path estimate rather than the transport's own round
+/// trip, so it is marked as such.
+fn endpoint_ping_entry(
     id: String,
     result: Result<probe::Latency, CoreError>,
 ) -> (String, String, i32) {
@@ -2691,7 +2696,7 @@ fn begin_ping_batch(
             } else if native_active {
                 // A probe core started now would be routed through the native
                 // tunnel; keep the measurement on the physical path.
-                PingMode::Native
+                PingMode::Endpoint
             } else {
                 PingMode::Proxy
             }
@@ -2699,7 +2704,9 @@ fn begin_ping_batch(
         {
             PingMode::ActiveNative
         } else {
-            PingMode::Native
+            // Native configs cannot be HTTP-probed until their tunnel owns the
+            // VPN slot, and taking it would drop the current connection.
+            PingMode::Endpoint
         };
 
         match mode {
@@ -2746,7 +2753,10 @@ fn begin_ping_batch(
                     handles.push(tokio::spawn(async move {
                         let _permit = permit.acquire().await.ok();
                         let result = tokio::task::spawn_blocking(move || {
-                            httpprobe::measure_through(port, Duration::from_secs(5))
+                            httpprobe::measure(
+                                httpprobe::Route::Socks(port),
+                                Duration::from_secs(5),
+                            )
                         })
                         .await
                         .unwrap_or_else(|error| {
@@ -2760,7 +2770,7 @@ fn begin_ping_batch(
                     handles.push(tokio::spawn(async move {
                         let _permit = permit.acquire().await.ok();
                         let result = tokio::task::spawn_blocking(|| {
-                            httpprobe::measure_direct(Duration::from_secs(5))
+                            httpprobe::measure(httpprobe::Route::Direct, Duration::from_secs(5))
                         })
                         .await
                         .unwrap_or_else(|error| {
@@ -2769,7 +2779,7 @@ fn begin_ping_batch(
                         ping_entry(profile.id, result)
                     }));
                 }
-                PingMode::Native => {
+                PingMode::Endpoint => {
                     let permit = limit.clone();
                     handles.push(tokio::spawn(async move {
                         let _permit = permit.acquire().await.ok();
@@ -2779,7 +2789,7 @@ fn begin_ping_batch(
                             Duration::from_millis(2_000),
                         )
                         .await;
-                        native_ping_entry(profile.id, result)
+                        endpoint_ping_entry(profile.id, result)
                     }));
                 }
                 PingMode::Skip => {}

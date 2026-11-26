@@ -142,25 +142,30 @@ can block, and only the current attempt may change it.
 
 ## Unified latency
 
-**Ping** and **Ping all** work for every saved profile, and what gets measured
-depends on the transport:
+**Ping** and **Ping all** use one HTTP prober wherever a tunnel exists:
 
-- **Proxy profiles** are measured end to end. A temporary core is started from
-  the profile's own config, a pooled HTTPS request goes through its HTTP
-  inbound, and the best of three requests is reported. That proves the
-  protocol, credentials, and transport, not just a reachable port.
-- **WireGuard, AmneziaWG, and UDP OpenVPN** cannot answer a TCP handshake, so
-  they are measured with an ICMP echo to the endpoint address: exact round
-  trip, nothing sent to the VPN port.
-- **TCP OpenVPN** falls back to a handshake on its own port when ICMP is
-  filtered.
-- When the host answers neither, the row shows a `≈` estimate measured against
-  the same host's web ports, so an ICMP-filtered server is no longer reported as
-  down.
+- The prober warms the path with one request (connection, DNS, TLS; not
+  counted), then takes **three timed requests on the warm connection** and
+  reports the **lowest TTFB**. The whole measurement is bounded by one timeout,
+  so a dead config costs one budget.
+- **The active connection** — proxy or native — is measured through its own
+  tunnel: the proxy's SOCKS listener, or a direct request through the
+  WireGuard/AmneziaWG/OpenVPN/IPSec tun.
+- **Stored proxy profiles** are measured the same way through a temporary core
+  built from that profile's config; batches merge up to 128 configs into one
+  core with a SOCKS inbound per profile, so "Ping all" does not pay one process
+  start per row.
+- **Inactive native configs** have no tunnel to send HTTP through without
+  taking the Android VPN slot (which would drop the current connection), so
+  their row shows the **endpoint round trip** instead: best of three ICMP
+  echoes, then a TCP handshake to the transport port, then a `≈` path estimate
+  against the host's web ports when ICMP is filtered. Native rows measured that
+  way are marked with `≈`.
+- While a native tunnel owns the VPN slot, proxy rows use the endpoint
+  measurement too: a probe core started then would be routed through the
+  tunnel.
 
-While a native tunnel owns the VPN slot, proxy rows use the endpoint path
-measurement instead of starting a probe core that would be routed through the
-tunnel. Results are shown per row (green/amber/red) and update asynchronously.
+Results are shown per row (green/amber/red) and update asynchronously.
 
 ## Repository layout
 
