@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use bamdad_core::httpprobe::{measure_batch, BatchJob};
+use bamdad_core::httpprobe::{measure_batch, measure_batch_stream, BatchJob};
 use bamdad_core::CoreKind;
 use serde_json::json;
 
@@ -93,4 +93,27 @@ fn a_rejected_config_does_not_poison_the_batch() {
     assert!(by_id("first").is_some(), "first config was not measured");
     assert!(by_id("last").is_some(), "config after the bad one was lost");
     assert!(by_id("poison").is_none());
+}
+
+#[test]
+#[ignore]
+fn streams_results_as_they_finish() {
+    let config = json!({
+        "log": { "loglevel": "warning" },
+        "outbounds": [{ "protocol": "freedom", "tag": "direct" }]
+    });
+    let jobs: Vec<BatchJob> = (0..3)
+        .map(|index| BatchJob {
+            id: format!("stream-{index}"),
+            core: CoreKind::Xray,
+            config: config.clone(),
+        })
+        .collect();
+
+    let seen = std::sync::Mutex::new(Vec::new());
+    measure_batch_stream(jobs, Duration::from_secs(4), |result| {
+        seen.lock().unwrap().push(result.id);
+    });
+    let seen = seen.into_inner().unwrap();
+    assert_eq!(seen.len(), 3, "not every result was streamed: {seen:?}");
 }

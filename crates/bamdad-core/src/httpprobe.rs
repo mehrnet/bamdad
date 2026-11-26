@@ -13,6 +13,7 @@
 //!
 //! Core startup is excluded from each measurement.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
@@ -57,7 +58,30 @@ pub struct BatchResult {
 /// Probe a whole batch. Jobs are grouped by core and chunked so one merged
 /// instance never grows unbounded.
 pub fn measure_batch(jobs: Vec<BatchJob>, timeout: Duration) -> Vec<BatchResult> {
-    let mut results = Vec::with_capacity(jobs.len());
+    let order: HashMap<String, usize> = jobs
+        .iter()
+        .enumerate()
+        .map(|(index, job)| (job.id.clone(), index))
+        .collect();
+    let collected = Mutex::new(Vec::with_capacity(jobs.len()));
+    measure_batch_stream(jobs, timeout, |result| {
+        if let Ok(mut results) = collected.lock() {
+            results.push(result);
+        }
+    });
+    let mut results = collected.into_inner().unwrap_or_default();
+    results.sort_by_key(|result| order.get(&result.id).copied().unwrap_or(usize::MAX));
+    results
+}
+
+/// Like [measure_batch], but reports each result as soon as its request
+/// finishes. The UI paints rows progressively instead of waiting for the
+/// slowest config in the group.
+pub fn measure_batch_stream<F>(jobs: Vec<BatchJob>, timeout: Duration, on_result: F)
+where
+    F: Fn(BatchResult) + Send,
+{
+    let sink = Mutex::new(on_result);
     for core in [CoreKind::Xray, CoreKind::SingBox] {
         let group: Vec<BatchJob> = jobs
             .iter()
@@ -78,83 +102,89 @@ pub fn measure_batch(jobs: Vec<BatchJob>, timeout: Duration) -> Vec<BatchResult>
                 })
                 .collect();
             let mut splits = 0;
-            results.extend(measure_chunk(core, chunk, timeout, &mut splits));
+            measure_chunk(core, chunk, timeout, &mut splits, &sink);
         }
     }
-    results
 }
 
-fn measure_chunk(
+fn measure_chunk<F>(
     core: CoreKind,
     jobs: Vec<BatchJob>,
     timeout: Duration,
     splits: &mut usize,
-) -> Vec<BatchResult> {
+    sink: &Mutex<F>,
+) where
+    F: Fn(BatchResult) + Send,
+{
     // A merged core is all-or-nothing: one config Xray rejects (a placeholder
     // node, an unsupported combination) makes the whole process exit and
     // every job in the chunk look dead. Isolate the bad config by retrying
     // smaller groups instead of reporting the whole subscription as failed.
-    let Some(results) = run_chunk(core, &jobs, timeout) else {
-        if jobs.len() > 1 && *splits < MAX_SPLITS {
-            *splits += 1;
-            let mut jobs = jobs;
-            let right = jobs.split_off(jobs.len() / 2);
-            let mut results = measure_chunk(core, jobs, timeout, splits);
-            results.extend(measure_chunk(core, right, timeout, splits));
-            return results;
-        }
-        return jobs
-            .into_iter()
-            .map(|job| BatchResult {
+    if run_chunk(core, &jobs, timeout, sink) {
+        return;
+    }
+    if jobs.len() > 1 && *splits < MAX_SPLITS {
+        *splits += 1;
+        let mut jobs = jobs;
+        let right = jobs.split_off(jobs.len() / 2);
+        measure_chunk(core, jobs, timeout, splits, sink);
+        measure_chunk(core, right, timeout, splits, sink);
+        return;
+    }
+    for job in jobs {
+        emit(
+            sink,
+            BatchResult {
                 id: job.id,
                 latency_ms: None,
-            })
-            .collect();
-    };
-
-    jobs.iter()
-        .zip(results)
-        .map(|(job, latency_ms)| BatchResult {
-            id: job.id.clone(),
-            latency_ms,
-        })
-        .collect()
+            },
+        );
+    }
 }
 
-/// Runs one merged core. `None` means the core could not start (config
-/// rejected, port conflict, binary missing), so the caller should split the
-/// group and retry; `Some` carries one result slot per job.
-fn run_chunk(core: CoreKind, jobs: &[BatchJob], timeout: Duration) -> Option<Vec<Option<u64>>> {
-    let binary_path = binary::resolve_kind(core)?;
-    let ports = reserve_ports(jobs.len()).ok()?;
-    let config = merged_config(core, jobs, &ports).ok()?;
+/// Runs one merged core. `true` means it started and streamed its results;
+/// `false` means it could not start (config rejected, port conflict, binary
+/// missing), so the caller should split the group and retry.
+fn run_chunk<F>(core: CoreKind, jobs: &[BatchJob], timeout: Duration, sink: &Mutex<F>) -> bool
+where
+    F: Fn(BatchResult) + Send,
+{
+    let Some(binary_path) = binary::resolve_kind(core) else {
+        return false;
+    };
+    let Ok(ports) = reserve_ports(jobs.len()) else {
+        return false;
+    };
+    let Ok(config) = merged_config(core, jobs, &ports) else {
+        return false;
+    };
 
     let work = paths::run_dir().join(format!("probe-{}", config::new_id()));
     if std::fs::create_dir_all(&work).is_err() {
-        return None;
+        return false;
     }
     let child = match spawn_raw(core, &binary_path, &config, &work) {
         Ok(child) => child,
         Err(_) => {
             let _ = std::fs::remove_dir_all(&work);
-            return None;
+            return false;
         }
     };
     let mut guard = KillOnDrop(child);
 
     let ready = wait_for_ports_or_exit(&mut guard.0, &ports, timeout.min(Duration::from_secs(8)));
-    let results = if ready {
-        Some(request_all(&ports, timeout))
-    } else {
-        None
-    };
+    if ready {
+        request_all(&ports, jobs, timeout, sink);
+    }
 
     let _ = std::fs::remove_dir_all(&work);
-    results
+    ready
 }
 
-fn request_all(ports: &[u16], timeout: Duration) -> Vec<Option<u64>> {
-    let results: Vec<Mutex<Option<u64>>> = (0..ports.len()).map(|_| Mutex::new(None)).collect();
+fn request_all<F>(ports: &[u16], jobs: &[BatchJob], timeout: Duration, sink: &Mutex<F>)
+where
+    F: Fn(BatchResult) + Send,
+{
     let next = AtomicUsize::new(0);
     let workers = ports.len().min(REQUESTS);
 
@@ -166,17 +196,25 @@ fn request_all(ports: &[u16], timeout: Duration) -> Vec<Option<u64>> {
                     break;
                 }
                 let latency = request(ports[index], timeout).ok();
-                if let Ok(mut slot) = results[index].lock() {
-                    *slot = latency;
-                }
+                emit(
+                    sink,
+                    BatchResult {
+                        id: jobs[index].id.clone(),
+                        latency_ms: latency,
+                    },
+                );
             });
         }
     });
+}
 
-    results
-        .into_iter()
-        .map(|slot| slot.into_inner().unwrap_or(None))
-        .collect()
+fn emit<F>(sink: &Mutex<F>, result: BatchResult)
+where
+    F: Fn(BatchResult) + Send,
+{
+    if let Ok(call) = sink.lock() {
+        call(result);
+    }
 }
 
 fn reserve_ports(count: usize) -> Result<Vec<u16>> {

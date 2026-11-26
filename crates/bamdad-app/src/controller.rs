@@ -2109,12 +2109,9 @@ fn setup_callbacks(
                 .collect();
             nodes.sort_by_key(|(index, id)| {
                 let (rank, ms) = match ping_map.get(id) {
-                    Some((text, state)) if *state == 2 || *state == 3 => (
-                        0u8,
-                        text.strip_suffix(" ms")
-                            .and_then(|v| v.parse::<u64>().ok())
-                            .unwrap_or(u64::MAX),
-                    ),
+                    Some((text, state)) if *state == 2 || *state == 3 => {
+                        (0u8, latency_ms(text).unwrap_or(u64::MAX))
+                    }
                     Some((_, 1)) => (1u8, u64::MAX),
                     Some((_, 4)) => (2u8, u64::MAX),
                     _ => (3u8, u64::MAX),
@@ -2800,18 +2797,31 @@ fn begin_ping_batch(
         }
 
         if !batch.is_empty() {
-            let measured = tokio::task::spawn_blocking(move || {
-                httpprobe::measure_batch(batch, Duration::from_millis(4_000))
+            // Paint each row as its probe finishes instead of holding the
+            // whole subscription until the slowest config answers.
+            let stream_weak = weak.clone();
+            let stream_store = store.clone();
+            let stream_pings = pings.clone();
+            let on_result = move |item: httpprobe::BatchResult| {
+                let weak = stream_weak.clone();
+                let store = stream_store.clone();
+                let pings = stream_pings.clone();
+                let entry = match item.latency_ms {
+                    Some(ms) => ping_entry(item.id, Ok(ms)),
+                    None => (item.id, "timeout".to_string(), 4),
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = weak.upgrade() else { return };
+                    if let Ok(mut map) = pings.lock() {
+                        map.insert(entry.0, (entry.1, entry.2));
+                    }
+                    refresh_groups(&ui, &store, &pings);
+                });
+            };
+            let _ = tokio::task::spawn_blocking(move || {
+                httpprobe::measure_batch_stream(batch, Duration::from_millis(4_000), on_result);
             })
             .await;
-            if let Ok(measured) = measured {
-                for item in measured {
-                    results.push(match item.latency_ms {
-                        Some(ms) => ping_entry(item.id, Ok(ms)),
-                        None => (item.id, "timeout".to_string(), 4),
-                    });
-                }
-            }
         }
 
         for handle in handles {
@@ -2865,6 +2875,16 @@ fn refresh_groups(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) 
     if let Ok(guard) = store.lock() {
         ui.set_groups(group_model(&guard, pings));
     }
+}
+
+/// Parses both `120 ms` and the endpoint-estimate form `≈ 120 ms`.
+fn latency_ms(text: &str) -> Option<u64> {
+    text.trim_start_matches('≈')
+        .trim()
+        .strip_suffix(" ms")?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn latency_state(ms: u64) -> i32 {
@@ -3985,6 +4005,15 @@ mod tests {
         let mut proxy = openvpn_profile(directive, None, None);
         proxy.transport = bamdad_core::Transport::Proxy;
         assert!(!openvpn_needs_auth(&proxy));
+    }
+
+    #[test]
+    fn parses_plain_and_approximate_latency() {
+        assert_eq!(super::latency_ms("120 ms"), Some(120));
+        assert_eq!(super::latency_ms("≈ 120 ms"), Some(120));
+        assert_eq!(super::latency_ms("—"), None);
+        assert_eq!(super::latency_ms("…"), None);
+        assert_eq!(super::latency_ms("timeout"), None);
     }
 
     #[test]

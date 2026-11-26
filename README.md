@@ -165,7 +165,8 @@ can block, and only the current attempt may change it.
   measurement too: a probe core started then would be routed through the
   tunnel.
 
-Results are shown per row (green/amber/red) and update asynchronously.
+Results are shown per row (green/amber/red) and stream in as each probe
+finishes, so a slow config no longer holds back the rest of the list.
 
 ## Repository layout
 
