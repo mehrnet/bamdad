@@ -269,8 +269,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v1.1.7
-git push origin v1.1.7
+git tag v1.1.8
+git push origin v1.1.8
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -562,4 +562,4 @@ scheme. Use `scripts/bump-version.sh` to advance it. For a milestone release
 (for example `0.10.0 -> 1.1.0`) set the version by hand in `Cargo.toml`, run
 `cargo update -w` so `Cargo.lock` follows, and update the default in
 `crates/bamdad-app/android/app/build.gradle.kts`. The next release is
-`v1.1.7`.
+`v1.1.8`.
