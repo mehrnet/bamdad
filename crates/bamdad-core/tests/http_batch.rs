@@ -44,3 +44,53 @@ fn batches_many_freedom_profiles() {
         assert!(ok > count / 2, "only {ok}/{count} probes succeeded");
     }
 }
+
+/// One config Xray rejects (the placeholder node some subscriptions ship)
+/// used to make the whole merged core exit, so every row in the batch looked
+/// dead. The prober now isolates it and still measures the good configs.
+/// Run with:
+///   BAMDAD_XRAY_BIN=$HOME/.local/share/bamdad/bin/xray \
+///     cargo test -p bamdad-core --test http_batch -- --ignored --nocapture
+#[test]
+#[ignore]
+fn a_rejected_config_does_not_poison_the_batch() {
+    let freedom = json!({
+        "log": { "loglevel": "warning" },
+        "outbounds": [{ "protocol": "freedom", "tag": "direct" }]
+    });
+    let poison = json!({
+        "log": { "loglevel": "warning" },
+        "outbounds": [{
+            "protocol": "vless",
+            "settings": { "vnext": [{
+                "address": "always.update.please",
+                "port": 1,
+                "users": [{ "id": "00000000-0000-0000-0000-000000000000", "encryption": "none" }]
+            }] },
+            "streamSettings": { "network": "tcp", "security": "none" }
+        }]
+    });
+
+    let jobs = vec![
+        BatchJob {
+            id: "first".into(),
+            core: CoreKind::Xray,
+            config: freedom.clone(),
+        },
+        BatchJob {
+            id: "poison".into(),
+            core: CoreKind::Xray,
+            config: poison,
+        },
+        BatchJob {
+            id: "last".into(),
+            core: CoreKind::Xray,
+            config: freedom,
+        },
+    ];
+    let results = measure_batch(jobs, Duration::from_secs(4));
+    let by_id = |id: &str| results.iter().find(|r| r.id == id).unwrap().latency_ms;
+    assert!(by_id("first").is_some(), "first config was not measured");
+    assert!(by_id("last").is_some(), "config after the bad one was lost");
+    assert!(by_id("poison").is_none());
+}

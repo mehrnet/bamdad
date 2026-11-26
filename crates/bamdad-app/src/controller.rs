@@ -2440,9 +2440,9 @@ fn setup_callbacks(
                                 })
                                 .collect();
                             let old_order = guard.group_order.get(&id).cloned().unwrap_or_default();
-                            guard.profiles.retain(|profile| profile.group_key() != id);
                             let mut first_id = None;
                             let mut keep_id = None;
+                            let mut replacement = Vec::with_capacity(nodes.len());
                             for mut node in nodes {
                                 node.group_id = Some(id.clone());
                                 node.group_name = Some(group_name.clone());
@@ -2453,8 +2453,11 @@ fn setup_callbacks(
                                 if selected_source.as_deref() == node.source.as_deref() {
                                     keep_id = Some(node.id.clone());
                                 }
-                                guard.profiles.push(node);
+                                replacement.push(node);
                             }
+                            // Replace in place: appending would move the whole
+                            // group to the end of the list on every refresh.
+                            guard.replace_group(&id, replacement);
                             // Keep the user's custom order across subscription
                             // refreshes by matching stable link sources.
                             let new_by_source: HashMap<String, String> = guard

@@ -33,6 +33,9 @@ pub const TARGET: &str = "http://www.gstatic.com/generate_204";
 
 /// Profiles merged into a single core instance per batch.
 const CHUNK: usize = 128;
+/// How many extra core starts a batch may spend isolating rejected configs
+/// before giving up on the rest (a pathologically broken subscription).
+const MAX_SPLITS: usize = 64;
 /// Concurrent HTTP requests within a batch.
 const REQUESTS: usize = 64;
 /// Timed samples taken after the warm-up request.
@@ -74,54 +77,41 @@ pub fn measure_batch(jobs: Vec<BatchJob>, timeout: Duration) -> Vec<BatchResult>
                     config: job.config.clone(),
                 })
                 .collect();
-            results.extend(measure_chunk(core, chunk, timeout));
+            let mut splits = 0;
+            results.extend(measure_chunk(core, chunk, timeout, &mut splits));
         }
     }
     results
 }
 
-fn measure_chunk(core: CoreKind, jobs: Vec<BatchJob>, timeout: Duration) -> Vec<BatchResult> {
-    let failure = |jobs: &[BatchJob]| -> Vec<BatchResult> {
-        jobs.iter()
+fn measure_chunk(
+    core: CoreKind,
+    jobs: Vec<BatchJob>,
+    timeout: Duration,
+    splits: &mut usize,
+) -> Vec<BatchResult> {
+    // A merged core is all-or-nothing: one config Xray rejects (a placeholder
+    // node, an unsupported combination) makes the whole process exit and
+    // every job in the chunk look dead. Isolate the bad config by retrying
+    // smaller groups instead of reporting the whole subscription as failed.
+    let Some(results) = run_chunk(core, &jobs, timeout) else {
+        if jobs.len() > 1 && *splits < MAX_SPLITS {
+            *splits += 1;
+            let mut jobs = jobs;
+            let right = jobs.split_off(jobs.len() / 2);
+            let mut results = measure_chunk(core, jobs, timeout, splits);
+            results.extend(measure_chunk(core, right, timeout, splits));
+            return results;
+        }
+        return jobs
+            .into_iter()
             .map(|job| BatchResult {
-                id: job.id.clone(),
+                id: job.id,
                 latency_ms: None,
             })
-            .collect()
+            .collect();
     };
 
-    let Some(binary_path) = binary::resolve_kind(core) else {
-        return failure(&jobs);
-    };
-    let ports = match reserve_ports(jobs.len()) {
-        Ok(ports) => ports,
-        Err(_) => return failure(&jobs),
-    };
-    let config = match merged_config(core, &jobs, &ports) {
-        Ok(config) => config,
-        Err(_) => return failure(&jobs),
-    };
-
-    let work = paths::run_dir().join(format!("probe-{}", config::new_id()));
-    if std::fs::create_dir_all(&work).is_err() {
-        return failure(&jobs);
-    }
-    let child = match spawn_raw(core, &binary_path, &config, &work) {
-        Ok(child) => child,
-        Err(_) => {
-            let _ = std::fs::remove_dir_all(&work);
-            return failure(&jobs);
-        }
-    };
-    let _guard = KillOnDrop(child);
-
-    let results = if wait_for_ports(&ports, timeout.min(Duration::from_secs(8))) {
-        request_all(&ports, timeout)
-    } else {
-        vec![None; ports.len()]
-    };
-
-    let _ = std::fs::remove_dir_all(&work);
     jobs.iter()
         .zip(results)
         .map(|(job, latency_ms)| BatchResult {
@@ -129,6 +119,38 @@ fn measure_chunk(core: CoreKind, jobs: Vec<BatchJob>, timeout: Duration) -> Vec<
             latency_ms,
         })
         .collect()
+}
+
+/// Runs one merged core. `None` means the core could not start (config
+/// rejected, port conflict, binary missing), so the caller should split the
+/// group and retry; `Some` carries one result slot per job.
+fn run_chunk(core: CoreKind, jobs: &[BatchJob], timeout: Duration) -> Option<Vec<Option<u64>>> {
+    let binary_path = binary::resolve_kind(core)?;
+    let ports = reserve_ports(jobs.len()).ok()?;
+    let config = merged_config(core, jobs, &ports).ok()?;
+
+    let work = paths::run_dir().join(format!("probe-{}", config::new_id()));
+    if std::fs::create_dir_all(&work).is_err() {
+        return None;
+    }
+    let child = match spawn_raw(core, &binary_path, &config, &work) {
+        Ok(child) => child,
+        Err(_) => {
+            let _ = std::fs::remove_dir_all(&work);
+            return None;
+        }
+    };
+    let mut guard = KillOnDrop(child);
+
+    let ready = wait_for_ports_or_exit(&mut guard.0, &ports, timeout.min(Duration::from_secs(8)));
+    let results = if ready {
+        Some(request_all(&ports, timeout))
+    } else {
+        None
+    };
+
+    let _ = std::fs::remove_dir_all(&work);
+    results
 }
 
 fn request_all(ports: &[u16], timeout: Duration) -> Vec<Option<u64>> {
@@ -311,7 +333,11 @@ fn spawn_raw(core: CoreKind, binary_path: &Path, config: &Value, work: &Path) ->
         .env("XRAY_LOCATION_ASSET", binary::asset_dir())
         .current_dir(work)
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(if std::env::var("BAMBAD_PROBE_STDERR").is_ok() {
+            Stdio::inherit()
+        } else {
+            Stdio::null()
+        });
 
     match core {
         CoreKind::Xray => {
@@ -335,7 +361,7 @@ fn spawn_raw(core: CoreKind, binary_path: &Path, config: &Value, work: &Path) ->
     Ok(child)
 }
 
-fn wait_for_ports(ports: &[u16], timeout: Duration) -> bool {
+fn wait_for_ports_or_exit(child: &mut Child, ports: &[u16], timeout: Duration) -> bool {
     let start = Instant::now();
     let mut pending: Vec<u16> = ports.to_vec();
     loop {
@@ -348,6 +374,12 @@ fn wait_for_ports(ports: &[u16], timeout: Duration) -> bool {
         });
         if pending.is_empty() {
             return true;
+        }
+        // A rejected config exits in well under a second; do not wait the
+        // whole timeout before splitting the group.
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return false,
+            Ok(None) => {}
         }
         if start.elapsed() > timeout {
             return false;
@@ -401,11 +433,16 @@ fn best_ttfb(agent: &ureq::Agent, timeout: Duration) -> Result<u64> {
     let deadline = Instant::now() + timeout;
     // The first request pays connection, DNS and TLS setup. If it fails,
     // retrying only burns the budget, so report a failure immediately.
+    // One retry: a transient failure under a loaded ping-all must not mark a
+    // healthy config as dead, and the budget still bounds the whole call.
     let warm = match sample(agent, remaining(&deadline)) {
         Some(ms) => ms,
-        None => {
-            return Err(CoreError::Spawn("probe request failed".to_string()));
-        }
+        None => match sample(agent, remaining(&deadline)) {
+            Some(ms) => ms,
+            None => {
+                return Err(CoreError::Spawn("probe request failed".to_string()));
+            }
+        },
     };
 
     let mut best = None;

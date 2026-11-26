@@ -427,6 +427,27 @@ impl Store {
         true
     }
 
+    /// Replace every node of a subscription group, keeping the group's
+    /// position in the profile list. Refreshing a subscription must not move
+    /// the group (and every row in it) to the end of the UI.
+    pub fn replace_group(&mut self, group_id: &str, nodes: Vec<Profile>) {
+        let mut rebuilt = Vec::with_capacity(self.profiles.len() + nodes.len());
+        let mut pending = Some(nodes);
+        for profile in std::mem::take(&mut self.profiles) {
+            if profile.group_key() == group_id {
+                if let Some(nodes) = pending.take() {
+                    rebuilt.extend(nodes);
+                }
+            } else {
+                rebuilt.push(profile);
+            }
+        }
+        if let Some(nodes) = pending {
+            rebuilt.extend(nodes);
+        }
+        self.profiles = rebuilt;
+    }
+
     /// Remove every node belonging to a subscription group. The pinned
     /// Default group (`None`) cannot be removed.
     pub fn remove_group(&mut self, group_id: &str) -> bool {
@@ -937,6 +958,48 @@ mod tests {
             .collect();
         store.selected_id = Some(ids[0].0.to_string());
         store
+    }
+
+    fn grouped_profile(id: &str, group: &str, port: u16) -> Profile {
+        Profile {
+            id: id.to_string(),
+            name: id.to_string(),
+            core: CoreKind::Xray,
+            transport: Transport::Proxy,
+            protocol: "vless".to_string(),
+            address: "203.0.113.10".to_string(),
+            port,
+            config: json!({}),
+            raw_config: None,
+            source: Some(format!("vless://{id}")),
+            group_id: Some(group.to_string()),
+            group_name: Some(group.to_string()),
+            group_url: None,
+            auth_user: None,
+            auth_pass: None,
+        }
+    }
+
+    #[test]
+    fn replacing_a_group_keeps_its_position() {
+        let mut store = Store::default();
+        store.profiles = vec![
+            grouped_profile("a", "first", 443),
+            grouped_profile("b1", "second", 443),
+            grouped_profile("b2", "second", 443),
+            grouped_profile("c", "third", 443),
+        ];
+
+        store.replace_group(
+            "second",
+            vec![
+                grouped_profile("b3", "second", 443),
+                grouped_profile("b4", "second", 443),
+            ],
+        );
+
+        let ids: Vec<&str> = store.profiles.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b3", "b4", "c"]);
     }
 
     #[test]
