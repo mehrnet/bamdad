@@ -5,7 +5,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel, Weak};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel, Weak};
 
 use bamdad_core::config::{self, load_store, Store};
 use bamdad_core::engine::{EngineEvent, EngineHandle, EngineState, LaunchSpec, LogStream};
@@ -48,6 +48,8 @@ static BUSY_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
 /// with a trailing refresh so the last result is never lost.
 static GROUP_REFRESH_AT: Mutex<Option<Instant>> = Mutex::new(None);
 static GROUP_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
+/// Profile ids whose latency changed since the last row update.
+static PING_DIRTY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Set by the Kotlin proxy VpnService when it cannot take the VPN slot. With
 /// the kill switch on this must arm the sinkhole, because this TUN never
 /// existed.
@@ -143,7 +145,7 @@ pub(crate) fn import_native_files(group: &str, files_json: &str) -> usize {
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(ui) = ui.upgrade() {
             let store = store.lock().unwrap();
-            ui.set_groups(group_model(&store, &pings));
+            publish_groups(&ui, &store, &pings);
             ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
             drop(store);
             let suffix = if group.is_empty() {
@@ -857,7 +859,7 @@ fn apply_tunnel_options(settings: &config::AppSettings) {
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     let store = store.lock().unwrap();
 
-    ui.set_groups(group_model(&store, pings));
+    publish_groups(&ui, &store, pings);
     ui.set_selected_id(store.selected_id.clone().unwrap_or_default().into());
     ui.set_mobile(cfg!(target_os = "android"));
     ui.set_total_down_text("0 B".into());
@@ -1130,10 +1132,7 @@ fn group_ping(nodes: &[&config::Profile], pings: &HashMap<String, (String, i32)>
                 if *state == 4 {
                     timeout = true;
                 }
-                if let Some(ms) = text
-                    .strip_suffix(" ms")
-                    .and_then(|value| value.parse::<u64>().ok())
-                {
+                if let Some(ms) = latency_ms(text) {
                     if best.is_none_or(|(current, _)| ms < current) {
                         best = Some((ms, *state));
                     }
@@ -1154,7 +1153,28 @@ fn group_ping(nodes: &[&config::Profile], pings: &HashMap<String, (String, i32)>
     }
 }
 
-fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
+/// The group list currently shown in the UI, kept so a latency result can
+/// update one row instead of rebuilding every row of every group.
+struct GroupsModel {
+    model: ModelRc<GroupRow>,
+    rows: Vec<ModelRc<ProfileRow>>,
+    /// Profile id -> (group index, row index) in [model].
+    positions: HashMap<String, (usize, usize)>,
+}
+
+thread_local! {
+    static GROUP_MODEL: RefCell<Option<GroupsModel>> = RefCell::new(None);
+}
+
+/// Builds the full model, publishes it, and keeps the row index for targeted
+/// ping updates.
+fn publish_groups(ui: &AppWindow, store: &Store, pings: &PingState) {
+    let built = group_model(store, pings);
+    ui.set_groups(built.model.clone());
+    GROUP_MODEL.with(|slot| *slot.borrow_mut() = Some(built));
+}
+
+fn group_model(store: &Store, pings: &PingState) -> GroupsModel {
     let pings = pings.lock().unwrap();
     let mut groups: Vec<(String, String, Vec<&config::Profile>)> = vec![(
         "default".to_string(),
@@ -1174,50 +1194,62 @@ fn group_model(store: &Store, pings: &PingState) -> ModelRc<GroupRow> {
         }
     }
 
-    let rows: Vec<GroupRow> = groups
-        .into_iter()
-        .map(|(key, title, nodes)| {
-            let expanded = GROUP_STATE.with(|state| {
-                *state
-                    .borrow_mut()
-                    .entry(key.clone())
-                    .or_insert(key == "default")
-            });
-            let mut nodes = nodes;
-            if let Some(order) = store.group_order.get(&key) {
-                let positions: HashMap<&str, usize> = order
-                    .iter()
-                    .enumerate()
-                    .map(|(position, id)| (id.as_str(), position))
-                    .collect();
-                nodes.sort_by_key(|profile| {
-                    positions
-                        .get(profile.id.as_str())
-                        .copied()
-                        .unwrap_or(usize::MAX)
-                });
-            }
-            let node_rows: Vec<ProfileRow> = nodes
+    let mut rows = Vec::with_capacity(groups.len());
+    let mut row_models = Vec::with_capacity(groups.len());
+    let mut positions: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for (group_index, (key, title, nodes)) in groups.into_iter().enumerate() {
+        let expanded = GROUP_STATE.with(|state| {
+            *state
+                .borrow_mut()
+                .entry(key.clone())
+                .or_insert(key == "default")
+        });
+        let mut nodes = nodes;
+        if let Some(order) = store.group_order.get(&key) {
+            let order_positions: HashMap<&str, usize> = order
                 .iter()
-                .map(|profile| node_row(profile, &pings, store.selected_id.as_deref()))
+                .enumerate()
+                .map(|(position, id)| (id.as_str(), position))
                 .collect();
-            let (ping, ping_state) = group_ping(&nodes, &pings);
-            let rtl = is_rtl_name(&title);
-            let display_title = display_name(&title);
-            GroupRow {
-                id: key.as_str().into(),
-                name: display_title.as_str().into(),
-                kind: if key == "default" { "DEFAULT" } else { "SUB" }.into(),
-                expanded,
-                deletable: key != "default",
-                ping: ping.into(),
-                ping_state,
-                nodes: ModelRc::new(VecModel::from(node_rows)),
-                rtl,
-            }
-        })
-        .collect();
-    ModelRc::new(VecModel::from(rows))
+            nodes.sort_by_key(|profile| {
+                order_positions
+                    .get(profile.id.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            });
+        }
+        let node_rows: Vec<ProfileRow> = nodes
+            .iter()
+            .enumerate()
+            .map(|(row_index, profile)| {
+                positions.insert(profile.id.clone(), (group_index, row_index));
+                node_row(profile, &pings, store.selected_id.as_deref())
+            })
+            .collect();
+        let (ping, ping_state) = group_ping(&nodes, &pings);
+        let rtl = is_rtl_name(&title);
+        let display_title = display_name(&title);
+        let row_model: ModelRc<ProfileRow> = ModelRc::new(VecModel::from(node_rows));
+        row_models.push(row_model.clone());
+        rows.push(GroupRow {
+            id: key.as_str().into(),
+            name: display_title.as_str().into(),
+            kind: if key == "default" { "DEFAULT" } else { "SUB" }.into(),
+            expanded,
+            deletable: key != "default",
+            ping: ping.into(),
+            ping_state,
+            nodes: row_model,
+            rtl,
+        });
+    }
+
+    GroupsModel {
+        model: ModelRc::new(VecModel::from(rows)),
+        rows: row_models,
+        positions,
+    }
 }
 
 fn initial_ping(profile: &config::Profile) -> String {
@@ -1318,7 +1350,7 @@ fn setup_callbacks(
             };
 
             let guard = store.lock().unwrap();
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
             drop(guard);
 
             ui.set_selected_id(selected.id.as_str().into());
@@ -1376,7 +1408,7 @@ fn setup_callbacks(
                     crate::persist::save(&guard);
                 }
                 let guard = store.lock().unwrap();
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
                 push_log(&ui, &logs, format!("imported {name} ({label})"));
@@ -1417,7 +1449,7 @@ fn setup_callbacks(
                             crate::persist::save(&guard);
                         }
                         let guard = store.lock().unwrap();
-                        ui.set_groups(group_model(&guard, &pings));
+                        publish_groups(&ui, &guard, &pings);
                         ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                         drop(guard);
                         push_log(&ui, &logs, format!("imported {name}"));
@@ -1464,7 +1496,7 @@ fn setup_callbacks(
                     }
 
                     let guard = store.lock().unwrap();
-                    ui.set_groups(group_model(&guard, &pings));
+                    publish_groups(&ui, &guard, &pings);
                     ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                     drop(guard);
 
@@ -1582,7 +1614,7 @@ fn setup_callbacks(
             let fresh = load_store();
             *store.lock().unwrap() = fresh;
             let guard = store.lock().unwrap();
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "profiles reloaded".to_string());
@@ -1903,7 +1935,7 @@ fn setup_callbacks(
                                 .find(|profile| profile.id == first_id)
                                 .map(|profile| profile.name.clone());
                             crate::persist::save(&guard);
-                            ui.set_groups(group_model(&guard, &pings));
+                            publish_groups(&ui, &guard, &pings);
                             ui.set_selected_id(first_id.into());
                             let count = guard
                                 .profiles
@@ -1968,7 +2000,7 @@ fn setup_callbacks(
                 *value = !*value;
             });
             let guard = store.lock().unwrap();
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
         });
     }
 
@@ -2009,7 +2041,7 @@ fn setup_callbacks(
             };
             if removed {
                 let guard = store.lock().unwrap();
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
                 push_log(&ui, &logs, "subscription deleted".to_string());
@@ -2084,7 +2116,7 @@ fn setup_callbacks(
                     .and_then(|selected| guard.profile_by_id(selected))
                     .map(|profile| profile.name.clone());
                 crate::persist::save(&guard);
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
                 ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
                 drop(guard);
                 push_log(&ui, &logs, format!("{removed} configs deleted"));
@@ -2122,7 +2154,7 @@ fn setup_callbacks(
             guard.group_order.insert(group_id.to_string(), ids);
             crate::persist::save(&guard);
             drop(ping_map);
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
         });
     }
 
@@ -2136,7 +2168,7 @@ fn setup_callbacks(
             let mut guard = store.lock().unwrap();
             if guard.group_order.remove(group_id.as_str()).is_some() {
                 crate::persist::save(&guard);
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
                 drop(guard);
                 push_log(&ui, &logs, "custom ordering reset".to_string());
             }
@@ -2211,7 +2243,7 @@ fn setup_callbacks(
                     profile.auth_pass = if pass.is_empty() { None } else { Some(pass) };
                 }
                 crate::persist::save(&guard);
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
             }
             ui.set_credentials_open(false);
             if PENDING_CONNECT.lock().unwrap().take().as_deref() == Some(target.as_str()) {
@@ -2273,7 +2305,7 @@ fn setup_callbacks(
                 .and_then(|selected| guard.profile_by_id(selected))
                 .map(|profile| profile.name.clone());
             crate::persist::save(&guard);
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
             ui.set_rename_open(false);
         });
     }
@@ -2298,7 +2330,7 @@ fn setup_callbacks(
                 .and_then(|selected| guard.profile_by_id(selected))
                 .map(|profile| profile.name.clone());
             crate::persist::save(&guard);
-            ui.set_groups(group_model(&guard, &pings));
+            publish_groups(&ui, &guard, &pings);
             ui.set_selected_id(guard.selected_id.clone().unwrap_or_default().into());
             drop(guard);
             push_log(&ui, &logs, "config deleted".to_string());
@@ -2369,7 +2401,7 @@ fn setup_callbacks(
             }
             if changed {
                 crate::persist::save(&guard);
-                ui.set_groups(group_model(&guard, &pings));
+                publish_groups(&ui, &guard, &pings);
             }
             drop(guard);
             ui.set_edit_open(false);
@@ -2498,7 +2530,7 @@ fn setup_callbacks(
                                 }
                             }
                             crate::persist::save(&guard);
-                            ui.set_groups(group_model(&guard, &pings));
+                            publish_groups(&ui, &guard, &pings);
                             let count = guard
                                 .profiles
                                 .iter()
@@ -2728,7 +2760,7 @@ fn begin_ping_batch(
         }
         drop(map);
         let guard = store.lock().unwrap();
-        ui.set_groups(group_model(&guard, pings));
+        publish_groups(&ui, &guard, pings);
     }
 
     let weak = weak.clone();
@@ -2812,10 +2844,7 @@ fn begin_ping_batch(
                 };
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = weak.upgrade() else { return };
-                    if let Ok(mut map) = pings.lock() {
-                        map.insert(entry.0, (entry.1, entry.2));
-                    }
-                    refresh_groups(&ui, &store, &pings);
+                    set_ping(&ui, &store, &pings, &entry.0, entry.1, entry.2);
                 });
             };
             let _ = tokio::task::spawn_blocking(move || {
@@ -2832,10 +2861,9 @@ fn begin_ping_batch(
 
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {
-                if let Ok(mut map) = pings.lock() {
-                    for (id, text, state) in results {
-                        map.insert(id, (text, state));
-                    }
+                for (id, text, state) in results {
+                    pings.lock().unwrap().insert(id.clone(), (text, state));
+                    mark_ping_dirty(&id);
                 }
                 refresh_groups(&ui, &store, &pings);
             }
@@ -2843,7 +2871,80 @@ fn begin_ping_batch(
     });
 }
 
-/// Rebuilds the profile rows, coalescing bursts into one refresh.
+fn mark_ping_dirty(id: &str) {
+    if let Ok(mut dirty) = PING_DIRTY.lock() {
+        if !dirty.iter().any(|entry| entry == id) {
+            dirty.push(id.to_string());
+        }
+    }
+}
+
+/// Applies latency changes to the rows that changed. A full model rebuild is
+/// O(all profiles) and ran up to eight times a second while Ping all streamed
+/// results; `set_row_data` touches one row and its group header instead.
+fn apply_ping_updates(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
+    let dirty: Vec<String> = {
+        let mut dirty = PING_DIRTY.lock().unwrap();
+        std::mem::take(&mut *dirty)
+    };
+    if dirty.is_empty() {
+        return;
+    }
+
+    let cached = GROUP_MODEL.with(|slot| slot.borrow().is_some());
+    let Ok(guard) = store.lock() else {
+        return;
+    };
+    if !cached {
+        publish_groups(ui, &guard, pings);
+        return;
+    }
+
+    let Ok(map) = pings.lock() else {
+        return;
+    };
+    GROUP_MODEL.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(cache) = slot.as_mut() else {
+            return;
+        };
+
+        let mut by_group: HashMap<usize, Vec<(usize, String)>> = HashMap::new();
+        for id in dirty {
+            if let Some(&(group, row)) = cache.positions.get(&id) {
+                by_group.entry(group).or_default().push((row, id));
+            }
+        }
+
+        for (group_index, rows) in by_group {
+            for (row_index, id) in &rows {
+                let Some(profile) = guard.profile_by_id(id) else {
+                    continue;
+                };
+                let row = node_row(profile, &map, guard.selected_id.as_deref());
+                if let Some(model) = cache.rows.get(group_index) {
+                    model.set_row_data(*row_index, row);
+                }
+            }
+
+            let Some(mut group_row) = cache.model.row_data(group_index) else {
+                continue;
+            };
+            let key = group_row.id.to_string();
+            let nodes: Vec<&config::Profile> = guard
+                .profiles
+                .iter()
+                .filter(|profile| profile.group_key() == key)
+                .collect();
+            let (ping, ping_state) = group_ping(&nodes, &map);
+            group_row.ping = ping.into();
+            group_row.ping_state = ping_state;
+            cache.model.set_row_data(group_index, group_row);
+        }
+    });
+}
+
+/// Coalesces bursts of latency results and repaints only the affected rows.
 fn refresh_groups(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     let now = Instant::now();
     let throttled = {
@@ -2862,9 +2963,7 @@ fn refresh_groups(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) 
                 GROUP_REFRESH_PENDING.store(false, Ordering::SeqCst);
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = weak.upgrade() else { return };
-                    if let Ok(guard) = store.lock() {
-                        ui.set_groups(group_model(&guard, &pings));
-                    }
+                    apply_ping_updates(&ui, &store, &pings);
                     *GROUP_REFRESH_AT.lock().unwrap() = Some(Instant::now());
                 });
             });
@@ -2872,9 +2971,7 @@ fn refresh_groups(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) 
         return;
     }
     *GROUP_REFRESH_AT.lock().unwrap() = Some(now);
-    if let Ok(guard) = store.lock() {
-        ui.set_groups(group_model(&guard, pings));
-    }
+    apply_ping_updates(ui, store, pings);
 }
 
 /// Parses both `120 ms` and the endpoint-estimate form `≈ 120 ms`.
@@ -2906,6 +3003,7 @@ fn set_ping(
     state: i32,
 ) {
     pings.lock().unwrap().insert(id.to_string(), (text, state));
+    mark_ping_dirty(id);
     refresh_groups(ui, store, pings);
 }
 
@@ -3912,9 +4010,115 @@ mod tests {
             .insert("default".to_string(), vec!["second".into(), "first".into()]);
         let pings = Arc::new(Mutex::new(HashMap::new()));
         let groups = group_model(&store, &pings);
-        let nodes = groups.row_data(0).unwrap().nodes;
+        let nodes = groups.model.row_data(0).unwrap().nodes;
         assert_eq!(nodes.row_data(0).unwrap().id.as_str(), "second");
         assert_eq!(nodes.row_data(1).unwrap().id.as_str(), "first");
+    }
+
+    #[test]
+    fn targeted_row_update_changes_one_cell() {
+        let mut store = Store::default();
+        let mut first = config::default_profile();
+        first.id = "first".into();
+        first.name = "First".into();
+        let mut second = config::default_profile();
+        second.id = "second".into();
+        second.name = "Second".into();
+        second.group_id = Some("sub".into());
+        second.group_name = Some("Subscription".into());
+        store.profiles = vec![first, second];
+
+        let pings: super::PingState = Arc::new(Mutex::new(HashMap::from([
+            ("first".to_string(), ("120 ms".to_string(), 2)),
+            ("second".to_string(), ("130 ms".to_string(), 2)),
+        ])));
+        let model = group_model(&store, &pings);
+        let nodes = model.model.row_data(1).unwrap().nodes;
+
+        pings
+            .lock()
+            .unwrap()
+            .insert("second".into(), ("42 ms".to_string(), 2));
+        let profile = store.profile_by_id("second").unwrap();
+        let row = super::node_row(profile, &pings.lock().unwrap(), None);
+        // The cached row model and the published group share one VecModel.
+        model.rows[1].set_row_data(0, row);
+
+        assert_eq!(nodes.row_data(0).unwrap().ping.as_str(), "42 ms");
+        assert_eq!(model.model.row_data(0).unwrap().nodes.row_count(), 1);
+    }
+
+    #[test]
+    fn group_header_understands_approximate_latency() {
+        let mut profile = config::default_profile();
+        profile.id = "a".into();
+        let nodes = vec![&profile];
+        let pings = HashMap::from([("a".to_string(), ("≈ 150 ms".to_string(), 2))]);
+        assert_eq!(super::group_ping(&nodes, &pings), ("150 ms".to_string(), 2));
+    }
+
+    #[test]
+    fn model_build_and_store_clone_cost() {
+        // Rough cost of the operations that run on the UI thread when a ping
+        // result arrives. Printed with --nocapture; no timing assertion so it
+        // cannot flake on a loaded runner.
+        let mut store = Store::default();
+        // Roughly the size of a real link-derived Xray outbound (~1.5 KB).
+        let filler: String = "x".repeat(1_200);
+        let config = serde_json::json!({
+            "outbounds": [{
+                "protocol": "vless",
+                "settings": { "vnext": [{
+                    "address": "example.com",
+                    "port": 443,
+                    "users": [{ "id": "00000000-0000-0000-0000-000000000000", "encryption": "none" }]
+                }] },
+                "streamSettings": {
+                    "network": "xhttp",
+                    "security": "tls",
+                    "tlsSettings": { "serverName": "example.com", "alpn": ["h2", "http/1.1"] },
+                    "xhttpSettings": { "path": "/a-fairly-long-path", "host": "example.com", "extra": filler }
+                }
+            }]
+        });
+        for index in 0..300 {
+            store.profiles.push(config::Profile {
+                id: format!("p{index}"),
+                name: format!("🇩🇪 Node {index} · a reasonably long profile name"),
+                core: CoreKind::Xray,
+                transport: bamdad_core::Transport::Proxy,
+                protocol: "vless".into(),
+                address: "example.com".into(),
+                port: 443,
+                config: config.clone(),
+                raw_config: None,
+                source: None,
+                group_id: Some("sub".into()),
+                group_name: Some("Subscription".into()),
+                group_url: None,
+                auth_user: None,
+                auth_pass: None,
+            });
+        }
+        let pings: super::PingState = Arc::new(Mutex::new(
+            (0..300)
+                .map(|index| (format!("p{index}"), ("120 ms".to_string(), 2)))
+                .collect::<HashMap<_, _>>(),
+        ));
+
+        let rounds = 10u32;
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            let model = group_model(&store, &pings);
+            assert_eq!(model.model.row_count(), 2);
+        }
+        eprintln!("group_model(300): {:?}", start.elapsed() / rounds);
+
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            let _ = store.clone();
+        }
+        eprintln!("store.clone(300): {:?}", start.elapsed() / rounds);
     }
 
     fn openvpn_profile(raw: &str, user: Option<&str>, pass: Option<&str>) -> config::Profile {
