@@ -172,6 +172,42 @@ if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
     exit 1
 fi
 
+# Repeated stop/start cycles must not leave native state behind: the old
+# core's callbacks used to reach the next service and corrupt its transport.
+cycles=0
+for cycle in 1 2 3; do
+    before=$(connected_count)
+    adb shell input tap $((W * 86 / 100)) $((H - 225))
+    sleep 4
+    adb shell input tap $((W * 86 / 100)) $((H - 225))
+    cycle_ok=false
+    for _ in $(seq 1 20); do
+        sleep 2
+        if [ "$(connected_count)" -gt "$before" ]; then
+            cycle_ok=true
+            break
+        fi
+    done
+    if ! $cycle_ok; then
+        echo "restart-cycle-$cycle-failed"
+        adb logcat -d -v threadtime | grep -Ei 'BamdadOpenVpn|BamdadTunnel|FATAL' | tail -80 || true
+        exit 1
+    fi
+    cycles=$((cycles + 1))
+done
+echo "restart-cycles-ok ($cycles)"
+
+adb logcat -d -v threadtime > "$OUT/logcat-final.txt" || true
+if grep -qE 'TCP_SIZE_ERROR|TLS Keying material export error' "$OUT/logcat-final.txt"; then
+    echo 'tls-transport-corruption'
+    grep -E 'TCP_SIZE_ERROR|Keying material|TRANSPORT_ERROR' "$OUT/logcat-final.txt" | tail -20 || true
+    exit 1
+fi
+if ! adb shell ip addr show tun0 2>/dev/null | grep -q 'inet '; then
+    echo 'openvpn-tun-missing-after-cycles'
+    exit 1
+fi
+
 echo '--- logcat ---'
-grep -Ei 'BamdadOpenVpn|BamdadTunnel|FATAL' "$OUT/logcat-after.txt" | tail -60 || true
+grep -Ei 'BamdadOpenVpn|BamdadTunnel|FATAL' "$OUT/logcat-final.txt" | tail -60 || true
 echo 'openvpn-reconnect-ok'
