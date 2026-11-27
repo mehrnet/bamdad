@@ -60,7 +60,13 @@ Breakpoints:
 The breakpoints are updated from Rust by watching the real window size (rather
 than binding `root.width` inside the layout, which creates a Slint binding
 loop). The layout also applies `safe-area-insets`, so phones with notches and
-gesture bars are handled correctly.
+gesture bars are handled correctly, including the full-screen Logs and
+Open-source licenses views.
+
+Settings values use an explicit edit cycle: the pencil next to SOCKS/HTTP port,
+custom DNS, bypass routes, tunnel routes or the manual split-tunneling list
+opens a draft, and only the checkmark (or Enter) commits it. Switches and
+pills apply immediately, so there is no separate Save button.
 
 The default screen is **Profiles**. A circular connect control sits in the
 center of the bottom navigation on phones and at the bottom of the sidebar on
@@ -368,6 +374,11 @@ XHTTP is Xray-only; imports that select sing-box are switched to Xray
 automatically. Link-based profiles are regenerated from their stored share link
 on startup, so config fixes apply without re-importing.
 
+A subscription's group name comes from its `profile-title` header (decoded when
+the provider sends `base64:...`). Providers that ship the generic word
+"Subscription" fall back to the subscription URL's domain instead of showing
+the raw header value.
+
 ## Android VPN
 
 Android has no general app-level proxy setting. Local SOCKS/HTTP listeners are
@@ -386,8 +397,10 @@ Native protocols take the same slot instead of tun2socks: WireGuard and
 AmneziaWG through `amneziawg-android`, OpenVPN through the pinned OpenVPN 3
 core with a Bamdad-owned `VpnService`. Global settings apply to all of them:
 custom DNS, per-app split tunneling, bypass CIDRs, and the kill-switch sinkhole
-that holds the slot whenever no tunnel is connected. An emulator smoke test
-verifies that lifecycle: sinkhole → tunnel → sinkhole.
+that holds the slot whenever no tunnel is connected. The split-tunneling picker
+is searchable, shows each app's icon, display name and package, and sorts by
+name, package, system/user apps or current selection. An emulator smoke test
+verifies the VPN lifecycle: sinkhole → tunnel → sinkhole.
 
 ## IPSec/IKEv2 protocol support
 
