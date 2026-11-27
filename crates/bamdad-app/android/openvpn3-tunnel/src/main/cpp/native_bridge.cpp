@@ -193,7 +193,14 @@ class Client final : public OpenVPNClient {
     const jboolean protected_socket =
         env->CallBooleanMethod(g_service, g_mid_protect, static_cast<jint>(socket));
     clear_exception(env);
-    return protected_socket == JNI_TRUE;
+    if (protected_socket != JNI_TRUE) {
+      // Without protection the transport would be routed into its own tun
+      // once the redirect-gateway routes are installed.
+      call_void_string(env, g_mid_log,
+                       "VpnService.protect failed for a transport socket");
+      return false;
+    }
+    return true;
   }
 
   // TunBuilderBase overrides.

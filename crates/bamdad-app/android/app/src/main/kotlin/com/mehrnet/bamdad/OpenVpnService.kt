@@ -36,6 +36,12 @@ class OpenVpnService : VpnService() {
 
         @Volatile
         private var reconnects = 0
+        /** The core lost the transport and is in its own restart cycle. */
+        @Volatile
+        private var restarting = false
+        /** A session was up at least once, so a later loss is not a failed connect. */
+        @Volatile
+        private var hadConnection = false
 
         @Volatile
         private var instance: OpenVpnService? = null
@@ -51,6 +57,8 @@ class OpenVpnService : VpnService() {
 
         fun start(context: Context, profile: TunnelProfile, username: String = "", password: String = "") {
             reconnects = 0
+            restarting = false
+            hadConnection = false
             update(TunnelStatus(TunnelState.CONNECTING, endpoint = remoteOf(profile.config)))
             val intent = Intent(context, OpenVpnService::class.java).apply {
                 action = ACTION_START
@@ -289,7 +297,11 @@ class OpenVpnService : VpnService() {
         val event = runCatching { JSONObject(payload) }.getOrNull() ?: return
         val name = event.optString("name")
         val info = event.optString("info")
-        val fatal = event.optBoolean("fatal") || event.optBoolean("error")
+        // Only `fatal` means the session is over. `error` is also set on
+        // nonfatal transport/tun errors, which the core recovers from with its
+        // own restart cycle; treating those as fatal dropped the tunnel while
+        // OpenVPN was still reconnecting.
+        val fatal = event.optBoolean("fatal")
         MainActivity.nativeLog("BamdadOpenVpn: event $name${if (info.isNotBlank()) " $info" else ""}")
 
         // Once a terminal state is reached, later events (the core keeps
@@ -298,11 +310,28 @@ class OpenVpnService : VpnService() {
         when (name) {
             "CONNECTED" -> {
                 reconnects = 0
+                restarting = false
+                hadConnection = true
                 update(TunnelStatus(TunnelState.UP, endpoint = status.endpoint, localAddress = status.localAddress))
             }
-            "DISCONNECTED" -> updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+            "TRANSPORT_ERROR", "TUN_ERROR", "TUN_IFACE_DISABLED", "CLIENT_RESTART" -> {
+                // Nonfatal: the client schedules a restart. Keep the UI in
+                // Connecting instead of Disconnected while it does.
+                restarting = true
+                if (!terminal) {
+                    update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
+                }
+            }
+            "DISCONNECTED" -> {
+                if (!terminal && restarting && reconnects < MAX_RECONNECTS) {
+                    update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
+                } else {
+                    updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+                }
+            }
             "RECONNECTING" -> {
                 reconnects++
+                restarting = true
                 if (!terminal) {
                     if (reconnects >= MAX_RECONNECTS) {
                         // The core retries transport failures forever. Report
@@ -312,10 +341,14 @@ class OpenVpnService : VpnService() {
                             TunnelStatus(
                                 TunnelState.ERROR,
                                 endpoint = status.endpoint,
-                                error = "OpenVPN could not connect",
+                                error = if (hadConnection) {
+                                    "OpenVPN connection lost"
+                                } else {
+                                    "OpenVPN could not connect"
+                                },
                             ),
                         )
-                    } else if (status.state != TunnelState.UP) {
+                    } else {
                         update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
                     }
                 }
@@ -326,6 +359,7 @@ class OpenVpnService : VpnService() {
                 update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
             }
             else -> if (fatal) {
+                restarting = false
                 update(
                     TunnelStatus(
                         TunnelState.ERROR,

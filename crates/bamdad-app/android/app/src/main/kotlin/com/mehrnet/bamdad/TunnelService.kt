@@ -167,7 +167,13 @@ class TunnelService : Service() {
                     profile.transport == TunnelTransport.IPSEC
                 ) {
                     publish(profile, status)
-                    if (status.state == TunnelState.DOWN || status.state == TunnelState.ERROR) break
+                    if (status.state == TunnelState.ERROR) {
+                        // The core's own restart budget is exhausted; stop it
+                        // instead of leaving a retry loop behind the UI.
+                        TunnelController.disconnect()
+                        break
+                    }
+                    if (status.state == TunnelState.DOWN) break
                     continue
                 }
                 if (status.state != TunnelState.UP) {
