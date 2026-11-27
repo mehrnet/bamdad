@@ -32,7 +32,7 @@ class OpenVpnService : VpnService() {
         private var status = TunnelStatus(TunnelState.DOWN)
 
         /** Transport errors are followed by one RECONNECTING per retry. */
-        private const val MAX_RECONNECTS = 4
+        private const val MAX_RECONNECTS = 6
 
         @Volatile
         private var reconnects = 0
