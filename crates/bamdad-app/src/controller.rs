@@ -856,6 +856,30 @@ fn apply_tunnel_options(settings: &config::AppSettings) {
     crate::configure_tunnel(&json);
 }
 
+/// Applies the OS proxy off the UI thread: `gsettings`/`netsh`/`networksetup`
+/// are separate processes.
+fn apply_system_proxy(ui: &AppWindow, logs: &LogBuffer, enabled: bool, socks: u16, http: u16) {
+    let connected = ui.get_connected();
+    let weak = ui.as_weak();
+    let logs = logs.clone();
+    std::thread::spawn(move || {
+        if enabled && connected {
+            if let Err(error) = system_proxy::enable(ProxySettings {
+                socks_port: socks,
+                http_port: http,
+            }) {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        push_log(&ui, &logs, format!("system proxy: {error}"));
+                    }
+                });
+            }
+        } else if !enabled {
+            let _ = system_proxy::disable();
+        }
+    });
+}
+
 fn seed(ui: &AppWindow, store: &Arc<Mutex<Store>>, pings: &PingState) {
     let store = store.lock().unwrap();
 
@@ -1531,20 +1555,23 @@ fn setup_callbacks(
                   split_mode,
                   split_apps,
                   bypass_cidrs,
-                  tunnel_routes| {
-                let Some(ui) = weak.upgrade() else { return };
+                  tunnel_routes|
+                  -> bool {
+                let Some(ui) = weak.upgrade() else {
+                    return false;
+                };
                 let socks_port: u16 = match socks.as_str().parse() {
                     Ok(port) => port,
                     Err(_) => {
                         push_log(&ui, &logs, "invalid SOCKS port".to_string());
-                        return;
+                        return false;
                     }
                 };
                 let http_port: u16 = match http.as_str().parse() {
                     Ok(port) => port,
                     Err(_) => {
                         push_log(&ui, &logs, "invalid HTTP port".to_string());
-                        return;
+                        return false;
                     }
                 };
 
@@ -1570,28 +1597,7 @@ fn setup_callbacks(
                     crate::persist::save(&guard);
                 }
 
-                let proxy = ProxySettings {
-                    socks_port,
-                    http_port,
-                };
-                // `gsettings`/`netsh`/`networksetup` are separate processes;
-                // saving settings must not wait for them on the UI thread.
-                let connected = ui.get_connected();
-                let weak = ui.as_weak();
-                let thread_logs = logs.clone();
-                std::thread::spawn(move || {
-                    if system_proxy && connected {
-                        if let Err(error) = system_proxy::enable(proxy) {
-                            let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = weak.upgrade() {
-                                    push_log(&ui, &thread_logs, format!("system proxy: {error}"));
-                                }
-                            });
-                        }
-                    } else if !system_proxy {
-                        let _ = system_proxy::disable();
-                    }
-                });
+                apply_system_proxy(&ui, &logs, system_proxy, socks_port, http_port);
 
                 ui.set_socks_port(socks_port.to_string().into());
                 ui.set_http_port(http_port.to_string().into());
@@ -1600,8 +1606,52 @@ fn setup_callbacks(
                     &logs,
                     format!("settings saved (socks {socks_port}, http {http_port})"),
                 );
+                true
             },
         );
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        let logs = logs.clone();
+        ui.on_set_system_proxy(move |enabled| {
+            let (socks, http) = {
+                let mut guard = store.lock().unwrap();
+                guard.settings.system_proxy = enabled;
+                crate::persist::save(&guard);
+                (guard.settings.socks_port, guard.settings.http_port)
+            };
+            if let Some(ui) = weak.upgrade() {
+                apply_system_proxy(&ui, &logs, enabled, socks, http);
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let store = store.clone();
+        ui.on_set_split_mode(move |mode| {
+            let mode = match mode.as_str() {
+                "allow" | "exclude" => mode.to_string(),
+                _ => "off".to_string(),
+            };
+            {
+                let mut guard = store.lock().unwrap();
+                guard.settings.split_mode = mode.clone();
+                apply_tunnel_options(&guard.settings);
+                crate::persist::save(&guard);
+            }
+            if let Some(ui) = weak.upgrade() {
+                ui.set_split_mode(mode.into());
+            }
+        });
+    }
+
+    {
+        ui.on_set_split_apps(move |apps| {
+            split_apps_selected(apps.to_string());
+        });
     }
 
     {
@@ -2577,8 +2627,7 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
         .map_err(|error| anyhow::anyhow!("{error}"))?;
     let title = response
         .header("profile-title")
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .and_then(subscription_title);
     let body = response
         .into_string()
         .map_err(|error| anyhow::anyhow!("{error}"))?;
@@ -2633,12 +2682,50 @@ fn fetch_subscription(url: &str) -> anyhow::Result<(Option<String>, Vec<config::
         nodes.push(config::Profile::from_spec(&spec, CoreKind::Xray));
     }
 
+    // Providers often ship a `base64:` title that decodes to the generic word
+    // "Subscription"; the domain is more useful than either.
     let title = title.or_else(|| {
         url::Url::parse(url)
             .ok()
-            .and_then(|url| url.host_str().map(|host| format!("Subscription · {host}")))
+            .and_then(|url| url.host_str().map(ToOwned::to_owned))
     });
     Ok((title, nodes))
+}
+
+/// Reads a `profile-title` header. `base64:` values are decoded (providers use
+/// that to avoid header encoding issues); empty and generic titles fall back
+/// to the subscription's domain.
+fn subscription_title(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let decoded = match value
+        .strip_prefix("base64:")
+        .or_else(|| value.strip_prefix("BASE64:"))
+    {
+        Some(encoded) => {
+            let encoded: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
+            let engines = [
+                base64::engine::general_purpose::STANDARD,
+                base64::engine::general_purpose::STANDARD_NO_PAD,
+                base64::engine::general_purpose::URL_SAFE,
+                base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            ];
+            engines.iter().find_map(|engine| {
+                base64::Engine::decode(engine, encoded.as_bytes())
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+            })?
+        }
+        None => value.to_string(),
+    };
+    let decoded = decoded.trim();
+    if decoded.is_empty() || decoded.eq_ignore_ascii_case("subscription") {
+        None
+    } else {
+        Some(decoded.to_string())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -4209,6 +4296,21 @@ mod tests {
         let mut proxy = openvpn_profile(directive, None, None);
         proxy.transport = bamdad_core::Transport::Proxy;
         assert!(!openvpn_needs_auth(&proxy));
+    }
+
+    #[test]
+    fn subscription_titles_decode_and_skip_generic_names() {
+        assert_eq!(
+            super::subscription_title("base64:TXkgUHJvdmlkZXI="),
+            Some("My Provider".to_string())
+        );
+        assert_eq!(
+            super::subscription_title("Plain title"),
+            Some("Plain title".to_string())
+        );
+        // The common provider header decodes to the generic word "Subscription".
+        assert_eq!(super::subscription_title("base64:U3Vic2NyaXB0aW9u"), None);
+        assert_eq!(super::subscription_title("base64:!!!"), None);
     }
 
     #[test]

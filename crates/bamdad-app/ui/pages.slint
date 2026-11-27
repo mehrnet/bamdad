@@ -7,6 +7,7 @@ import {
     Card,
     ChoicePill,
     Divider,
+    EditField,
     FieldLabel,
     GroupCard,
     PrimaryButton,
@@ -92,7 +93,10 @@ export component SettingsPage inherits Rectangle {
     callback set-tunnel-mode(bool);
     callback pick-split-apps(string);
     callback open-licenses();
-    callback save-settings(string, string, bool, string, string, string, string, string);
+    callback save-settings(string, string, bool, string, string, string, string, string) -> bool;
+    callback set-system-proxy(bool);
+    callback set-split-mode(string);
+    callback set-split-apps(string);
     callback set-theme(string);
     callback set-accent(string);
     callback full-logs();
@@ -104,6 +108,19 @@ export component SettingsPage inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
+
+    function persist() -> bool {
+        return root.save-settings(
+            root.socks-port,
+            root.http-port,
+            root.system-proxy,
+            root.custom-dns,
+            root.split-mode,
+            root.split-apps-text,
+            root.bypass-cidrs,
+            root.tunnel-routes,
+        );
+    }
 
     ScrollView {
         VerticalLayout {
@@ -137,24 +154,32 @@ export component SettingsPage inherits Rectangle {
                             text: "System";
                             horizontal-stretch: 1;
                             active: root.theme == "system";
+                            show-icon: true;
+                            icon: @image-url("icons/theme-system.svg");
                             clicked => { root.set-theme("system"); }
                         }
                         ChoicePill {
                             text: "Dark";
                             horizontal-stretch: 1;
                             active: root.theme == "dark";
+                            show-icon: true;
+                            icon: @image-url("icons/theme-dark.svg");
                             clicked => { root.set-theme("dark"); }
                         }
                         ChoicePill {
                             text: "Light";
                             horizontal-stretch: 1;
                             active: root.theme == "light";
+                            show-icon: true;
+                            icon: @image-url("icons/theme-light.svg");
                             clicked => { root.set-theme("light"); }
                         }
                         ChoicePill {
                             text: "Black";
                             horizontal-stretch: 1;
                             active: root.theme == "black";
+                            show-icon: true;
+                            icon: @image-url("icons/theme-black.svg");
                             clicked => { root.set-theme("black"); }
                         }
                     }
@@ -199,47 +224,73 @@ export component SettingsPage inherits Rectangle {
 
                     if root.phone : VerticalLayout {
                         spacing: 10px;
-                        VerticalLayout {
-                            spacing: 5px;
-                            FieldLabel { text: "SOCKS PORT"; }
-                            TextField { text <=> root.socks-port; }
+                        EditField {
+                            label: "SOCKS PORT";
+                            value: root.socks-port;
+                            commit(old, new) => {
+                                root.socks-port = new;
+                                if (root.persist()) { return true; }
+                                root.socks-port = old;
+                                return false;
+                            }
                         }
-                        VerticalLayout {
-                            spacing: 5px;
-                            FieldLabel { text: "HTTP PORT"; }
-                            TextField { text <=> root.http-port; }
+                        EditField {
+                            label: "HTTP PORT";
+                            value: root.http-port;
+                            commit(old, new) => {
+                                root.http-port = new;
+                                if (root.persist()) { return true; }
+                                root.http-port = old;
+                                return false;
+                            }
                         }
                     }
                     if !root.phone : HorizontalLayout {
                         spacing: 12px;
-                        VerticalLayout {
+                        EditField {
                             horizontal-stretch: 1;
-                            spacing: 5px;
-                            FieldLabel { text: "SOCKS PORT"; }
-                            TextField { text <=> root.socks-port; }
+                            label: "SOCKS PORT";
+                            value: root.socks-port;
+                            commit(old, new) => {
+                                root.socks-port = new;
+                                if (root.persist()) { return true; }
+                                root.socks-port = old;
+                                return false;
+                            }
                         }
-                        VerticalLayout {
+                        EditField {
                             horizontal-stretch: 1;
-                            spacing: 5px;
-                            FieldLabel { text: "HTTP PORT"; }
-                            TextField { text <=> root.http-port; }
+                            label: "HTTP PORT";
+                            value: root.http-port;
+                            commit(old, new) => {
+                                root.http-port = new;
+                                if (root.persist()) { return true; }
+                                root.http-port = old;
+                                return false;
+                            }
                         }
                     }
 
-                    VerticalLayout {
-                        spacing: 5px;
-                        FieldLabel { text: "CUSTOM DNS (comma separated)"; }
-                        TextField {
-                            text <=> root.custom-dns;
-                            placeholder: "1.1.1.1, 8.8.8.8";
+                    EditField {
+                        label: "CUSTOM DNS (comma separated)";
+                        value: root.custom-dns;
+                        placeholder: "1.1.1.1, 8.8.8.8";
+                        commit(old, new) => {
+                            root.custom-dns = new;
+                            if (root.persist()) { return true; }
+                            root.custom-dns = old;
+                            return false;
                         }
                     }
-                    VerticalLayout {
-                        spacing: 5px;
-                        FieldLabel { text: "BYPASS ROUTES (comma separated CIDRs)"; }
-                        TextField {
-                            text <=> root.bypass-cidrs;
-                            placeholder: "192.168.0.0/16, 10.0.0.0/8";
+                    EditField {
+                        label: "BYPASS ROUTES (comma separated CIDRs)";
+                        value: root.bypass-cidrs;
+                        placeholder: "192.168.0.0/16, 10.0.0.0/8";
+                        commit(old, new) => {
+                            root.bypass-cidrs = new;
+                            if (root.persist()) { return true; }
+                            root.bypass-cidrs = old;
+                            return false;
                         }
                     }
                     VerticalLayout {
@@ -250,25 +301,32 @@ export component SettingsPage inherits Rectangle {
                             ChoicePill {
                                 text: "Off";
                                 active: root.split-mode == "off";
-                                clicked => { root.split-mode = "off"; }
+                                clicked => { root.split-mode = "off"; root.set-split-mode("off"); }
                             }
                             ChoicePill {
                                 text: "Only selected";
                                 active: root.split-mode == "allow";
-                                clicked => { root.split-mode = "allow"; }
+                                clicked => { root.split-mode = "allow"; root.set-split-mode("allow"); }
                             }
                             ChoicePill {
                                 text: "Exclude selected";
                                 active: root.split-mode == "exclude";
-                                clicked => { root.split-mode = "exclude"; }
+                                clicked => { root.split-mode = "exclude"; root.set-split-mode("exclude"); }
                             }
                         }
                         HorizontalLayout {
                             spacing: 8px;
-                            TextField {
-                                text <=> root.split-apps-text;
-                                placeholder: "com.example.app, org.example.app";
+                            cross-axis-alignment: end;
+                            EditField {
                                 horizontal-stretch: 1;
+                                label: "";
+                                value: root.split-apps-text;
+                                placeholder: "com.example.app, org.example.app";
+                                commit(old, new) => {
+                                    root.split-apps-text = new;
+                                    root.set-split-apps(new);
+                                    return true;
+                                }
                             }
                             SecondaryButton {
                                 width: 110px;
@@ -320,7 +378,13 @@ export component SettingsPage inherits Rectangle {
                                 font-size: 12px;
                             }
                         }
-                        Switch { checked <=> root.system-proxy; }
+                        Switch {
+                            checked: root.system-proxy;
+                            toggled => {
+                                root.system-proxy = !root.system-proxy;
+                                root.set-system-proxy(root.system-proxy);
+                            }
+                        }
                     }
                     if !root.mobile : HorizontalLayout {
                         spacing: 10px;
@@ -345,33 +409,15 @@ export component SettingsPage inherits Rectangle {
                             toggled => { root.set-tunnel-mode(!root.tunnel-mode); }
                         }
                     }
-                    if !root.mobile : VerticalLayout {
-                        spacing: 5px;
-                        FieldLabel { text: "TUNNEL ROUTES (empty = all traffic)"; }
-                        TextField {
-                            text <=> root.tunnel-routes;
-                            placeholder: "192.168.0.0/16, 10.0.0.0/8";
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 8px;
-                        PrimaryButton {
-                            text: "Save settings";
-                            width: 140px;
-                            horizontal-stretch: root.phone ? 1 : 0;
-                            clicked => {
-                                root.save-settings(
-                                    root.socks-port,
-                                    root.http-port,
-                                    root.system-proxy,
-                                    root.custom-dns,
-                                    root.split-mode,
-                                    root.split-apps-text,
-                                    root.bypass-cidrs,
-                                    root.tunnel-routes,
-                                );
-                            }
+                    if !root.mobile : EditField {
+                        label: "TUNNEL ROUTES (empty = all traffic)";
+                        value: root.tunnel-routes;
+                        placeholder: "192.168.0.0/16, 10.0.0.0/8";
+                        commit(old, new) => {
+                            root.tunnel-routes = new;
+                            if (root.persist()) { return true; }
+                            root.tunnel-routes = old;
+                            return false;
                         }
                     }
                 }

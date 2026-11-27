@@ -278,35 +278,12 @@ class MainActivity : NativeActivity() {
             }
         }
 
-        /** Starts the no-leak sinkhole while no tunnel is active. */
-        /** Native multi-choice picker for split-tunneling apps. */
+        /** Native picker for split-tunneling apps (search, icons, sorting). */
         @JvmStatic
         fun pickSplitApps(current: String) {
             val activity = instance ?: return
             Handler(Looper.getMainLooper()).post {
-                val manager = activity.packageManager
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                val apps = manager.queryIntentActivities(intent, 0)
-                    .mapNotNull { it.activityInfo?.applicationInfo }
-                    .distinctBy { it.packageName }
-                    .map { info ->
-                        info.packageName to manager.getApplicationLabel(info).toString()
-                    }
-                    .sortedBy { it.second.lowercase() }
-                val selected = current.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                val checked = BooleanArray(apps.size) { apps[it].first in selected }
-                AlertDialog.Builder(activity)
-                    .setTitle("Split tunneling apps")
-                    .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, index, value ->
-                        checked[index] = value
-                    }
-                    .setPositiveButton("Save") { _, _ ->
-                        val csv = apps.filterIndexed { index, _ -> checked[index] }
-                            .joinToString(", ") { it.first }
-                        nativeSplitAppsSelected(csv)
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+                SplitAppsDialog.show(activity, current)
             }
         }
 

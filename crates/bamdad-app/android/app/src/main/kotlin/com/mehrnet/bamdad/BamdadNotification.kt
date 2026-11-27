@@ -108,10 +108,10 @@ object BamdadNotification {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val color = accentColor(accent)
+        // Neutral small icon: the shade already shows the profile, and an
+        // accent-tinted icon reads as a status colour the user cannot change.
         return Notification.Builder(context, CHANNEL_ID)
-            .setSmallIcon(Icon.createWithBitmap(accentIcon(context, color)))
-            .setColor(color)
+            .setSmallIcon(Icon.createWithBitmap(notificationIcon(context)))
             .setContentTitle(title.ifBlank { "Bamdad" })
             .setContentText(text)
             .setSubText(transport)
@@ -125,7 +125,7 @@ object BamdadNotification {
     private fun manager(context: Context): NotificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    private fun accentIcon(context: Context, color: Int): Bitmap {
+    private fun notificationIcon(context: Context): Bitmap {
         val density = context.resources.displayMetrics.density
         val size = (24 * density).toInt().coerceAtLeast(24)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -133,7 +133,7 @@ object BamdadNotification {
         val drawable = context.getDrawable(R.drawable.ic_moon)
         if (drawable != null) {
             drawable.setBounds(0, 0, size, size)
-            drawable.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+            drawable.setColorFilter(android.graphics.Color.WHITE, PorterDuff.Mode.SRC_IN)
             drawable.draw(canvas)
             drawable.setColorFilter(null)
         }

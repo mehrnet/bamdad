@@ -608,6 +608,10 @@ component RenameDialog inherits Rectangle {
 
 component LogFullscreen inherits Rectangle {
     in property <bool> phone;
+    in property <length> inset-top: 0px;
+    in property <length> inset-bottom: 0px;
+    in property <length> inset-left: 0px;
+    in property <length> inset-right: 0px;
     in property <[string]> logs;
     callback close();
 
@@ -616,7 +620,10 @@ component LogFullscreen inherits Rectangle {
     background: Theme.bg;
 
     VerticalLayout {
-        padding: root.phone ? 12px : 20px;
+        padding-left: root.inset-left + (root.phone ? 12px : 20px);
+        padding-right: root.inset-right + (root.phone ? 12px : 20px);
+        padding-top: root.inset-top + (root.phone ? 12px : 20px);
+        padding-bottom: root.inset-bottom + (root.phone ? 12px : 20px);
         spacing: 10px;
 
         HorizontalLayout {
@@ -662,6 +669,10 @@ component LogFullscreen inherits Rectangle {
 
 component LicensesFullscreen inherits Rectangle {
     in property <bool> phone;
+    in property <length> inset-top: 0px;
+    in property <length> inset-bottom: 0px;
+    in property <length> inset-left: 0px;
+    in property <length> inset-right: 0px;
     in property <[LicenseRow]> licenses;
     callback close();
 
@@ -670,7 +681,10 @@ component LicensesFullscreen inherits Rectangle {
     background: Theme.bg;
 
     VerticalLayout {
-        padding: root.phone ? 12px : 20px;
+        padding-left: root.inset-left + (root.phone ? 12px : 20px);
+        padding-right: root.inset-right + (root.phone ? 12px : 20px);
+        padding-top: root.inset-top + (root.phone ? 12px : 20px);
+        padding-bottom: root.inset-bottom + (root.phone ? 12px : 20px);
         spacing: 10px;
 
         HorizontalLayout {
@@ -847,7 +861,10 @@ export component AppWindow inherits Window {
     callback select-profile(string);
     callback import-link(string);
     callback file-import();
-    callback save-settings(string, string, bool, string, string, string, string, string);
+    callback save-settings(string, string, bool, string, string, string, string, string) -> bool;
+    callback set-system-proxy(bool);
+    callback set-split-mode(string);
+    callback set-split-apps(string);
     callback set-theme-mode(string);
     callback set-accent-mode(string);
     callback set-kill-switch(bool);
@@ -995,8 +1012,11 @@ export component AppWindow inherits Window {
                     theme <=> root.theme-mode;
                     accent <=> root.accent-mode;
                     save-settings(socks, http, proxy, dns, mode, apps, bypass, routes) => {
-                        root.save-settings(socks, http, proxy, dns, mode, apps, bypass, routes);
+                        return root.save-settings(socks, http, proxy, dns, mode, apps, bypass, routes);
                     }
+                    set-system-proxy(enabled) => { root.set-system-proxy(enabled); }
+                    set-split-mode(mode) => { root.set-split-mode(mode); }
+                    set-split-apps(apps) => { root.set-split-apps(apps); }
                     set-theme(mode) => { root.set-theme-mode(mode); }
                     set-accent(name) => { root.set-accent-mode(name); }
                     set-kill-switch(enabled) => { root.set-kill-switch(enabled); }
@@ -1160,12 +1180,20 @@ export component AppWindow inherits Window {
 
         if root.logs-full : LogFullscreen {
             phone: root.phone;
+            inset-top: root.inset-top;
+            inset-bottom: root.inset-bottom;
+            inset-left: root.inset-left;
+            inset-right: root.inset-right;
             logs: root.logs;
             close => { root.logs-full = false; }
         }
 
         if root.licenses-open : LicensesFullscreen {
             phone: root.phone;
+            inset-top: root.inset-top;
+            inset-bottom: root.inset-bottom;
+            inset-left: root.inset-left;
+            inset-right: root.inset-right;
             licenses: root.licenses;
             close => { root.licenses-open = false; }
         }

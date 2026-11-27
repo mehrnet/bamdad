@@ -239,6 +239,8 @@ export component SecondaryButton inherits Rectangle {
 export component ChoicePill inherits Rectangle {
     in property <string> text;
     in property <bool> active: false;
+    in property <image> icon;
+    in property <bool> show-icon: false;
     callback clicked();
 
     height: 32px;
@@ -247,15 +249,24 @@ export component ChoicePill inherits Rectangle {
     border-color: root.active ? transparent : Theme.border;
     background: root.active ? Theme.accent : Theme.surface-2;
 
-    Text {
-        text: root.text;
-        color: root.active ? Theme.accent-ink : Theme.text-2;
-        font-size: 12px;
-        font-weight: 700;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
         width: 100%;
         height: 100%;
+        if root.show-icon : Image {
+            source: root.icon;
+            width: 14px;
+            height: 14px;
+            colorize: root.active ? Theme.accent-ink : Theme.text-2;
+        }
+        Text {
+            text: root.text;
+            color: root.active ? Theme.accent-ink : Theme.text-2;
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -1100,5 +1111,55 @@ export component IpRow inherits Rectangle {
     TouchArea {
         mouse-cursor: pointer;
         clicked => { root.toggle(); }
+    }
+}
+
+/// A settings value with an explicit edit/save cycle: the pencil opens the
+/// draft, the checkmark commits it, and nothing is persisted before that.
+export component EditField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <string> placeholder: "";
+    /// Called with (saved value, draft). Returns false to keep editing.
+    callback commit(string, string) -> bool;
+
+    private property <bool> editing: false;
+    private property <string> draft: "";
+
+    spacing: 5px;
+    FieldLabel { text: root.label; }
+    if !root.editing : HorizontalLayout {
+        spacing: 6px;
+        TextField {
+            text: root.value;
+            read-only: true;
+            horizontal-stretch: 1;
+        }
+        HeaderButton {
+            icon: @image-url("icons/pencil.svg");
+            button-size: 34px;
+            clicked => {
+                root.draft = root.value;
+                root.editing = true;
+            }
+        }
+    }
+    if root.editing : HorizontalLayout {
+        spacing: 6px;
+        TextField {
+            text <=> root.draft;
+            placeholder: root.placeholder;
+            horizontal-stretch: 1;
+            accepted => {
+                if (root.commit(root.value, root.draft)) { root.editing = false; }
+            }
+        }
+        HeaderButton {
+            icon: @image-url("icons/check.svg");
+            button-size: 34px;
+            clicked => {
+                if (root.commit(root.value, root.draft)) { root.editing = false; }
+            }
+        }
     }
 }
