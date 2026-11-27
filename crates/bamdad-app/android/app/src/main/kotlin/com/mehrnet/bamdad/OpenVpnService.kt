@@ -288,8 +288,15 @@ class OpenVpnService : VpnService() {
     fun teardown(disconnect: Boolean) {
         Log.i(TAG, "tun teardown (disconnect=$disconnect)")
         releaseTun()
-        updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
-        stopSelf()
+        if (disconnect) {
+            updateUnlessFailed(TunnelStatus(TunnelState.DOWN, endpoint = status.endpoint))
+            stopSelf()
+        } else {
+            // The core is restarting after a transport loss. Keep the service
+            // (and the core) alive so its 5 s reconnect can run; stopping here
+            // killed every restart and turned a transient drop into "failed".
+            update(TunnelStatus(TunnelState.CONNECTING, endpoint = status.endpoint))
+        }
     }
 
     @Keep
