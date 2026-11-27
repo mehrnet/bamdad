@@ -47,6 +47,10 @@ static jmethodID g_mid_log = nullptr;
 static std::atomic<bool> g_stop{false};
 static std::thread g_thread;
 static std::mutex g_thread_mutex;
+/// Bumped for every session/stop/detach. A callback from a previous core can
+/// arrive after the next VpnService attached (the JNI target is
+/// process-global); it must not touch the new service's tun or state.
+static std::atomic<std::uint64_t> g_generation{0};
 
 // ---------------------------------------------------------------------------
 // JNI helpers
@@ -163,11 +167,18 @@ static std::atomic<Client *> g_client{nullptr};
 
 class Client final : public OpenVPNClient {
  public:
+  explicit Client(std::uint64_t generation) : generation(generation) {}
+
   TunSettings settings;
+
+  bool current() const {
+    return generation == g_generation.load(std::memory_order_acquire);
+  }
 
   bool pause_on_connection_timeout() override { return false; }
 
   void event(const Event &ev) override {
+    if (!current()) return;
     std::ostringstream os;
     os << "{\"error\":" << (ev.error ? "true" : "false")
        << ",\"fatal\":" << (ev.fatal ? "true" : "false")
@@ -180,6 +191,7 @@ class Client final : public OpenVPNClient {
   void acc_event(const AppCustomControlMessageEvent &) override {}
 
   void log(const LogInfo &info) override {
+    if (!current()) return;
     JNIEnv *env = attach();
     if (env) call_void_string(env, g_mid_log, info.text);
   }
@@ -188,6 +200,7 @@ class Client final : public OpenVPNClient {
   void external_pki_sign_request(ExternalPKISignRequest &) override {}
 
   bool socket_protect(openvpn_io::detail::socket_type socket, std::string, bool) override {
+    if (!current()) return false;
     JNIEnv *env = attach();
     if (!env || !g_service || !g_mid_protect) return false;
     const jboolean protected_socket =
@@ -290,6 +303,7 @@ class Client final : public OpenVPNClient {
   bool tun_builder_set_allow_local_dns(bool) override { return true; }
 
   int tun_builder_establish() override {
+    if (!current()) return -1;
     std::ostringstream os;
     os << "{\"session\":\"" << json_escape(settings.session) << "\",\"mtu\":" << settings.mtu
        << ",\"addresses\":[" << join(settings.addresses) << "],\"routes\":["
@@ -305,11 +319,14 @@ class Client final : public OpenVPNClient {
   void tun_builder_establish_lite() override {}
 
   void tun_builder_teardown(bool disconnect) override {
+    if (!current()) return;
     JNIEnv *env = attach();
     if (env) call_void_bool(env, g_mid_teardown, disconnect);
   }
 
  private:
+  const std::uint64_t generation;
+
   static std::string join(const std::vector<std::string> &items) {
     std::ostringstream os;
     for (size_t i = 0; i < items.size(); ++i) {
@@ -333,7 +350,9 @@ class Client final : public OpenVPNClient {
 // Session
 // ---------------------------------------------------------------------------
 
-static void emit_fatal(const std::string &name, const std::string &info) {
+static void emit_fatal(std::uint64_t generation, const std::string &name,
+                       const std::string &info) {
+  if (generation != g_generation.load(std::memory_order_acquire)) return;
   JNIEnv *env = attach();
   if (!env) return;
   std::ostringstream os;
@@ -343,8 +362,9 @@ static void emit_fatal(const std::string &name, const std::string &info) {
 }
 
 static void run_connect(const std::string &profile, const std::string &username,
-                        const std::string &password, const std::string &private_key_password) {
-  Client client;
+                        const std::string &password, const std::string &private_key_password,
+                        std::uint64_t generation) {
+  Client client(generation);
   g_client.store(&client);
 
   Config config;
@@ -362,7 +382,7 @@ static void run_connect(const std::string &profile, const std::string &username,
   if (!g_stop.load()) {
     EvalConfig eval = client.eval_config(config);
     if (eval.error) {
-      emit_fatal("EVAL_ERROR", eval.message);
+      emit_fatal(generation, "EVAL_ERROR", eval.message);
       g_client.store(nullptr);
       return;
     }
@@ -377,7 +397,7 @@ static void run_connect(const std::string &profile, const std::string &username,
 
       Status status = client.provide_creds(creds);
       if (status.error) {
-        emit_fatal("CREDENTIALS_REJECTED", status.message);
+        emit_fatal(generation, "CREDENTIALS_REJECTED", status.message);
         g_client.store(nullptr);
         return;
       }
@@ -394,10 +414,19 @@ static void run_connect(const std::string &profile, const std::string &username,
 void connect(const std::string &profile, const std::string &username,
              const std::string &password, const std::string &private_key_password) {
   std::lock_guard<std::mutex> lock(g_thread_mutex);
-  if (g_thread.joinable()) g_thread.join();
+  if (g_thread.joinable()) {
+    // Never join a live client without stopping it: a connected session would
+    // make this call block forever and keep the old core alive next to the new
+    // one.
+    g_stop.store(true);
+    if (Client *old = g_client.load()) old->stop();
+    g_thread.join();
+  }
+  const std::uint64_t generation =
+      g_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
   g_stop.store(false);
-  g_thread = std::thread([profile, username, password, private_key_password]() {
-    run_connect(profile, username, password, private_key_password);
+  g_thread = std::thread([profile, username, password, private_key_password, generation]() {
+    run_connect(profile, username, password, private_key_password, generation);
     // The worker thread attached itself to the JVM via callbacks; detach so
     // the JVM does not keep the (now dead) native thread registered.
     if (g_vm) g_vm->DetachCurrentThread();
@@ -405,11 +434,21 @@ void connect(const std::string &profile, const std::string &username,
 }
 
 void stop() {
+  g_generation.fetch_add(1, std::memory_order_acq_rel);
   g_stop.store(true);
   Client *client = g_client.load();
   if (client) {
     client->stop();
   }
+}
+
+/// Invalidates the session bound to a destroyed VpnService. Late events or a
+/// stale tun request from the old core are then dropped instead of landing on
+/// the next service.
+void detach() {
+  g_generation.fetch_add(1, std::memory_order_acq_rel);
+  g_stop.store(true);
+  if (Client *client = g_client.load()) client->stop();
 }
 
 std::string stats() {
@@ -422,7 +461,7 @@ std::string stats() {
 }
 
 std::string eval(const std::string &profile) {
-  Client client;
+  Client client(g_generation.load(std::memory_order_acquire));
   Config config;
   config.content = profile;
   config.guiVersion = "Bamdad 1.0";
@@ -513,6 +552,10 @@ JNIEXPORT void JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeConnect(
 
 JNIEXPORT void JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeStop(JNIEnv *, jclass) {
   bamdad::ovpn3::stop();
+}
+
+JNIEXPORT void JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeDetach(JNIEnv *, jclass) {
+  bamdad::ovpn3::detach();
 }
 
 JNIEXPORT jstring JNICALL Java_com_mehrnet_bamdad_OpenVpnNative_nativeStats(JNIEnv *env,

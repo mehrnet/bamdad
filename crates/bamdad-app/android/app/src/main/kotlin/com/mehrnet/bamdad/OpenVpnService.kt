@@ -97,6 +97,8 @@ class OpenVpnService : VpnService() {
     }
 
     private var established = false
+    @Volatile
+    private var starting = false
 
     override fun onCreate() {
         super.onCreate()
@@ -123,6 +125,13 @@ class OpenVpnService : VpnService() {
                 }
                 val username = intent.getStringExtra(EXTRA_USERNAME).orEmpty()
                 val password = intent.getStringExtra(EXTRA_PASSWORD).orEmpty()
+                if (starting) {
+                    // A second start on the same service would run two cores
+                    // against one VpnService and one JNI callback target.
+                    Log.w(TAG, "ignoring a duplicate OpenVPN start")
+                    return START_NOT_STICKY
+                }
+                starting = true
                 Thread({
                     try {
                         OpenVpnNative.nativeConnect(config, username, password, "")
@@ -135,6 +144,8 @@ class OpenVpnService : VpnService() {
                                 error = error.message ?: "OpenVPN failed",
                             ),
                         )
+                    } finally {
+                        starting = false
                     }
                 }, "bamdad-openvpn").start()
                 return START_NOT_STICKY
@@ -386,6 +397,8 @@ class OpenVpnService : VpnService() {
 
     override fun onDestroy() {
         runCatching { OpenVpnNative.nativeStop() }
+        runCatching { OpenVpnNative.nativeDetach() }
+        starting = false
         releaseTun()
         if (instance === this) {
             instance = null

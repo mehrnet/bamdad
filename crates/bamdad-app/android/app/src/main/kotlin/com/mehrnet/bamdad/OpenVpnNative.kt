@@ -29,6 +29,13 @@ object OpenVpnNative {
     @JvmStatic
     external fun nativeStop()
 
+    /**
+     * Detaches the destroyed service. Late events/tun requests from the old
+     * core are dropped instead of reaching the next service instance.
+     */
+    @JvmStatic
+    external fun nativeDetach()
+
     /** Returns `{"in":<rx>,"out":<tx>}` for the current session. */
     @JvmStatic
     external fun nativeStats(): String
