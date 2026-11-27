@@ -121,7 +121,7 @@ object SplitAppsDialog {
         }
         val search = EditText(activity).apply {
             hint = "Search apps"
-            singleLine = true
+            setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
         }
         search.addTextChangedListener(object : TextWatcher {
