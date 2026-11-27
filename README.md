@@ -146,7 +146,12 @@ can block, and only the current attempt may change it.
   Connecting, and the core re-establishes on its own schedule. Only when its
   retry budget is exhausted is a `OpenVPN connection lost` error reported and
   the core stopped. The TCP reconnect path is covered by an emulator smoke
-  that drops a live server and restores it.
+  that drops a live server and restores it, then runs three stop/start cycles.
+- Each OpenVPN session is tagged with a native generation. A destroyed
+  service's late events or tun requests are dropped, so a rapid profile
+  switch cannot feed the old core's state into the next session (which
+  produced TLS keying/TCP framing errors). The native bridge also stops a
+  live client before joining it instead of waiting forever.
 - Picking a profile while a connection is still coming up switches to it right
   away; the pick is no longer deferred until a tunnel that may never arrive.
 - A failed connection never switches to another profile. The selected config
@@ -281,8 +286,8 @@ them as child processes. `jniLibs` and signing files are gitignored.
 Create a release by pushing a tag:
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 The workflow produces signed APKs (`arm64-v8a`, `x86_64`, universal) and
@@ -581,4 +586,4 @@ scheme. Use `scripts/bump-version.sh` to advance it. For a milestone release
 (for example `0.10.0 -> 1.1.0`) set the version by hand in `Cargo.toml`, run
 `cargo update -w` so `Cargo.lock` follows, and update the default in
 `crates/bamdad-app/android/app/build.gradle.kts`. The next release is
-`v1.2.0`.
+`v1.2.1`.
